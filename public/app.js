@@ -44,6 +44,7 @@ const els = {
   downtimeNote: $('downtime-note'),
   form: $('request-form'),
   reqResult: $('req-result'),
+  reqChips: $('req-chips'),
   checkButton: $('req-check'),
   checkInput: $('req-check-id'),
   checkResult: $('req-status'),
@@ -55,6 +56,11 @@ let streamStarted = false;
 let trackIsPlaying = false;
 let currentTrackTiming = null; // { playedAt epoch ms, durationMs } -- ticked client-side between polls
 let currentTrackKey = null; // "artist\n=title" like-key of the airing track
+// Inputs for the deterministic request-form chips: the currently airing
+// track plus the unique artists of the last history fetch. Both come from
+// data the page already polls -- no extra requests, no randomness.
+let chipCurrent = null; // { artist, title }
+let chipRecentArtists = []; // unique, newest-first, capped
 
 // ---------- helpers ----------
 
@@ -125,6 +131,82 @@ function syncLikeButtons() {
   els.likeButton.title = liked ? 'Odstrani iz priljubljenih (lokalno)' : 'Shrani skladbo med priljubljene (lokalno v brskalniku)';
 }
 
+// ---------- MediaSession (lock-screen / headphone controls) ----------
+//
+// Radio semantics, deliberate: play/pause/stop are wired, next/previous and
+// seek are NOT -- a stray double-tap on someone's headphones must not change
+// what the WHOLE shared stream is playing (same constraint SUB/WAVE
+// documents for its web player; one stream, one playlist, no per-listener
+// control). Metadata (title/artist/artwork) follows whatever /api/now-
+// playing reports, including the spoken-segment branch (show name + DJ).
+function updateMediaSession({ title, artist, album, artUrl }) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title || 'Radio Clyde',
+      artist: artist || '',
+      album: album || 'Radio Clyde',
+      artwork: [
+        { src: new URL(artUrl || '/logo.png', location.href).href, sizes: '512x512', type: artUrl ? 'image/jpeg' : 'image/png' },
+      ],
+    });
+  } catch { /* metadata is cosmetic -- never break playback over it */ }
+}
+
+function clearMediaSession() {
+  updateMediaSession({ title: 'Radio Clyde', artist: '', album: '', artUrl: null });
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
+  }
+}
+
+// ---------- deterministic request-form chips ----------
+
+function chipButton(label, fill) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'chip-btn';
+  b.textContent = label;
+  b.addEventListener('click', () => {
+    fill();
+    $('req-title').focus();
+  });
+  return b;
+}
+
+function renderChips() {
+  const chips = [];
+  if (chipCurrent?.title) {
+    chips.push(
+      chipButton(`Posvetilo: ${chipCurrent.title}`, () => {
+        $('req-type').value = 'dedication';
+        $('req-title').value = chipCurrent.title;
+        $('req-artist').value = chipCurrent.artist ?? '';
+      })
+    );
+    if (chipCurrent.artist) {
+      chips.push(
+        chipButton(`Še kaj od ${chipCurrent.artist}`, () => {
+          $('req-type').value = 'request';
+          $('req-artist').value = chipCurrent.artist;
+          $('req-title').value = '';
+        })
+      );
+    }
+  }
+  for (const artist of chipRecentArtists) {
+    chips.push(
+      chipButton(artist, () => {
+        $('req-type').value = 'request';
+        $('req-artist').value = artist;
+        $('req-title').value = '';
+      })
+    );
+  }
+  els.reqChips.replaceChildren(...chips);
+  els.reqChips.hidden = chips.length === 0;
+}
+
 function favRow(f) {
   const li = document.createElement('li');
   const text = document.createElement('div');
@@ -175,6 +257,8 @@ function renderNowPlaying(data) {
     els.art.hidden = false;
     els.artFallback.hidden = true;
     els.art.src = `/dj-photos/${persona}`;
+    chipCurrent = null; // spoken segment -- no track to build chips from
+    updateMediaSession({ title: data.show?.name ?? 'Govorjeni del', artist: `${data.dj} govori`, album: '', artUrl: null });
   } else if (data.track?.title) {
     els.djTalking.hidden = true;
     els.trackTitle.textContent = data.track.title;
@@ -193,6 +277,13 @@ function renderNowPlaying(data) {
       els.art.hidden = true;
       els.artFallback.hidden = false;
     }
+    chipCurrent = { artist: data.track.artist ?? '', title: data.track.title };
+    updateMediaSession({
+      title: data.track.title,
+      artist: data.track.artist ?? '',
+      album: data.track.album ?? '',
+      artUrl: data.track.artUrl ?? null,
+    });
   } else {
     els.djTalking.hidden = true;
     els.trackTitle.textContent = 'Nič ne oddaja';
@@ -202,8 +293,11 @@ function renderNowPlaying(data) {
     currentTrackKey = null;
     els.art.hidden = true;
     els.artFallback.hidden = false;
+    chipCurrent = null;
+    clearMediaSession();
   }
   syncLikeButtons();
+  renderChips();
   tickProgress();
 }
 
@@ -281,6 +375,18 @@ async function fetchHistory() {
     els.historyList.replaceChildren(...display.map(historyRow));
     show(els.historyEmpty, display.length === 0);
     show(els.historyError, false);
+    // Chip pool: unique artists of the recent history, newest first, capped
+    // at 3 -- deterministic inputs for the request form's suggestion chips.
+    const seen = new Set();
+    chipRecentArtists = [];
+    for (const e of entries ?? []) {
+      const artist = (e.artist ?? '').trim();
+      if (!artist || seen.has(artist)) continue;
+      seen.add(artist);
+      chipRecentArtists.push(artist);
+      if (chipRecentArtists.length === 3) break;
+    }
+    renderChips();
   } catch {
     show(els.historyError, true);
   }
@@ -352,7 +458,11 @@ async function fetchListeners() {
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     if (data?.listeners == null) throw new Error('no count');
-    els.listenersChip.textContent = listenersLabel(data.listeners);
+    // "vrh 24 h" is the sampling ledger's peak, echoed by /api/listeners --
+    // shown only when the ledger actually measured something, never invented.
+    const peakPart =
+      data.peak != null && data.peak !== data.listeners ? ` · vrh 24 h: ${listenersLabel(data.peak)}` : '';
+    els.listenersChip.textContent = `${listenersLabel(data.listeners)}${peakPart}`;
     els.listenersChip.hidden = false;
   } catch {
     els.listenersChip.hidden = true; // dead/unreachable stream hides the chip -- never a stale number
@@ -533,13 +643,34 @@ els.playButton.addEventListener('click', () => {
   else player.pause();
 });
 
+// Lock-screen / headphone-widget actions mirror the on-page button exactly.
+// Only play/pause/stop are set -- next/previous/seek stay unwired on
+// purpose (one shared stream, radio semantics; see the MediaSession comment
+// near the top of this file).
+if ('mediaSession' in navigator) {
+  try {
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (!streamStarted) { player.src = '/stream'; streamStarted = true; }
+      player.play().catch(() => {});
+    });
+    navigator.mediaSession.setActionHandler('pause', () => player.pause());
+    navigator.mediaSession.setActionHandler('stop', () => player.pause());
+  } catch { /* older browsers -- the on-page button keeps working */ }
+}
+
 player.addEventListener('playing', () => {
   setPlayIcon(true);
   setStatus('V predvajanju.', 'is-ok');
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = 'playing'; } catch { /* ignore */ }
+  }
 });
 player.addEventListener('pause', () => {
   setPlayIcon(false);
   if (streamStarted) setStatus('Zaustavljeno. Tok ostaja na zadnji točki -- s predvajanjem se pridružiš v živo.');
+  if ('mediaSession' in navigator) {
+    try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
+  }
 });
 player.addEventListener('waiting', () => setStatus('Čakam na podatke toka …'));
 player.addEventListener('stalled', () => setStatus('Tok se je ustavil -- poskušam znova …', 'is-warn'));
@@ -624,3 +755,12 @@ setInterval(fetchWeather, 10 * 60 * 1000);
 setInterval(fetchListeners, 60 * 1000);
 setInterval(fetchSchedule, SCHEDULE_POLL_MS); // keeps marks fresh while the tab is open
 setInterval(tickProgress, 1000);
+
+// PWA: register the service worker (shell caching only -- /stream and /api
+// pass through uncached, see sw.js). Failure is silent by design: the page
+// is fully functional as a classic web app without it.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

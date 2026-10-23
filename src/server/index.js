@@ -21,6 +21,7 @@ import { startScheduler } from '../scheduler/scheduler.js';
 import { registerAuthHook } from './auth.js';
 import { registerStaticRoutes } from './staticFiles.js';
 import { registerStreamRoute } from './streamProxy.js';
+import { registerListenFiles } from './listenFiles.js';
 import { registerApiRoutes } from './api.js';
 import { registerArtRoute } from './artProxy.js';
 import { registerShowLogoRoute } from './showLogoProxy.js';
@@ -58,6 +59,7 @@ async function main() {
   registerAuthHook(fastify);
   registerStaticRoutes(fastify);
   registerStreamRoute(fastify);
+  registerListenFiles(fastify);
   registerApiRoutes(fastify);
   registerArtRoute(fastify);
   registerShowLogoRoute(fastify);

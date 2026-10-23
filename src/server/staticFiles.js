@@ -13,6 +13,14 @@ const ASSETS = [
   // header -- optional, the page hides it gracefully if the file's missing.
   { route: '/logo.png', file: 'logo.png', contentType: 'image/png' },
   { route: '/favicon.svg', file: 'favicon.svg', contentType: 'image/svg+xml' },
+  // PWA surface (docs/p1-listener-experience.md): installable app, cached
+  // by public/sw.js (shell only -- the stream and APIs are never cached).
+  // embed.html is the self-contained player for iframes; it is auth-gated
+  // like everything else until the owner lists paths in
+  // config.web.publicPaths (see auth.js).
+  { route: '/manifest.webmanifest', file: 'manifest.webmanifest', contentType: 'application/manifest+json' },
+  { route: '/sw.js', file: 'sw.js', contentType: 'text/javascript' },
+  { route: '/embed.html', file: 'embed.html', contentType: 'text/html' },
 ];
 
 // Four explicit routes, not a wildcard/@fastify/static setup -- the asset

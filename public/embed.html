@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="sl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Radio Clyde -- predvajalnik za vgradnjo (embed).">
+  <title>Radio Clyde</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    /* Self-contained embed player: dark station palette, no dependencies on
+       the main page's css/js so it can't regress the listener app and vice
+       versa. Fits a 100%x100% iframe at any size. */
+    :root { --bg: #0a0c12; --card: #141926; --edge: #232b3d; --text: #e7ebf4; --dim: #9aa3b8; --accent: #7c5cff; --accent2: #ff4d8d; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+      background: var(--card); border: 1px solid var(--edge); border-radius: 16px; min-width: 0; }
+    .logo { width: 56px; height: 56px; border-radius: 12px; flex: none; object-fit: cover; }
+    .meta { min-width: 0; }
+    .station { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent2); font-weight: 700; margin: 0; }
+    .live { color: var(--accent); }
+    .title { font-weight: 700; font-size: 15px; margin: 2px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { color: var(--dim); font-size: 13px; margin: 1px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    button.play { flex: none; width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; display: grid; place-items: center; }
+    button.play[aria-pressed="true"] { opacity: .85; }
+    .status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    @media (max-width: 420px) { .box { flex-wrap: wrap; justify-content: center; text-align: center; } }
+  </style>
+</head>
+<body>
+  <main class="box">
+    <img class="logo" src="/logo.png" alt="" onerror="this.style.visibility='hidden'">
+    <div class="meta">
+      <p class="station">Radio Clyde <span class="live">&#9679; V ŽIVO</span></p>
+      <p class="title" id="title">Radio Clyde</p>
+      <p class="sub" id="sub">Deterministični avtomatski radio</p>
+    </div>
+    <button class="play" id="play" aria-pressed="false" aria-label="Predvajaj">
+      <svg id="ic-play" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l11-6.86a1.05 1.05 0 0 0 0-1.8l-11-6.86A1.05 1.05 0 0 0 8 5.14Z"/></svg>
+      <svg id="ic-pause" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" hidden><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+    </button>
+  </main>
+  <audio id="player" preload="none"></audio>
+  <p class="status" id="status" role="status">Pritisni predvajaj.</p>
+  <script>
+    // Embed app: same honest-poll contract as the listener page (fetch
+    // /api/now-playing, keep last-good on failure), stream from /stream.
+    // Nothing else is called -- no requests, no studio surfaces.
+    const $ = (id) => document.getElementById(id);
+    const player = $('player');
+    let started = false;
+
+    function setPlaying(playing) {
+      $('ic-play').hidden = playing;
+      $('ic-pause').hidden = !playing;
+      $('play').setAttribute('aria-pressed', String(playing));
+      $('status').textContent = playing ? 'V predvajanju.' : 'Zaustavljeno -- s predvajanjem se pridružiš v živo.';
+    }
+
+    $('play').addEventListener('click', () => {
+      if (!started) { player.src = '/stream'; started = true; }
+      if (player.paused) player.play().catch(() => { $('status').textContent = 'Predvajanja ni bilo mogoče začeti.'; });
+      else player.pause();
+    });
+    player.addEventListener('playing', () => setPlaying(true));
+    player.addEventListener('pause', () => setPlaying(false));
+    player.addEventListener('error', () => { if (started) $('status').textContent = 'Tok ni dosegljiv.'; });
+
+    async function poll() {
+      try {
+        const res = await fetch('/api/now-playing');
+        if (!res.ok) return; // keep last-good title -- never a fake state
+        const data = await res.json();
+        if (data.dj) {
+          $('title').textContent = data.show?.name ?? 'Govorjeni del';
+          $('sub').textContent = data.dj + ' govori';
+        } else if (data.track?.title) {
+          $('title').textContent = data.track.title;
+          $('sub').textContent = data.track.artist ?? '';
+        } else {
+          $('title').textContent = 'Radio Clyde';
+          $('sub').textContent = 'Čakamo prvi segment.';
+        }
+      } catch { /* offline: keep last-good */ }
+    }
+    poll();
+    setInterval(poll, 12000);
+  </script>
+</body>
+</html>

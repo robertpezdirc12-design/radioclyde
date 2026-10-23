@@ -383,6 +383,26 @@ body {
 .mark-chip.next { background: var(--accent); color: #fff; }
 
 /* ---- obrazci ---- */
+/* Deterministični predlogi (čipsi) nad zahtevkom -- vsak klik samo
+   izpolni polja iz podatkov, ki jih stran že ima (zdaj igra + zgodovina). */
+.req-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chip-btn {
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-btn:hover { border-color: var(--accent); color: var(--text); }
+.chip-btn:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.25); }
+
 .form label { display: block; margin: 12px 0 4px; font-size: 0.85rem; color: var(--text-dim); font-weight: 600; }
 .form label:first-of-type { margin-top: 0; }
 .form input, .form select, .form textarea {

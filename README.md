@@ -108,6 +108,27 @@ phases hand off through.
 - **Listeners everywhere**: Icecast stream, web now-playing page, JSON API,
   authenticated stream proxy, studio admin UI, native Android TV/Google TV
   and Android mobile apps.
+- **Playlist files for hardware players**: `GET /listen.m3u` and
+  `/listen.pls` hand Sonos, VLC, car head units and old internet radios the
+  stream URL (owner-declared `broadcast.publicStreamUrl` wins, otherwise
+  derived exactly like the API reports it) — [details](docs/p1-listener-experience.md).
+- **PWA + MediaSession**: installable web app (manifest + service worker
+  caching only the app shell — the stream and APIs are never cached);
+  lock-screen/headphone controls are play/pause/stop only, deliberately not
+  next/previous, because one shared stream means one DJ.
+- **Peak listeners**: the topbar chip also shows the sampling ledger's
+  24-hour peak ("vrh 24 h"), and the studio Analytics view adds window and
+  ledger-lifetime peaks — a peak is shown only when the ledger actually
+  measured one, never invented (gaps are not zeros).
+- **Deterministic request chips**: the request form suggests the currently
+  playing artist/track and up to three recent-history artists, each filling
+  the form from data the page already has — no randomness, no AI, no extra
+  calls.
+- **Optional embeddable player + public paths**: `web.publicPaths`
+  (default `[]` = fully private, unchanged behavior) opens selected path
+  prefixes to anonymous visitors; together with the self-contained
+  `/embed.html` mini player it enables site embedding and anonymous player
+  URLs when you decide the stream should be public — [decision guide](docs/p1-listener-experience.md).
 
 ## Meet the DJs
 

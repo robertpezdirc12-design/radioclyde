@@ -6,6 +6,9 @@
   <meta name="description" content="Radio Clyde -- deterministični avtomatski radio brez AI. Poslušaj v živo, poglej spored, oddaj zahtevek.">
   <title>Radio Clyde</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0a0c12">
+  <link rel="apple-touch-icon" href="/logo.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -112,6 +115,7 @@
       <div class="grid-2">
         <form id="request-form" class="card form" novalidate>
           <h2>Oddaj zahtevek ali posvetilo</h2>
+          <div class="req-chips" id="req-chips" aria-label="Predlogi za hitro izpolnjevanje" hidden></div>
           <label for="req-type">Vrsta</label>
           <select id="req-type">
             <option value="request">Zahteva za skladbo</option>

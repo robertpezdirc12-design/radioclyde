@@ -113,6 +113,12 @@ function renderSummary(data) {
       : 'unknown (Icecast not answering)';
   s.replaceChildren(
     kv('Now (live probe)', curValue, cur.reachable && cur.healthy ? 'ok' : 'bad'),
+    kv('Peak in window', data.peak !== null && data.peak !== undefined ? String(data.peak) : 'no valid sample in window',
+      data.peak !== null && data.peak !== undefined ? 'ok' : 'warn'),
+    kv('Peak (ledger lifetime)', data.peakAllTime !== null && data.peakAllTime !== undefined
+      ? String(data.peakAllTime)
+      : 'none yet',
+      data.peakAllTime !== null && data.peakAllTime !== undefined ? 'ok' : 'warn'),
     kv('Samples in ledger', String(data.ledger.samples)),
     kv('Of which gaps', String(data.ledger.gapSamples), data.ledger.gapSamples > 0 ? 'warn' : 'ok'),
     kv('Oldest sample', fmtWhen(data.ledger.oldestTs)),

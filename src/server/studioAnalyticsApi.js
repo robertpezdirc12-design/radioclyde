@@ -6,7 +6,7 @@
 // UI can name -- never a fabricated number.
 import { config } from '../config/index.js';
 import { readSamples, maxLedgerEntries, samplesLedgerPath } from '../analytics/listenerSamples.js';
-import { buildSeries, trackImpact } from '../analytics/listenerImpact.js';
+import { buildSeries, trackImpact, peakListeners } from '../analytics/listenerImpact.js';
 import { readAiredEntries } from './historyApi.js';
 import { probeIcecast } from './diagnosticsUtil.js';
 
@@ -60,6 +60,11 @@ export function registerStudioAnalyticsApi(fastify) {
         newestTs: allSamples[allSamples.length - 1]?.ts ?? null,
       },
       series,
+      // Peak honors the requested window (chart + summary share it) plus the
+      // ledger-wide value -- the "all-time" answer is only as old as retention
+      // (maxEntries), and the UI says so instead of implying "forever".
+      peak: peakListeners(windowSamples),
+      peakAllTime: peakListeners(allSamples),
       impact,
     };
   });

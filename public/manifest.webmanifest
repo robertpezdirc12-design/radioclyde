@@ -1,0 +1,25 @@
+{
+  "name": "Radio Clyde",
+  "short_name": "Clyde",
+  "description": "Deterministični avtomatski radio brez AI. Poslušaj v živo, poglej spored, oddaj zahtevek.",
+  "lang": "sl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0c12",
+  "theme_color": "#0a0c12",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

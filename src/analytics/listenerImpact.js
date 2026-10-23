@@ -57,6 +57,26 @@ export function buildSeries(samples, { from, to, bucketMs }) {
   return { bucketMs, from: toLocalISOString(new Date(from)), to: toLocalISOString(new Date(to)), buckets, gaps };
 }
 
+// The highest non-gap listener count inside [from, to] -- the "peak" the
+// listener chip and the studio Analytics summary show. Honesty rules are the
+// same as everywhere in this module: gap samples (Icecast not answering) are
+// ignored, not zero; a window with no valid samples returns null (the UI
+// hides a null peak) rather than 0, which would claim "listeners dipped to
+// zero" when it really claims "we have no measurement".
+export function peakListeners(samples, { from, to } = {}) {
+  let peak = null;
+  for (const s of samples ?? []) {
+    const t = new Date(s.ts).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (from !== undefined && t < from) continue;
+    if (to !== undefined && t > to) continue;
+    const n = Number(s.listeners);
+    if (s.listeners === null || s.listeners === undefined || !Number.isFinite(n)) continue;
+    if (peak === null || n > peak) peak = n;
+  }
+  return peak;
+}
+
 // Per-track listener impact over a rolling window, aggregated across plays.
 // Grouping key: ratingKey when the aired entry has one, else "artist — title"
 // (local-library entries without a ratingKey must not collapse into one
