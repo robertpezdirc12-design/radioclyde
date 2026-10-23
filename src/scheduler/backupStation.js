@@ -18,9 +18,21 @@ export async function backupStation() {
   const destDir = path.join(backupDir, dateKey(new Date()));
   fs.mkdirSync(destDir, { recursive: true });
 
-  fs.cpSync(config.paths.stationFile, path.join(destDir, 'station.json'));
-  fs.cpSync(config.paths.showDescriptionsDir, path.join(destDir, 'show-descriptions'), { recursive: true });
-  fs.cpSync(config.paths.promptsFile, path.join(destDir, 'prompts.json'));
+  // Source dirs/files may legitimately not exist yet on a fresh dataDir
+  // (install.sh creates them, but a hand-made dataDir may not have one) --
+  // skip what's missing with a NOTE instead of crashing the daily tick
+  // (audit 2026-10-24: a single ENOENT aborted the whole backup job).
+  for (const [label, src, dest, recursive] of [
+    ['station.json', config.paths.stationFile, path.join(destDir, 'station.json'), false],
+    ['show-descriptions/', config.paths.showDescriptionsDir, path.join(destDir, 'show-descriptions'), true],
+    ['prompts.json', config.paths.promptsFile, path.join(destDir, 'prompts.json'), false],
+  ]) {
+    if (!fs.existsSync(src)) {
+      log(`NOTE: backup source ${label} does not exist yet -- skipping it this tick.`);
+      continue;
+    }
+    fs.cpSync(src, dest, { recursive });
+  }
 
   log(`Backed up station.json, show-descriptions/, and prompts.json to ${destDir}`);
   return { destDir };

@@ -37,8 +37,34 @@ export function formatCalendarDate(dateKey) {
   );
 }
 
+// True when `timeZone` is a timezone name this Node build's ICU can actually
+// use (IANA id like "Europe/Ljubljana", or a fixed offset like "UTC"). Exported
+// as the ONE shared implementation -- director/weather.js's spoken time/date
+// formatters and the timezone regression tests use this same copy, not their
+// own (audit 2026-10-24 finding: the PR had two private copies and tests that
+// re-implemented a third, so the tests never exercised production code).
+export function isValidTimeZone(tz) {
+  if (typeof tz !== 'string' || !tz.trim()) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function toLocalISOString(date = new Date(), timeZone = config.weather?.timezone) {
   if (!timeZone) return date.toISOString();
+  if (!isValidTimeZone(timeZone)) {
+    // Same UTC behavior as before for unparseable zones, but visible: a typo
+    // like "TBD" silently shifted every log/history timestamp to UTC with
+    // nothing in the logs saying so.
+    console.error(
+      `NOTE: invalid config.weather.timezone "${timeZone}" -- using UTC for this timestamp. ` +
+        `Fix config.json to an IANA zone name (e.g. "Europe/Ljubljana").`
+    );
+    return date.toISOString();
+  }
   const offsetMin = tzOffsetMinutes(date, timeZone);
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone,

@@ -103,8 +103,67 @@ export function resolveClipPath(persona, slot, seed = '') {
 }
 
 // ---------------------------------------------------------------------------
+// pregenerated provider — uses clips from data/pre-generated/
+// ---------------------------------------------------------------------------
+
+function slugify(s) {
+  return String(s ?? '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
+function resolvePreGeneratedClip(slot, track) {
+  const preGenDir = path.join(config.dataDir, 'pre-generated');
+  if (!fs.existsSync(preGenDir)) return null;
+
+  // Track-specific slots
+  if (track && (slot === 'intro' || slot === 'recap' || slot === 'quizIntro' || slot === 'quizReveal')) {
+    const artistSlug = slugify(track.artist);
+    const titleSlug = slugify(track.title);
+    const clipSlot = slot === 'quizIntro' ? 'intro' : slot === 'quizReveal' ? 'recap' : slot;
+    const fileName = `${artistSlug}_${titleSlug}_${clipSlot}.wav`;
+    const filePath = path.join(preGenDir, fileName);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+
+  // General slots
+  const generalMap = {
+    open: 'general_open.wav',
+    close: 'general_close.wav',
+    handoff: 'general_handoff_weather.wav',
+  };
+  if (generalMap[slot]) {
+    const filePath = path.join(preGenDir, generalMap[slot]);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // sapi + espeak providers
 // ---------------------------------------------------------------------------
+
+async function synthesizeWithPiper(text, outPath, persona) {
+  const { piperVoice, piperSpeaker } = personaVoiceSetting(persona);
+  const voiceModel = piperVoice ?? config.autoRadio?.voice?.defaultPiperVoice ?? 'voices/sl_SI-artur-medium.onnx';
+  const modelPath = path.isAbsolute(voiceModel) ? voiceModel : path.join(process.cwd(), voiceModel);
+  // Write text to a temp file to avoid shell escaping issues with Slovenian chars.
+  const textFile = `${outPath}.piper-text.txt`;
+  fs.writeFileSync(textFile, text, 'utf8');
+  const args = ['-m', 'piper', '-m', modelPath, '-f', outPath, '--input-file', textFile];
+  if (piperSpeaker != null) args.push('--speaker', String(piperSpeaker));
+  const pythonPath = config.autoRadio?.voice?.pythonPath ?? (process.platform === 'win32' ? 'C:/Program Files/Python311/python.exe' : 'python3');
+  try {
+    await execFileAsync(pythonPath, args, { timeout: 120_000 });
+  } finally {
+    // Audit 2026-10-24: this cleanup ran only on success -- every failed
+    // synthesis (missing piper module, bad model path, timeout) leaked a
+    // .piper-text.txt next to the output, one per retry per segment.
+    fs.rmSync(textFile, { force: true });
+  }
+}
 
 function personaVoiceSetting(persona) {
   return config.autoRadio?.voice?.personas?.[persona] ?? {};
@@ -159,7 +218,12 @@ async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed
     await synthesizeWithEspeak(text, sourcePath, persona);
     return { sourcePath, fromClips: false };
   }
-  throw new Error(`Unknown voice provider "${mode}" (expected clips, sapi, or espeak).`);
+  if (mode === 'piper') {
+    const sourcePath = `${outPath}.piper-src.wav`;
+    await synthesizeWithPiper(text, sourcePath, persona);
+    return { sourcePath, fromClips: false };
+  }
+  throw new Error(`Unknown voice provider "${mode}" (expected clips, sapi, espeak, or piper).`);
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +235,7 @@ async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed
 // mode, or mode "none"). `slot` is what clips mode keys the file by
 // (open/intro/recap/quizIntro/quizReveal/handoff/close or live:<kind>);
 // sapi/espeak speak `text` and only use the persona for voice selection.
-export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, seed = '' }) {
+export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, seed = '', track = null }) {
   const mode = voiceMode();
   if (mode === 'none') return false;
 
@@ -179,7 +243,7 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
   let wroteViaProvider = false;
   let fromClips = false;
 
-  if (mode === 'clips' || mode === 'sapi' || mode === 'espeak') {
+  if (mode === 'clips' || mode === 'sapi' || mode === 'espeak' || mode === 'piper') {
     ({ sourcePath, fromClips } = await synthesizeWithProvider(mode, { text, outPath, persona, slot, seed }));
     if (!sourcePath) return false;
     wroteViaProvider = !fromClips;
@@ -201,8 +265,19 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
       if (!sourcePath) return false;
       wroteViaProvider = !fromClips;
     }
+  } else if (mode === 'pregenerated') {
+    // Pre-generated clips are keyed by slot (+track for intro/recap-style
+    // slots) under dataDir/pre-generated -- a resolved clip behaves exactly
+    // like a clips-mode file (no gain, no provider temp to clean). A missing
+    // clip skips the segment, like a missing clip in clips mode.
+    sourcePath = resolvePreGeneratedClip(slot, track);
+    if (!sourcePath) {
+      log(`voice/pregenerated: no pre-generated clip for slot "${slot}"${track ? ` (track: ${track.artist} - ${track.title})` : ''} -- skipping this speech segment.`);
+      return false;
+    }
+    fromClips = true;
   } else {
-    throw new Error(`Unknown autoRadio.voice.mode "${mode}" (expected clips, edge, sapi, espeak, or none).`);
+    throw new Error(`Unknown autoRadio.voice.mode "${mode}" (expected clips, edge, pregenerated, piper, sapi, espeak, or none).`);
   }
 
   try {

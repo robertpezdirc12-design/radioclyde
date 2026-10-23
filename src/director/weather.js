@@ -3,6 +3,10 @@
 // authoring time. No LLM involved here; the director's LM Studio call (in
 // director/liveSegments.js) only turns this real data into a spoken line.
 import { config } from '../config/index.js';
+import { createLogger } from '../lib/logger.js';
+import { isValidTimeZone } from '../lib/time.js';
+
+const log = createLogger('station');
 
 // WMO weather interpretation codes (the scheme Open-Meteo's `weather_code`
 // uses) -- confirmed live against the real API response shape before
@@ -64,12 +68,26 @@ export async function fetchCurrentWeather({ temperatureUnit = 'fahrenheit', wind
   return data.current;
 }
 
+// Falls back to UTC for an unparseable zone (a show must keep its slot rather
+// than crash the director), but logs it: a typo like "TBD" previously shifted
+// every spoken time to UTC silently. Validation itself lives in lib/time.js
+// -- one shared implementation with toLocalISOString and the tests.
+let warnedInvalidTz = false;
+function stationTimeZoneOrUtc(timezone) {
+  if (isValidTimeZone(timezone)) return timezone;
+  if (!warnedInvalidTz) {
+    warnedInvalidTz = true;
+    log(`NOTE: invalid or missing timezone "${timezone}" -- speaking UTC times. Fix config.weather.timezone (e.g. "Europe/Ljubljana").`);
+  }
+  return 'UTC';
+}
+
 export function currentLocalTimeString(timezone) {
-  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone }).format(new Date());
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: stationTimeZoneOrUtc(timezone) }).format(new Date());
 }
 
 export function currentLocalDateString(timezone) {
-  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: timezone }).format(
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: stationTimeZoneOrUtc(timezone) }).format(
     new Date()
   );
 }

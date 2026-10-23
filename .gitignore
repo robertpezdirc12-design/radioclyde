@@ -8,6 +8,12 @@ config.json
 # trees, history, logs, playlists, cache) lives outside the repo under
 # dataDir (see config.json), not here -- nothing left in-repo to ignore.
 
+# Large files / data (music, voices, pre-generated clips) — uploaded separately
+music/
+voices/
+data/
+pre-generated/
+
 # Generated at runtime, not source
 .env
 

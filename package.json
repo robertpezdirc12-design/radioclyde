@@ -5,9 +5,10 @@
   "type": "module",
   "description": "Orchestration scripts for a self-hosted AI DJ internet radio station (Liquidsoap + Icecast + LM Studio + Chatterbox).",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
     "generate-script": "node src/producer/generateScript.js",
     "direct-show": "node src/cli/directShow.js",
     "prewarm-show-audio": "node src/cli/prewarmShowAudio.js",

@@ -17,6 +17,7 @@ import { mergeTrackRatingKeys } from '../plex/ratingKeyIndex.js';
 import { shuffle } from '../lib/format.js';
 import * as scheduleUtil from './scheduleUtil.js';
 import { annotateTrackEntry } from '../director/playlist.js';
+import { recentFillerPlays, rotationWindowHours, pruneLedger } from './fillerRotation.js';
 
 const log = createLogger('station');
 
@@ -30,6 +31,10 @@ function trackLocalPath(t) {
 export async function generateFillerPlaylist() {
   const all = await fetchAllTracksAny();
   const recentlyPlayed = recentlyPlayedRatingKeys();
+  // Cross-regeneration rotation: what filler itself aired inside the rotation
+  // window (fillerRotation.js) is excluded too, so consecutive playlists don't
+  // re-pick the same songs. Show history is deliberately left alone.
+  const fillerRecentlyAired = recentFillerPlays();
   // Station-wide never-play list (keywords + artists) lives on station.json,
   // not config.json -- config.filler keeps poolSize/intervals/max duration.
   const neverPlay = scheduleUtil.loadNeverPlay();
@@ -39,11 +44,36 @@ export async function generateFillerPlaylist() {
   const eligible = dedupeByTitle(all).filter(
     (t) =>
       !recentlyPlayed.has(String(t.ratingKey)) &&
+      !fillerRecentlyAired.has(String(t.ratingKey)) &&
       !isBannedTrack(t, neverPlay) &&
       (!maxTrackDurationMs || t.durationMs <= maxTrackDurationMs)
   );
 
-  const pool = shuffle(eligible).slice(0, config.filler.poolSize);
+  const poolSize = config.filler.poolSize;
+  let pool = shuffle(eligible).slice(0, poolSize);
+  if (pool.length < poolSize) {
+    // Small library (or a wide rotation window): every track is either in the
+    // rotation ledger or filtered out. Backfill from the ledger entries that
+    // have been off-air the LONGEST, so the pool stays full but still rotates
+    // -- the alternative (leaving a short pool) would make Liquidsoap loop a
+    // tiny playlist faster and repeat MORE audibly.
+    const freshCount = pool.length;
+    const backfillCandidates = all.filter(
+      (t) =>
+        fillerRecentlyAired.has(String(t.ratingKey)) &&
+        !recentlyPlayed.has(String(t.ratingKey)) &&
+        !isBannedTrack(t, neverPlay) &&
+        (!maxTrackDurationMs || t.durationMs <= maxTrackDurationMs)
+    );
+    backfillCandidates.sort(
+      (a, b) => (fillerRecentlyAired.get(String(a.ratingKey)) ?? 0) - (fillerRecentlyAired.get(String(b.ratingKey)) ?? 0)
+    );
+    // Oldest-first, then shuffle the TAKEN slice: shuffling before slicing
+    // would scramble the oldest-first ordering and re-air recent tracks
+    // (caught by the after-fix audit repro on 2026-10-24).
+    pool = pool.concat(shuffle(backfillCandidates.slice(0, poolSize - pool.length)));
+    log(`filler: only ${freshCount} un-aired track(s) in rotation window -- backfilled to ${pool.length} from oldest-rotated tracks`);
+  }
   const localPaths = pool.map(trackLocalPath);
   // Same fade-up as show tracks (director/playlist.js's annotateTrackEntry)
   // -- filler is real music too, no reason it should hard-cut in while show
@@ -55,7 +85,11 @@ export async function generateFillerPlaylist() {
 
   fs.mkdirSync(path.dirname(config.paths.fillerPath), { recursive: true });
   fs.writeFileSync(config.paths.fillerPath, content);
-  log(`Wrote filler playlist: ${pool.length} tracks -> ${config.paths.fillerPath}`);
+  log(
+    `Wrote filler playlist: ${pool.length} tracks -> ${config.paths.fillerPath} ` +
+      `(excluded ${fillerRecentlyAired.size} filler-aired within ${rotationWindowHours()}h)`
+  );
+  pruneLedger();
   return { trackCount: pool.length };
 }
 

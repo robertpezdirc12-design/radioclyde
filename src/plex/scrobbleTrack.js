@@ -15,6 +15,8 @@ import { scrobbleTrack } from './scrobble.js';
 import { lookupRatingKey } from './ratingKeyIndex.js';
 import { getTrackByRatingKey } from './tracks.js';
 import { readNowPlayingState, confirmOccurrenceStart, updateNowPlaying } from '../scheduler/updateNowPlaying.js';
+import { recordFillerPlays } from '../scheduler/fillerRotation.js';
+import { occurrenceDir } from '../scheduler/scheduleUtil.js';
 import { getListenerCount } from '../icecast/listeners.js';
 
 const log = createLogger('station');
@@ -96,10 +98,47 @@ async function main() {
     return;
   }
 
+  // Show segment or filler? The currently-loaded occurrence's playlist.m3u is
+  // the authoritative list of what belongs to the show that is on air -- a
+  // segment with a ratingKey that is NOT in it is filler (fallback() picked
+  // it up). This is what feeds the filler rotation ledger (scheduler/
+  // fillerRotation.js): without it, filler.m3u regenerations kept re-picking
+  // the same pool forever (audited 2026-10-24: the reported hourly song
+  // repetition). Airing history for show tracks is handled below via
+  // recordNowPlaying(); filler needs its own ledger because played.jsonl is
+  // intentionally reserved for show plays (see generateFillerPlaylist.js).
+  const state = readNowPlayingState();
+  let isFiller = true;
+  if (state) {
+    try {
+      const occPlaylistPath = path.join(
+        occurrenceDir(state.weekday, state.id, state.date, state.timeKey),
+        'playlist.m3u'
+      );
+      // Occurrence playlists can be large-ish but are read once per aired
+      // segment in an already-detached per-segment process -- fine.
+      const occPlaylist = fs.readFileSync(occPlaylistPath, 'utf8');
+      isFiller = !occPlaylist.includes(filePath);
+    } catch {
+      // No readable occurrence dir (e.g. state points at a cleaned-up show):
+      // treat as filler only if the track's not plausibly part of anything we
+      // know -- defaulting to filler keeps the rotation ledger conservative
+      // (worst case a show track also lands in the ledger and filler skips it
+      // for a day; the show itself is unaffected either way).
+      isFiller = true;
+    }
+  }
+  if (isFiller) {
+    recordFillerPlays([{ ratingKey }]);
+  }
+
   // scrobbleEnabled only gates the Plex ping -- now-playing/history are
   // local-only and should stay accurate regardless of whether Plex's own
-  // view-count is being kept in sync.
-  if (config.plex.scrobbleEnabled !== false) {
+  // view-count is being kept in sync. Optional chain: auto-radio installs
+  // have no plex block at all (config.linux.json), and crashing here would
+  // take out now-playing metadata + occurrence confirmation for every
+  // segment, not just the Plex ping.
+  if (config.plex?.scrobbleEnabled !== false && config.plex?.baseUrl) {
     try {
       const listenerCount = await getListenerCount();
       if (listenerCount > 0) {
