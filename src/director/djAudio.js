@@ -18,10 +18,10 @@ import { autoRadioEnabled, synthesizeNoModelSpeech } from '../auto/voice.js';
 // `slot` (open/intro/recap/... or live:<kind>) is what clips mode keys its
 // files by; sapi/espeak only speak `text`. Cached returns stay identical in
 // shape to the Chatterbox path ({ filePath, ttsDurationMs, cached }).
-export async function synthesizeSpeechToPath(persona, text, filePath, slot = 'dj', seed = '') {
+export async function synthesizeSpeechToPath(persona, text, filePath, slot = 'dj', seed = '', track = null) {
   if (autoRadioEnabled()) {
     const startedAt = Date.now();
-    const spoke = await synthesizeNoModelSpeech({ persona, slot, text, outPath: filePath, seed });
+    const spoke = await synthesizeNoModelSpeech({ persona, slot, text, outPath: filePath, seed, track });
     if (!spoke) return { skipped: true, ttsDurationMs: 0 };
     return { skipped: false, ttsDurationMs: Date.now() - startedAt };
   }
@@ -35,12 +35,12 @@ export async function synthesizeSpeechToPath(persona, text, filePath, slot = 'dj
   return { skipped: false, ttsDurationMs };
 }
 
-export async function getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot = 'dj', seed = '') {
+export async function getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot = 'dj', seed = '', track = null) {
   const cachedPath = path.join(djAudioDir, `dj_${String(segmentIndex).padStart(3, '0')}.wav`);
   if (fs.existsSync(cachedPath)) {
     return { filePath: cachedPath, ttsDurationMs: 0, cached: true, skipped: false };
   }
-  const { ttsDurationMs, skipped } = await synthesizeSpeechToPath(persona, text, cachedPath, slot, seed);
+  const { ttsDurationMs, skipped } = await synthesizeSpeechToPath(persona, text, cachedPath, slot, seed, track);
   // A skipped segment (voice mode "none", or a missing clip) must not leave
   // a zero-byte file at the cache path -- that would be treated as a valid
   // cached clip on every later occurrence and go on air as silence.

@@ -37,8 +37,17 @@ export function formatCalendarDate(dateKey) {
   );
 }
 
+function isValidTimeZone(tz) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function toLocalISOString(date = new Date(), timeZone = config.weather?.timezone) {
-  if (!timeZone) return date.toISOString();
+  if (!timeZone || !isValidTimeZone(timeZone)) return date.toISOString();
   const offsetMin = tzOffsetMinutes(date, timeZone);
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone,

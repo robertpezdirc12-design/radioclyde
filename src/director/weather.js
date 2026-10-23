@@ -64,12 +64,23 @@ export async function fetchCurrentWeather({ temperatureUnit = 'fahrenheit', wind
   return data.current;
 }
 
+function isValidTimeZone(tz) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function currentLocalTimeString(timezone) {
-  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone }).format(new Date());
+  const tz = isValidTimeZone(timezone) ? timezone : 'UTC';
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(new Date());
 }
 
 export function currentLocalDateString(timezone) {
-  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: timezone }).format(
+  const tz = isValidTimeZone(timezone) ? timezone : 'UTC';
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }).format(
     new Date()
   );
 }

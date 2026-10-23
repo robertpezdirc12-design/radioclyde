@@ -96,8 +96,8 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // (voice mode "none", or a clips-mode persona with no clip for that slot)
   // -- it is then simply absent from the playlist and the show flows on to
   // the next segment, with a NOTE logged once per skip.
-  async function getDjAudio(segmentIndex, persona, text, slot = 'dj', seed = '') {
-    const { filePath, ttsDurationMs, cached, skipped } = await getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot, seed);
+  async function getDjAudio(segmentIndex, persona, text, slot = 'dj', seed = '', track = null) {
+    const { filePath, ttsDurationMs, cached, skipped } = await getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot, seed, track);
     ttsLog.push({ persona, slot, text, filePath, aiGenerationMs: 0, ttsDurationMs, gain: config.djDrops?.gain ?? 1, cached, skipped });
     return skipped ? null : filePath;
   }
@@ -148,10 +148,12 @@ export async function directShow({ id, weekday, date, timeKey }) {
   const totalSpeechSegments = parsed.segments.filter((s) => s.type === 'dj' || s.type === 'live').length;
   let speechSegmentSeq = 0;
 
+  let currentTrack = null;
   for (const [i, seg] of parsed.segments.entries()) {
     if (seg.type === 'track') {
       await flushPendingSpeech();
       const track = knownRatingKeys.get(String(seg.ratingKey));
+      currentTrack = track;
       // Auto-radio's local library tracks carry their absolute local path
       // directly (no Plex prefix mapping exists for them); Plex tracks keep
       // the toLocalPath mapping they always used.
@@ -161,7 +163,21 @@ export async function directShow({ id, weekday, date, timeKey }) {
     } else if (seg.type === 'dj') {
       speechSegmentSeq++;
       const startedAt = Date.now();
-      const audioPath = await getDjAudio(i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`);
+      // Find associated track for pre-generated clip lookup
+      let segTrack = null;
+      if (seg.slot === 'intro' || seg.slot === 'quizIntro') {
+        // Track comes after this intro segment
+        for (let j = i + 1; j < parsed.segments.length; j++) {
+          if (parsed.segments[j].type === 'track') {
+            segTrack = knownRatingKeys.get(String(parsed.segments[j].ratingKey));
+            break;
+          }
+        }
+      } else if (seg.slot === 'recap' || seg.slot === 'quizReveal') {
+        // Track comes before this recap segment
+        segTrack = currentTrack;
+      }
+      const audioPath = await getDjAudio(i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`, segTrack);
       if (!audioPath) {
         log(`[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] dj (${seg.persona}): SKIPPED (no-model voice mode, no audio) -- "${preview(seg.body)}"`);
         continue;

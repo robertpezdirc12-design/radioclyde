@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Orchestration scripts for a self-hosted AI DJ internet radio station (Liquidsoap + Icecast + LM Studio + Chatterbox).",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
     "generate-script": "node src/producer/generateScript.js",

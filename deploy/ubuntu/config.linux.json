@@ -1,0 +1,69 @@
+{
+  "dataDir": "/opt/radioclyde/data",
+  "autoRadio": {
+    "enabled": true,
+    "stationName": "Radio Clyde",
+    "music": {
+      "source": "local",
+      "localDirs": [
+        "/opt/radioclyde/music"
+      ],
+      "audioExtensions": [
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".wav"
+      ]
+    },
+    "rules": {
+      "artistCooldownHours": 3,
+      "popularityMix": {
+        "popularShare": 0.7
+      },
+      "decadeSpread": true,
+      "timeOfDayBlocks": {
+        "morning": { "start": "05:00", "end": "10:00" },
+        "daytime": { "start": "10:00", "end": "17:00" },
+        "evening": { "start": "17:00", "end": "23:00" },
+        "night": { "start": "23:00", "end": "05:00" }
+      }
+    },
+    "voice": {
+      "mode": "pregenerated",
+      "clipsDir": "voice-clips",
+      "defaultEspeakVoice": "sl",
+      "defaultPiperVoice": "/opt/radioclyde/voices/sl_SI-artur-medium.onnx",
+      "pythonPath": "python3",
+      "personas": {}
+    }
+  },
+  "shows": {
+    "repeatWindowDays": 30,
+    "maxTrackDurationSeconds": 300,
+    "minTrackDurationSeconds": 120
+  },
+  "weather": {
+    "url": "https://api.open-meteo.com/v1/forecast",
+    "latitude": 46.0569,
+    "longitude": 14.5058,
+    "timezone": "Europe/Ljubljana",
+    "temperatureUnit": "celsius",
+    "windSpeedUnit": "kmh"
+  },
+  "djDrops": {
+    "gain": 1
+  },
+  "web": {
+    "port": 3000
+  },
+  "icecast": {
+    "sourceHost": "127.0.0.1",
+    "port": 8000,
+    "mount": "/stream.mp3"
+  },
+  "scripts": {
+    "defaultRepeatWindowDays": 7
+  }
+}

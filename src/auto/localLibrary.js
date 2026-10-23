@@ -47,18 +47,25 @@ async function readTrackMeta(filePath) {
     const meta = await parseFile(filePath, { duration: true });
     const common = meta.common ?? {};
     const format = meta.format ?? {};
-    const title = common.title ?? path.basename(filePath, path.extname(filePath));
+    const title = common.title ?? guessTitleFromFilename(filePath) ?? path.basename(filePath, path.extname(filePath));
     // Track artists first (compilation-friendly, same reasoning as
     // trackFromMetadata's originalTitle-first check), album/directory artist
     // as fallback; filename "Artist - Title" as the last resort.
     const artist =
       common.artists?.[0] ?? common.artist ?? common.albumartist ?? guessArtistFromFilename(filePath) ?? 'Unknown Artist';
+    // Genre: prefer audio tags, but fall back to the parent directory name
+    // (e.g. music/folk/...) so libraries without tags still get a usable genre.
+    // Also merge in the directory name so selection by genre works even when
+    // tags are missing or say something generic like "Soundtrack".
+    const dirGenre = path.basename(path.dirname(filePath));
+    const tagGenres = Array.isArray(common.genre) ? common.genre : (common.genre ? [common.genre] : []);
+    const genres = [...new Set([dirGenre, ...tagGenres].filter(Boolean))];
     return {
       title,
       artist,
       album: common.album ?? null,
       year: common.year ?? null,
-      genre: common.genre ?? [],
+      genre: genres,
       durationMs: Math.round((format.duration ?? 0) * 1000) || null,
     };
   } catch (err) {
@@ -71,6 +78,14 @@ function guessArtistFromFilename(filePath) {
   const base = path.basename(filePath, path.extname(filePath));
   const m = /^\s*(.+?)\s+-\s+(.+)$/.exec(base);
   return m ? m[1].trim() : null;
+}
+
+function guessTitleFromFilename(filePath) {
+  const base = path.basename(filePath, path.extname(filePath));
+  // "Artist - Title" pattern
+  const m = /^\s*(.+?)\s+-\s+(.+)$/.exec(base);
+  if (m) return m[2].trim();
+  return null;
 }
 
 function* walk(dir, depth = 0) {
