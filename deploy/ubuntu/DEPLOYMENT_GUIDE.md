@@ -186,6 +186,48 @@ sudo tail -f /var/log/icecast2/error.log
 sudo tail -f /var/log/nginx/access.log
 ```
 
+## Arhitektura predvajanja (kaj prihaja v eter in kdaj)
+
+`/opt/radioclyde/config/radio.liq` (ki ga namesti `install.sh`) mora imeti **dva vira**:
+
+| vir | datoteka | način |
+|---|---|---|
+| `show_source` | `data/now_playing.m3u` | `mode="normal"`, `loop=false` — ena producirana oddaja; ko se izprazni, preide na filler |
+| `filler_source` | `data/filler.m3u` | `mode="randomize"` — glasba med oddajami; razporejevalnik jo obnavlja |
+
+`fallback([show_source, filler_source])` pomeni: **producirana oddaja gre v eter, takoj ko obstaja**; filler pokrije le vrzeli. Če vaš `radio.liq` ima *samo* `filler.m3u` (kot starejša različica `install.sh`), urnik nikoli ne pride v eter in poslušalci slišijo isto neskončno zankco — točno to je bil prijavljen problem ponavljanja.
+
+### Zakaj se pesmi ne ponavljajo več vsako uro
+
+Trije vzroki so bili odpravljeni (revizija 2026-10-24):
+
+1. `radio.liq` je predvajal samo filler — urnik sploh ni prihajal v eter (popravljeno: prava fallback arhitektura zgoraj).
+2. `config.linux.json` brez blokov `schedule`/`filler`/`cleanup`/`backup` — razporejevalnik je crknil ob zagonu (`TypeError`), zato se filler ni nikoli obnavljal (popravljeno: config ima vse bloke; test `test/deployConfig.test.mjs` to zagotavlja).
+3. Filler ni imel spomina na to, kaj je že predvajal — vsaka regeneracija je ponovno izbrala iste skladbe (popravljeno: ledvica rotacije `data/history/filler-rotation.jsonl`; `scrobbleTrack.js` zapiše vsak filler segment, `generateFillerPlaylist.js` izključi vse iz okna `filler.rotationWindowHours`, manjkajoče dopolni od najdlje ne-predvajanih).
+
+### Diagnostika ponavljanja po nasadu
+
+```bash
+# Ali je razporejevalnik sploh živ (crknil config = zamrznjen urnik)?
+sudo systemctl is-active radioclyde && sudo journalctl -u radioclyde -n 50 --no-pager | grep -i "scheduler started\|ERROR"
+
+# Ali liquidsoap preklaplja med show in filler (preberi logs)?
+sudo grep -E "show_source|filler_source" /opt/radioclyde/data/logs/liquidsoap.log | tail -20
+
+# Ali ledvica rotacije raste (vsak filler segment doda vrstico)?
+sudo wc -l /opt/radioclyde/data/history/filler-rotation.jsonl
+
+# Ročno preveri rotacijo: dve regeneracji naj imata (pri knjižnici >= 2x poolSize) prekrivanje 0
+cd /opt/radioclyde/app && sudo -u radioclyde npm run generate-filler-playlist
+sudo cp /opt/radioclyde/data/filler.m3u /tmp/gen1.m3u
+cd /opt/radioclyde/app && sudo -u radioclyde node src/plex/scrobbleTrack.js $(head -1 /tmp/gen1.m3u | sed 's/.*://') ""
+cd /opt/radioclyde/app && sudo -u radioclyde npm run generate-filler-playlist
+sudo diff <(sort /tmp/gen1.m3u) <(sort /opt/radioclyde/data/filler.m3u) | grep -c "^[<>]"
+# Pričakovano pri dovolj veliki knjižnici: vsi zapisi se spremenijo
+```
+
+Znano omejitev: če je knjižnica manjša od `poolSize` (ali manjša od ene urne rotacije), se skladbe neizogibno vrnejo prek najstarejše rotacije — takrat dodajte glasbo ali povečajte knjižnico; arhitektura ne more rotirati, česar ni.
+
 ## .gitignore
 
 ```

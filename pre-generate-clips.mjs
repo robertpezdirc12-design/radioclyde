@@ -46,8 +46,13 @@ function slugify(text) {
 async function synthesize(text, outFile) {
   const textFile = outFile + '.txt';
   fs.writeFileSync(textFile, text, 'utf8');
-  await execFileAsync(PYTHON, ['-m', 'piper', '-m', PIPER_MODEL, '-f', outFile, '--input-file', textFile], { timeout: 120_000 });
-  fs.rmSync(textFile, { force: true });
+  try {
+    await execFileAsync(PYTHON, ['-m', 'piper', '-m', PIPER_MODEL, '-f', outFile, '--input-file', textFile], { timeout: 120_000 });
+  } finally {
+    // Same cleanup guarantee as voice.js's piper provider (audit 2026-10-24):
+    // failed synthesis must not leak the temp text file.
+    fs.rmSync(textFile, { force: true });
+  }
   const tmp = outFile + '.norm.wav';
   await execFileAsync('ffmpeg', ['-y', '-i', outFile, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', tmp], { timeout: 60_000 });
   fs.renameSync(tmp, outFile);
@@ -86,7 +91,10 @@ for (const filePath of audioFiles) {
 }
 
 const generalClips = [
-  { name: 'open', text: 'Dobrodošli pri oddaji Test All Music na Radio Clyde.' },
+  // Show-agnostic wording -- these files air on EVERY show in pregenerated
+  // mode, so they must not name a specific show (audit 2026-10-24: the old
+  // text said "oddaji Test All Music" on every single opening).
+  { name: 'open', text: 'Dobrodošli na Radio Clyde. Uživajte v glasbi.' },
   { name: 'close', text: 'S tem je oddaja zaključena. Do naslednjega srečanja!' },
   { name: 'handoff_weather', text: 'Poglejmo še, kakšno vreme nas čaka.' },
 ];

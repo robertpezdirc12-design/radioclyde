@@ -57,7 +57,13 @@ async function readTrackMeta(filePath) {
     // (e.g. music/folk/...) so libraries without tags still get a usable genre.
     // Also merge in the directory name so selection by genre works even when
     // tags are missing or say something generic like "Soundtrack".
-    const dirGenre = path.basename(path.dirname(filePath));
+    // A file sitting DIRECTLY in a configured library root gets no folder
+    // genre: its parent directory is the library folder itself (e.g. "music"),
+    // which is a storage name, not a genre (audit 2026-10-24 test finding).
+    const parentDir = path.dirname(filePath);
+    const dirGenre = localMusicDirs().some((d) => path.resolve(d) === path.resolve(parentDir))
+      ? null
+      : path.basename(parentDir);
     const tagGenres = Array.isArray(common.genre) ? common.genre : (common.genre ? [common.genre] : []);
     const genres = [...new Set([dirGenre, ...tagGenres].filter(Boolean))];
     return {
@@ -75,16 +81,26 @@ async function readTrackMeta(filePath) {
 }
 
 function guessArtistFromFilename(filePath) {
-  const base = path.basename(filePath, path.extname(filePath));
+  const base = stripLeadingTrackNumber(path.basename(filePath, path.extname(filePath)));
   const m = /^\s*(.+?)\s+-\s+(.+)$/.exec(base);
   return m ? m[1].trim() : null;
 }
 
+// "03 - Artist - Title" / "01_Artist_Title": a leading 1-3 digit track number
+// plus separator belongs to neither artist nor title. Separator must be -/._
+// (not a bare space) so names like "99 Luftballons - Song" keep "99" in the
+// artist where it belongs.
+function stripLeadingTrackNumber(base) {
+  return base.replace(/^\s*\d{1,3}\s*[-._)]\s*/, '');
+}
+
 function guessTitleFromFilename(filePath) {
-  const base = path.basename(filePath, path.extname(filePath));
+  const base = stripLeadingTrackNumber(path.basename(filePath, path.extname(filePath)));
   // "Artist - Title" pattern
   const m = /^\s*(.+?)\s+-\s+(.+)$/.exec(base);
-  if (m) return m[2].trim();
+  // Audit 2026-10-24: filename underscores are almost always stand-ins for
+  // spaces (downloads, old rippers) -- surface them as spaces in the title.
+  if (m) return m[2].replace(/_/g, ' ').trim();
   return null;
 }
 

@@ -155,8 +155,14 @@ async function synthesizeWithPiper(text, outPath, persona) {
   const args = ['-m', 'piper', '-m', modelPath, '-f', outPath, '--input-file', textFile];
   if (piperSpeaker != null) args.push('--speaker', String(piperSpeaker));
   const pythonPath = config.autoRadio?.voice?.pythonPath ?? (process.platform === 'win32' ? 'C:/Program Files/Python311/python.exe' : 'python3');
-  await execFileAsync(pythonPath, args, { timeout: 120_000 });
-  fs.rmSync(textFile, { force: true });
+  try {
+    await execFileAsync(pythonPath, args, { timeout: 120_000 });
+  } finally {
+    // Audit 2026-10-24: this cleanup ran only on success -- every failed
+    // synthesis (missing piper module, bad model path, timeout) leaked a
+    // .piper-text.txt next to the output, one per retry per segment.
+    fs.rmSync(textFile, { force: true });
+  }
 }
 
 function personaVoiceSetting(persona) {

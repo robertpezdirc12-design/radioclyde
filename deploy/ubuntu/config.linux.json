@@ -44,6 +44,37 @@
     "maxTrackDurationSeconds": 300,
     "minTrackDurationSeconds": 120
   },
+  "schedule": {
+    "scriptLeadTimeMinutes": 120,
+    "scriptCheckIntervalMinutes": 15,
+    "directLeadTimeMinutes": 15,
+    "directCheckIntervalMinutes": 2,
+    "prewarmCheckIntervalMinutes": 15,
+    "prewarmHorizonMinutes": 1440,
+    "nowPlayingCheckIntervalMinutes": 0.1,
+    "scheduleWatchIntervalMinutes": 1,
+    "maxCatchUpMinutes": 10,
+    "minLeadTimeMinutes": 30
+  },
+  "filler": {
+    "poolSize": 200,
+    "regenerateIntervalMinutes": 360,
+    "maxTrackDurationSeconds": 600,
+    "rotationWindowHours": 24
+  },
+  "cleanup": {
+    "retentionDays": 7,
+    "intervalMinutes": 360
+  },
+  "backup": {
+    "dir": "/opt/radioclyde/backups",
+    "intervalMinutes": 1440
+  },
+  "liquidsoap": {
+    "telnetHost": "127.0.0.1",
+    "telnetPort": 1234,
+    "queueId": "dj"
+  },
   "weather": {
     "url": "https://api.open-meteo.com/v1/forecast",
     "latitude": 46.0569,
@@ -60,8 +91,15 @@
   },
   "icecast": {
     "sourceHost": "127.0.0.1",
+    "publicHost": "CHANGE_ME_PUBLIC_HOST_OR_IP",
     "port": 8000,
-    "mount": "/stream.mp3"
+    "mount": "/stream.mp3",
+    "sourcePassword": "CHANGE_ME_SOURCE_PASSWORD",
+    "adminPassword": "CHANGE_ME_ADMIN_PASSWORD",
+    "bitrate": 128
+  },
+  "plex": {
+    "scrobbleEnabled": false
   },
   "scripts": {
     "defaultRepeatWindowDays": 7
