@@ -1,56 +1,150 @@
 <!doctype html>
-<html lang="en">
+<html lang="sl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radio</title>
+  <meta name="description" content="Radio Clyde -- deterministični avtomatski radio brez AI. Poslušaj v živo, poglej spored, oddaj zahtevek.">
+  <title>Radio Clyde</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="page">
-    <aside class="sidebar">
-      <img id="logo" class="logo" src="/logo.png" alt="">
-      <p class="stream-url" id="stream-url">&nbsp;</p>
+  <a class="skip-link" href="#main">Skoči na vsebino</a>
 
-      <section class="upcoming">
-        <h2>Radio Shows Coming up</h2>
-        <ul id="upcoming-list"></ul>
-      </section>
-    </aside>
+  <header class="topbar">
+    <div class="brand">
+      <img id="logo" src="/logo.png" alt="" hidden>
+      <span class="brand-name" id="brand-name">Radio Clyde</span>
+    </div>
+    <div class="topbar-right">
+      <span class="weather-chip" id="weather-chip" hidden></span>
+      <span class="live-chip" id="live-chip" hidden><span class="live-dot" aria-hidden="true"></span>V ŽIVO</span>
+    </div>
+  </header>
 
-    <main>
-      <section id="now-playing" class="now-playing">
-        <img id="art" class="art" alt="" hidden>
-        <div class="now-playing-info">
-          <p class="on-air-label" id="on-air-label" hidden>&nbsp;</p>
-          <p class="show-name" id="show-name">&nbsp;</p>
-          <p class="show-host" id="show-host" hidden>&nbsp;</p>
-          <p class="dj-talking" id="dj-talking" hidden>&nbsp;</p>
-          <p class="track-title" id="track-title">&nbsp;</p>
-          <p class="track-artist" id="track-artist">&nbsp;</p>
-          <div class="track-progress" id="track-progress" hidden>
-            <div class="track-progress-bar"><div class="track-progress-fill" id="track-progress-fill"></div></div>
-            <div class="track-progress-times">
-              <span id="track-elapsed">0:00</span>
-              <span id="track-duration">0:00</span>
-            </div>
+  <main class="page" id="main">
+    <!-- ============ HERO: ZDAJ NA ETERU ============ -->
+    <section class="hero" aria-label="Zdaj na eeru">
+      <div class="hero-art-wrap">
+        <img id="art" class="hero-art" alt="Naslovnica trenutne skladbe" hidden>
+        <div id="art-fallback" class="hero-art-fallback" aria-hidden="true">
+          <img src="/logo.png" alt="" onerror="this.style.display='none'">
+        </div>
+      </div>
+      <div class="hero-info">
+        <p class="kicker" id="on-air-label">Radio Clyde</p>
+        <h1 class="hero-title" id="track-title" aria-live="polite">&nbsp;</h1>
+        <p class="hero-sub" id="track-artist">&nbsp;</p>
+        <p class="hero-dj" id="dj-talking" hidden></p>
+
+        <div class="hero-progress" id="track-progress" hidden>
+          <div class="progress-bar" aria-hidden="true">
+            <div class="progress-fill" id="track-progress-fill"></div>
+          </div>
+          <div class="progress-times">
+            <span id="track-elapsed">0:00</span>
+            <span id="track-duration">0:00</span>
           </div>
         </div>
-        <button id="play-button" type="button">Tune In</button>
-      </section>
 
-      <div class="player">
-        <audio id="player" preload="none"></audio>
+        <div class="hero-actions">
+          <button id="play-button" class="play-btn" type="button" aria-pressed="false" aria-label="Predvajaj">
+            <svg class="icon-play" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72c0 .8.87 1.3 1.56.9l11-6.86a1.05 1.05 0 0 0 0-1.8l-11-6.86A1.05 1.05 0 0 0 8 5.14Z"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" hidden><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+          </button>
+          <div class="volume-group">
+            <button id="mute-button" class="icon-btn" type="button" aria-label="Utišaj" aria-pressed="false">
+              <svg class="icon-vol" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Zm12.5 3a3.5 3.5 0 0 0-2-3.15v6.3a3.5 3.5 0 0 0 2-3.15Zm-2-7v2.1a5.5 5.5 0 0 1 0 9.8V19a7.5 7.5 0 0 0 0-14Z"/></svg>
+              <svg class="icon-muted" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" hidden><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Zm17 .8-1.3-1.3-2.2 2.2-2.2-2.2L14 9.8l2.2 2.2-2.2 2.2 1.3 1.3 2.2-2.2 2.2 2.2 1.3-1.3-2.2-2.2L21 9.8Z"/></svg>
+            </button>
+            <input id="volume-slider" class="volume-slider" type="range" min="0" max="100" value="80" aria-label="Glasnost">
+          </div>
+          <button id="like-button" class="icon-btn like-btn" type="button" aria-pressed="false" title="Shrani skladbo med priljubljene (lokalno v brskalniku)">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="m12 21-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.18L12 21Z"/></svg>
+          </button>
+        </div>
+        <p class="player-status" id="player-status" role="status">Pritisni predvajaj in poslušaj v živo.</p>
       </div>
+    </section>
 
-      <section class="history">
-        <h2>Recently played</h2>
-        <ul id="history-list"></ul>
+    <!-- ============ ZAVIHKI ============ -->
+    <nav class="tabs" role="tablist" aria-label="Razdelki">
+      <button class="tab" id="tab-now" role="tab" aria-selected="true" aria-controls="panel-now" type="button">Zdaj</button>
+      <button class="tab" id="tab-schedule" role="tab" aria-selected="false" aria-controls="panel-schedule" type="button">Spored</button>
+      <button class="tab" id="tab-requests" role="tab" aria-selected="false" aria-controls="panel-requests" type="button">Zahtevki</button>
+    </nav>
+
+    <!-- ============ PANEL: ZDAJ ============ -->
+    <section id="panel-now" class="panel" role="tabpanel" aria-labelledby="tab-now">
+      <div class="grid-2">
+        <section class="card">
+          <h2>Naprej po urniku</h2>
+          <ul class="list" id="upcoming-list"></ul>
+          <p class="empty" id="upcoming-empty" hidden>Trenutno ni napovedanih oddaj.</p>
+          <p class="error-note" id="upcoming-error" hidden>Podatkov ni bilo mogoče naložiti. <button type="button" class="link-btn" data-retry="upcoming">Poskusi znova</button></p>
+        </section>
+        <section class="card">
+          <h2>Nedavno predvajano</h2>
+          <ul class="list" id="history-list"></ul>
+          <p class="empty" id="history-empty" hidden>Od zagona se še ni nič predvajalo.</p>
+          <p class="error-note" id="history-error" hidden>Podatkov ni bilo mogoče naložiti. <button type="button" class="link-btn" data-retry="history">Poskusi znova</button></p>
+        </section>
+      </div>
+      <section class="card">
+        <h2>Tvoje priljubljene</h2>
+        <p class="hint">Shranjujejo se samo lokalno v tvojem brskalniku -- strežniku jih ne pošiljamo.</p>
+        <ul class="list" id="fav-list"></ul>
+        <p class="empty" id="fav-empty" hidden>Ni še nič. Klikni srček ob skladbi, ki ti je všeč.</p>
       </section>
-    </main>
-  </div>
+    </section>
 
+    <!-- ============ PANEL: SPORED ============ -->
+    <section id="panel-schedule" class="panel" role="tabpanel" aria-labelledby="tab-schedule" hidden>
+      <p class="hint" id="schedule-tz">Nalagam spored &hellip;</p>
+      <div class="week-grid" id="week-grid"></div>
+      <p class="error-note" id="schedule-error" hidden>Sporeda ni bilo mogoče naložiti. <button type="button" class="link-btn" data-retry="schedule">Poskusi znova</button></p>
+      <p class="hint" id="downtime-note" hidden></p>
+    </section>
+
+    <!-- ============ PANEL: ZAHTEVKI ============ -->
+    <section id="panel-requests" class="panel" role="tabpanel" aria-labelledby="tab-requests" hidden>
+      <div class="grid-2">
+        <form id="request-form" class="card form" novalidate>
+          <h2>Oddaj zahtevek ali posvetilo</h2>
+          <label for="req-type">Vrsta</label>
+          <select id="req-type">
+            <option value="request">Zahteva za skladbo</option>
+            <option value="dedication">Posvetilo</option>
+          </select>
+          <label for="req-title">Naslov pesmi</label>
+          <input id="req-title" maxlength="200" autocomplete="off">
+          <label for="req-artist">Izvajalec</label>
+          <input id="req-artist" maxlength="200" autocomplete="off">
+          <label for="req-message">Sporočilo / posvetilo</label>
+          <textarea id="req-message" rows="3" maxlength="500"></textarea>
+          <label for="req-from">Tvoje ime (opcijsko)</label>
+          <input id="req-from" maxlength="80" autocomplete="off">
+          <button class="btn-primary" type="submit">Pošlji</button>
+          <p class="form-result" id="req-result" role="status"></p>
+          <p class="hint">Lastnik postaje zahtevek pregleda in odobri. Dokler ni odobren, status ostaja &raquo;v čakanju&laquo; -- ne obljubljamo ničesar, kar se še ni zgodilo.</p>
+        </form>
+        <div class="card form">
+          <h2>Preveri status zahtevka</h2>
+          <label for="req-check-id">ID zahtevka (ga dobiš ob oddaji)</label>
+          <input id="req-check-id" autocomplete="off" placeholder="npr. m1abc2d-3f4a">
+          <button class="btn-secondary" id="req-check" type="button">Preveri status</button>
+          <div class="form-result" id="req-status" role="status"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Radio Clyde -- deterministični avtomatski radio. Brez AI modelov, brez plačljivih storitev.</p>
+    <p><a href="/studio">Studio</a> (za lastnika postaje)</p>
+  </footer>
+
+  <audio id="player" preload="none"></audio>
   <script src="/app.js"></script>
 </body>
 </html>

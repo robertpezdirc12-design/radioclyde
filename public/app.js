@@ -1,216 +1,599 @@
-const POLL_INTERVAL_MS = 12000;
+// Radio Clyde listener app -- Slovenian, deterministic-data only (issue #2).
+// Every value shown comes from a real endpoint; every fetch failure or empty
+// result renders an explicit state instead of a fake one. Favourites are
+// localStorage-only and SAY so -- the backend has no listener accounts.
 
-const player = document.getElementById('player');
-const playButton = document.getElementById('play-button');
-const artEl = document.getElementById('art');
-const logoEl = document.getElementById('logo');
-const streamUrlEl = document.getElementById('stream-url');
-const onAirLabelEl = document.getElementById('on-air-label');
-const showNameEl = document.getElementById('show-name');
-const showHostEl = document.getElementById('show-host');
-const djTalkingEl = document.getElementById('dj-talking');
-const trackTitleEl = document.getElementById('track-title');
-const trackArtistEl = document.getElementById('track-artist');
-const trackProgressEl = document.getElementById('track-progress');
-const trackProgressFillEl = document.getElementById('track-progress-fill');
-const trackElapsedEl = document.getElementById('track-elapsed');
-const trackDurationEl = document.getElementById('track-duration');
-const historyListEl = document.getElementById('history-list');
-const upcomingListEl = document.getElementById('upcoming-list');
+const POLL_MS = 12000;
+const SCHEDULE_POLL_MS = 5 * 60 * 1000;
 
-const WEEKDAY_ABBR = { sunday: 'Sun', monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat' };
+const $ = (id) => document.getElementById(id);
+
+const player = $('player');
+const els = {
+  logo: $('logo'),
+  brandName: $('brand-name'),
+  liveChip: $('live-chip'),
+  weatherChip: $('weather-chip'),
+  art: $('art'),
+  artFallback: $('art-fallback'),
+  onAirLabel: $('on-air-label'),
+  trackTitle: $('track-title'),
+  trackArtist: $('track-artist'),
+  djTalking: $('dj-talking'),
+  progress: $('track-progress'),
+  progressFill: $('track-progress-fill'),
+  elapsed: $('track-elapsed'),
+  duration: $('track-duration'),
+  playButton: $('play-button'),
+  muteButton: $('mute-button'),
+  volume: $('volume-slider'),
+  likeButton: $('like-button'),
+  status: $('player-status'),
+  historyList: $('history-list'),
+  historyEmpty: $('history-empty'),
+  historyError: $('history-error'),
+  upcomingList: $('upcoming-list'),
+  upcomingEmpty: $('upcoming-empty'),
+  upcomingError: $('upcoming-error'),
+  favList: $('fav-list'),
+  favEmpty: $('fav-empty'),
+  weekGrid: $('week-grid'),
+  scheduleTz: $('schedule-tz'),
+  scheduleError: $('schedule-error'),
+  downtimeNote: $('downtime-note'),
+  form: $('request-form'),
+  reqResult: $('req-result'),
+  checkButton: $('req-check'),
+  checkInput: $('req-check-id'),
+  checkResult: $('req-status'),
+};
+
+const SL_DAYS = { monday: 'Ponedeljek', tuesday: 'Torek', wednesday: 'Sreda', thursday: 'Četrtek', friday: 'Petek', saturday: 'Sobota', sunday: 'Nedelja' };
 
 let streamStarted = false;
-// Set from the last /api/now-playing response and ticked client-side every
-// second so the progress bar moves smoothly between polls -- polling every
-// second instead would just hammer the server for something the client can
-// derive on its own from playedAt/durationMs.
-let currentTrackTiming = null; // { playedAt: number epoch ms, durationMs: number } | null
-// Set from the last /api/now-playing response -- when a track (not a DJ) is
-// airing, it's also the most recent /api/history entry, so fetchHistory()
-// drops that duplicate leading entry rather than showing it twice.
 let trackIsPlaying = false;
+let currentTrackTiming = null; // { playedAt epoch ms, durationMs } -- ticked client-side between polls
+let currentTrackKey = null; // "artist\n=title" like-key of the airing track
+
+// ---------- helpers ----------
 
 function formatClock(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-function tickTrackProgress() {
+function formatWhen(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('sl-SI', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function setStatus(text, cls = '') {
+  els.status.textContent = text;
+  els.status.className = `player-status ${cls}`;
+}
+
+function show(node, yes) {
+  node.hidden = !yes;
+}
+
+// ---------- favourites (localStorage, honest) ----------
+
+const FAV_KEY = 'radioclyde-favourites';
+
+function readFavs() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FAV_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFavs(favs) {
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(favs.slice(0, 200)));
+  } catch {
+    // private mode / storage full -- favourites are a convenience, never critical
+  }
+}
+
+function trackKey(artist, title) {
+  return `${(artist ?? '').trim()} — ${(title ?? '').trim()}`;
+}
+
+function isFav(artist, title) {
+  return readFavs().some((f) => f.key === trackKey(artist, title));
+}
+
+function toggleFav(artist, title) {
+  if (!(title ?? '').trim()) return;
+  const key = trackKey(artist, title);
+  const favs = readFavs();
+  const idx = favs.findIndex((f) => f.key === key);
+  if (idx === -1) favs.unshift({ key, artist: artist ?? '', title: title ?? '', at: new Date().toISOString() });
+  else favs.splice(idx, 1);
+  writeFavs(favs);
+  renderFavs();
+  syncLikeButtons();
+}
+
+function syncLikeButtons() {
+  const liked = currentTrackKey ? isFav(...currentTrackKey.split(' — ')) : false;
+  els.likeButton.setAttribute('aria-pressed', String(liked));
+  els.likeButton.title = liked ? 'Odstrani iz priljubljenih (lokalno)' : 'Shrani skladbo med priljubljene (lokalno v brskalniku)';
+}
+
+function favRow(f) {
+  const li = document.createElement('li');
+  const text = document.createElement('div');
+  text.className = 'row-text';
+  const main = document.createElement('p');
+  main.className = 'row-main';
+  main.textContent = f.title;
+  const sub = document.createElement('p');
+  sub.className = 'row-sub';
+  sub.textContent = f.artist || 'neznan izvajalec';
+  text.append(main, sub);
+  const del = document.createElement('button');
+  del.className = 'row-like';
+  del.type = 'button';
+  del.setAttribute('aria-pressed', 'true');
+  del.setAttribute('aria-label', `Odstrani ${f.title} iz priljubljenih`);
+  del.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="m12 21-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.18L12 21Z"/></svg>';
+  del.addEventListener('click', () => toggleFav(f.artist, f.title));
+  li.append(text, del);
+  return li;
+}
+
+function renderFavs() {
+  const favs = readFavs();
+  els.favList.replaceChildren(...favs.map(favRow));
+  show(els.favEmpty, favs.length === 0);
+}
+
+// ---------- now playing ----------
+
+function renderNowPlaying(data) {
+  if (data.station?.name) {
+    document.title = data.station.name;
+    els.brandName.textContent = data.station.name;
+  }
+  show(els.liveChip, Boolean(data.show || data.track || data.dj));
+
+  if (data.dj) {
+    els.djTalking.hidden = false;
+    els.djTalking.textContent = `🎙 ${data.dj} govori`;
+    els.trackTitle.textContent = data.show?.name ?? 'Govorjeni del';
+    els.trackArtist.textContent = data.show?.host ? `z ${data.show.host}` : '';
+    currentTrackTiming = null;
+    trackIsPlaying = false;
+    currentTrackKey = null;
+    // Persona photo slot -- same lookup the old page used; missing photos hide themselves.
+    const persona = data.dj.split(' & ')[0].toLowerCase();
+    els.art.hidden = false;
+    els.artFallback.hidden = true;
+    els.art.src = `/dj-photos/${persona}`;
+  } else if (data.track?.title) {
+    els.djTalking.hidden = true;
+    els.trackTitle.textContent = data.track.title;
+    els.trackArtist.textContent = data.track.artist ?? '';
+    currentTrackKey = [data.track.artist, data.track.title];
+    trackIsPlaying = true;
+    currentTrackTiming =
+      data.track.playedAt && data.track.durationMs
+        ? { playedAt: new Date(data.track.playedAt).getTime(), durationMs: data.track.durationMs }
+        : null;
+    if (data.track.artUrl) {
+      els.art.hidden = false;
+      els.artFallback.hidden = true;
+      els.art.src = data.track.artUrl;
+    } else {
+      els.art.hidden = true;
+      els.artFallback.hidden = false;
+    }
+  } else {
+    els.djTalking.hidden = true;
+    els.trackTitle.textContent = 'Nič ne oddaja';
+    els.trackArtist.textContent = 'Postaja se je (še) zagnala -- čakamo prvi segment.';
+    currentTrackTiming = null;
+    trackIsPlaying = false;
+    currentTrackKey = null;
+    els.art.hidden = true;
+    els.artFallback.hidden = false;
+  }
+  syncLikeButtons();
+  tickProgress();
+}
+
+function tickProgress() {
   if (!currentTrackTiming) {
-    trackProgressEl.hidden = true;
+    show(els.progress, false);
     return;
   }
   const { playedAt, durationMs } = currentTrackTiming;
-  const elapsedMs = Math.min(Date.now() - playedAt, durationMs);
-  trackProgressEl.hidden = false;
-  trackProgressFillEl.style.width = `${Math.min(100, (elapsedMs / durationMs) * 100)}%`;
-  trackElapsedEl.textContent = formatClock(elapsedMs);
-  trackDurationEl.textContent = formatClock(durationMs);
+  const elapsed = Math.min(Date.now() - playedAt, durationMs);
+  show(els.progress, true);
+  els.progressFill.style.width = `${Math.min(100, (elapsed / durationMs) * 100)}%`;
+  els.elapsed.textContent = formatClock(elapsed);
+  els.duration.textContent = formatClock(durationMs);
 }
-
-// No logo uploaded yet (drop one at public/logo.png) -- hide the broken
-// image rather than show it.
-logoEl.addEventListener('error', () => (logoEl.hidden = true));
-
-// Covers both a missing track art URL and a persona with no photo yet at
-// public/dj-photos/<persona>.jpg (#art doubles as the DJ photo slot below).
-artEl.addEventListener('error', () => (artEl.hidden = true));
-
-playButton.addEventListener('click', () => {
-  if (!streamStarted) {
-    player.src = '/stream';
-    streamStarted = true;
-  }
-  if (player.paused) {
-    player.play();
-  } else {
-    player.pause();
-  }
-});
-
-player.addEventListener('play', () => (playButton.textContent = 'Pause'));
-player.addEventListener('pause', () => (playButton.textContent = 'Tune In'));
 
 async function fetchNowPlaying() {
   try {
     const res = await fetch('/api/now-playing');
-    if (!res.ok) return;
-    const data = await res.json();
-
-    if (data.station?.name) {
-      document.title = data.station.name;
-    }
-    if (data.station?.streamUrl) {
-      streamUrlEl.textContent = `Icecast URL: ${data.station.streamUrl}`;
-    }
-    onAirLabelEl.hidden = !data.show;
-    onAirLabelEl.textContent = data.station?.name ? `On Air at ${data.station.name}` : 'On Air';
-    showNameEl.textContent = data.show ? data.show.name : '';
-    showHostEl.hidden = !data.show?.host;
-    showHostEl.textContent = data.show?.host ? `with ${data.show.host}` : '';
-
-    if (data.dj) {
-      djTalkingEl.textContent = `🎙 ${data.dj} talking`;
-      djTalkingEl.hidden = false;
-      trackTitleEl.hidden = true;
-      trackArtistEl.hidden = true;
-      // A handoff joins names with " & " (see server/showName.js); only the
-      // first persona's photo is shown for that rare case.
-      const persona = data.dj.split(' & ')[0].toLowerCase();
-      artEl.src = `/dj-photos/${persona}`;
-      artEl.hidden = false;
-      currentTrackTiming = null;
-      trackIsPlaying = false;
-    } else {
-      djTalkingEl.hidden = true;
-      trackTitleEl.hidden = false;
-      trackArtistEl.hidden = false;
-      trackTitleEl.textContent = data.track ? data.track.title : '';
-      trackArtistEl.textContent = data.track?.artist ?? '';
-      artEl.hidden = !data.track?.artUrl;
-      if (data.track?.artUrl) artEl.src = data.track.artUrl;
-
-      currentTrackTiming =
-        data.track?.playedAt && data.track?.durationMs
-          ? { playedAt: new Date(data.track.playedAt).getTime(), durationMs: data.track.durationMs }
-          : null;
-      trackIsPlaying = Boolean(data.track);
-    }
-    tickTrackProgress();
+    if (!res.ok) throw new Error(res.status);
+    renderNowPlaying(await res.json());
   } catch {
-    // transient network hiccup -- next poll will retry
+    // Transient: keep last state, surface nothing scary on the very first load.
+    if (!els.trackTitle.textContent.trim()) {
+      els.trackTitle.textContent = 'Ni povezave s strežnikom';
+      els.trackArtist.textContent = 'Podatkov o predvajanju trenutno ni mogoče naložiti.';
+    }
   }
+}
+
+// ---------- history / upcoming ----------
+
+function historyRow(entry) {
+  const li = document.createElement('li');
+  if (entry.artUrl) {
+    const img = document.createElement('img');
+    img.src = entry.artUrl;
+    img.alt = '';
+    img.loading = 'lazy';
+    // /api/art 404s for tracks Plex has no cover for -- hide the broken
+    // image rather than showing a torn frame.
+    img.addEventListener('error', () => img.remove());
+    li.appendChild(img);
+  }
+  const text = document.createElement('div');
+  text.className = 'row-text';
+  const main = document.createElement('p');
+  main.className = 'row-main';
+  main.textContent = entry.title;
+  const sub = document.createElement('p');
+  sub.className = 'row-sub';
+  sub.textContent = entry.artist;
+  text.append(main, sub);
+  const time = document.createElement('span');
+  time.className = 'row-time';
+  time.textContent = formatWhen(entry.playedAt);
+  const like = document.createElement('button');
+  like.className = 'row-like';
+  like.type = 'button';
+  const liked = isFav(entry.artist, entry.title);
+  like.setAttribute('aria-pressed', String(liked));
+  like.setAttribute('aria-label', liked ? `Odstrani ${entry.title} iz priljubljenih` : `Shrani ${entry.title} med priljubljene`);
+  like.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="m12 21-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.18L12 21Z"/></svg>';
+  like.addEventListener('click', () => toggleFav(entry.artist, entry.title));
+  li.append(text, time, like);
+  return li;
 }
 
 async function fetchHistory() {
   try {
-    const res = await fetch('/api/history');
-    if (!res.ok) return;
+    const res = await fetch('/api/history?limit=20');
+    if (!res.ok) throw new Error(res.status);
     const { entries } = await res.json();
-    // The currently-playing track is also entries[0] -- skip it here since
-    // it's already shown in the now-playing section above.
-    const displayEntries = trackIsPlaying ? entries.slice(1) : entries;
-
-    historyListEl.innerHTML = '';
-    for (const entry of displayEntries) {
-      const li = document.createElement('li');
-
-      if (entry.artUrl) {
-        const img = document.createElement('img');
-        img.src = entry.artUrl;
-        img.alt = '';
-        li.appendChild(img);
-      }
-
-      const text = document.createElement('span');
-      text.textContent = `${entry.artist} — ${entry.title}`;
-      li.appendChild(text);
-
-      historyListEl.appendChild(li);
-    }
+    const display = trackIsPlaying ? entries.slice(1) : entries; // entries[0] duplicates the hero
+    els.historyList.replaceChildren(...display.map(historyRow));
+    show(els.historyEmpty, display.length === 0);
+    show(els.historyError, false);
   } catch {
-    // transient network hiccup -- next poll will retry
+    show(els.historyError, true);
   }
+}
+
+function upcomingRow(show) {
+  const li = document.createElement('li');
+  const text = document.createElement('div');
+  text.className = 'row-text';
+  const main = document.createElement('p');
+  main.className = 'row-main';
+  main.textContent = show.name;
+  const sub = document.createElement('p');
+  sub.className = 'row-sub';
+  sub.textContent = show.host ? `z ${show.host}` : '';
+  text.append(main, sub);
+  const when = document.createElement('span');
+  when.className = 'row-time';
+  const day = new Date(`${show.date}T${show.startTime}:00`);
+  when.textContent = Number.isNaN(day.getTime())
+    ? `${show.weekday} ${show.startTime}`
+    : day.toLocaleString('sl-SI', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  li.append(text, when);
+  return li;
 }
 
 async function fetchUpcoming() {
   try {
     const res = await fetch('/api/upcoming');
-    if (!res.ok) return;
+    if (!res.ok) throw new Error(res.status);
     const { shows } = await res.json();
-
-    upcomingListEl.innerHTML = '';
-    for (const show of shows) {
-      const li = document.createElement('li');
-
-      const left = document.createElement('div');
-      left.className = 'upcoming-left';
-
-      // Same /dj-photos/<persona> lookup as the now-playing DJ photo;
-      // 404s (a host with no photo yet) just hide the thumb via onerror.
-      if (show.host) {
-        const avatar = document.createElement('img');
-        avatar.className = 'upcoming-avatar';
-        avatar.alt = '';
-        avatar.src = `/dj-photos/${show.host.toLowerCase()}`;
-        avatar.addEventListener('error', () => (avatar.hidden = true));
-        left.appendChild(avatar);
-      }
-
-      const time = document.createElement('span');
-      time.className = 'upcoming-time';
-      time.textContent = `${WEEKDAY_ABBR[show.weekday] ?? show.weekday} ${show.startTime}`;
-      left.appendChild(time);
-
-      const info = document.createElement('span');
-      info.className = 'upcoming-info';
-      const name = document.createElement('span');
-      name.className = 'upcoming-name';
-      name.textContent = show.name;
-      info.appendChild(name);
-      if (show.host) {
-        const host = document.createElement('span');
-        host.className = 'upcoming-host';
-        host.textContent = `with ${show.host}`;
-        info.appendChild(host);
-      }
-
-      li.appendChild(left);
-      li.appendChild(info);
-      upcomingListEl.appendChild(li);
-    }
+    els.upcomingList.replaceChildren(...(shows ?? []).map(upcomingRow));
+    show(els.upcomingEmpty, (shows ?? []).length === 0);
+    show(els.upcomingError, false);
   } catch {
-    // transient network hiccup -- next poll will retry
+    show(els.upcomingError, true);
   }
 }
 
+// ---------- weather (real, optional) ----------
+
+async function fetchWeather() {
+  try {
+    const res = await fetch('/api/weather');
+    if (!res.ok) return;
+    const w = await res.json();
+    if (w?.temperatureC == null) return;
+    els.weatherChip.textContent = `${Math.round(w.temperatureC)}°C, ${w.condition ?? ''}`;
+    els.weatherChip.hidden = false;
+  } catch {
+    els.weatherChip.hidden = true; // optional feature failing silently is fine
+  }
+}
+
+// ---------- schedule ----------
+
+function renderSchedule(data) {
+  els.scheduleTz.textContent = `Vsi časi veljajo za časovni pas ${data.timezone ?? 'neznan'}.`;
+  const todayDate = data.days?.[0]?.date;
+  els.weekGrid.replaceChildren(
+    ...(data.days ?? []).map((day) => {
+      const col = document.createElement('div');
+      col.className = 'day-col' + (day.date === todayDate ? ' is-today' : '');
+      const name = document.createElement('p');
+      name.className = 'day-name';
+      name.textContent = SL_DAYS[day.weekday] ?? day.weekday;
+      const date = document.createElement('p');
+      date.className = 'day-date';
+      const d = new Date(`${day.date}T12:00:00`);
+      date.textContent = Number.isNaN(d.getTime()) ? day.date : d.toLocaleDateString('sl-SI', { day: 'numeric', month: 'short' });
+      col.append(name, date);
+      for (const show of day.shows) {
+        const item = document.createElement('div');
+        item.className = 'show-item' + (show.mark ? ` mark-${show.mark}` : '');
+        const time = document.createElement('span');
+        time.className = 'show-time';
+        time.textContent = show.startTime;
+        if (show.mark === 'on-air') time.insertAdjacentHTML('beforeend', '<span class="mark-chip on-air">ZDAJ</span>');
+        if (show.mark === 'next') time.insertAdjacentHTML('beforeend', '<span class="mark-chip next">NASLEDNJI</span>');
+        const nameEl = document.createElement('p');
+        nameEl.className = 'show-name';
+        nameEl.textContent = show.name;
+        item.append(time, nameEl);
+        if (show.host) {
+          const host = document.createElement('p');
+          host.className = 'show-host';
+          host.textContent = show.host;
+          item.appendChild(host);
+        }
+        col.appendChild(item);
+      }
+      if (!day.shows.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'Brez oddaj';
+        col.appendChild(empty);
+      }
+      return col;
+    })
+  );
+  if (data.downtime?.start && data.downtime?.end) {
+    els.downtimeNote.textContent = `Izven urnika (med ${data.downtime.start} in ${data.downtime.end}) postaja predvaja polnilni program.`;
+    els.downtimeNote.hidden = false;
+  }
+  show(els.scheduleError, false);
+}
+
+async function fetchSchedule() {
+  try {
+    const res = await fetch('/api/schedule');
+    if (!res.ok) throw new Error(res.status);
+    renderSchedule(await res.json());
+  } catch {
+    show(els.scheduleError, true);
+  }
+}
+
+// ---------- requests ----------
+
+async function submitRequest(event) {
+  event.preventDefault();
+  const type = $('req-type').value;
+  const title = $('req-title').value.trim();
+  const artist = $('req-artist').value.trim();
+  const message = $('req-message').value.trim();
+  const from = $('req-from').value.trim();
+  els.reqResult.className = 'form-result';
+  els.reqResult.textContent = 'Pošiljam …';
+  const button = els.form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, title, artist, message, from }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 201) {
+      els.reqResult.className = 'form-result is-ok';
+      els.reqResult.innerHTML = '';
+      els.reqResult.append(
+        `Zahtevek je oddan. ID: ${data.id} -- status: `,
+        makeBadge('pending', 'v čakanju'),
+        '. Status lahko preveriš spodaj z ID-jem.'
+      );
+      els.form.reset();
+    } else {
+      els.reqResult.className = 'form-result is-err';
+      els.reqResult.textContent = data.error ?? `Pošiljanje ni uspelo (napaka ${res.status}).`;
+    }
+  } catch {
+    els.reqResult.className = 'form-result is-err';
+    els.reqResult.textContent = 'Strežnik ni dosegljiv -- zahtevka ni bilo mogoče oddati.';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function makeBadge(status, label) {
+  const badge = document.createElement('span');
+  badge.className = `status-badge ${status}`;
+  badge.textContent = label;
+  return badge;
+}
+
+async function checkRequest() {
+  const id = els.checkInput.value.trim();
+  els.checkResult.className = 'form-result';
+  if (!id) {
+    els.checkResult.textContent = 'Vpiši ID zahtevka.';
+    return;
+  }
+  els.checkResult.textContent = 'Preverjam …';
+  try {
+    const res = await fetch(`/api/requests/${encodeURIComponent(id)}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 404) {
+      els.checkResult.className = 'form-result is-warn';
+      els.checkResult.textContent = 'Zahtevek s tem ID ne obstaja.';
+      return;
+    }
+    if (!res.ok) {
+      els.checkResult.className = 'form-result is-err';
+      els.checkResult.textContent = data.error ?? `Napaka ${res.status}.`;
+      return;
+    }
+    els.checkResult.className = 'form-result';
+    els.checkResult.innerHTML = '';
+    const labels = {
+      pending: ['pending', 'v čakanju'],
+      approved: ['approved', 'odobreno'],
+      rejected: ['rejected', 'zavrnjeno'],
+    };
+    const [cls, label] = labels[data.status] ?? ['pending', data.status];
+    els.checkResult.append(makeBadge(cls, label));
+    const detail = document.createElement('span');
+    detail.textContent = ` ${data.artist ? `${data.artist} — ` : ''}${data.title}`;
+    els.checkResult.appendChild(detail);
+    if (data.note) {
+      const note = document.createElement('p');
+      note.textContent = `Opomba lastnika: ${data.note}`;
+      els.checkResult.appendChild(note);
+    }
+  } catch {
+    els.checkResult.className = 'form-result is-err';
+    els.checkResult.textContent = 'Strežnik ni dosegljiv.';
+  }
+}
+
+// ---------- player controls ----------
+
+function setPlayIcon(playing) {
+  els.playButton.querySelector('.icon-play').hidden = playing;
+  els.playButton.querySelector('.icon-pause').hidden = !playing;
+  els.playButton.setAttribute('aria-pressed', String(playing));
+  els.playButton.setAttribute('aria-label', playing ? 'Ustavi' : 'Predvajaj');
+}
+
+els.playButton.addEventListener('click', () => {
+  if (!streamStarted) {
+    player.src = '/stream';
+    streamStarted = true;
+    setStatus('Povezujem s tokom …');
+  }
+  if (player.paused) player.play().catch(() => setStatus('Predvajanja ni bilo mogoče začeti -- poskusi znova.', 'is-error'));
+  else player.pause();
+});
+
+player.addEventListener('playing', () => {
+  setPlayIcon(true);
+  setStatus('V predvajanju.', 'is-ok');
+});
+player.addEventListener('pause', () => {
+  setPlayIcon(false);
+  if (streamStarted) setStatus('Zaustavljeno. Tok ostaja na zadnji točki -- s predvajanjem se pridružiš v živo.');
+});
+player.addEventListener('waiting', () => setStatus('Čakam na podatke toka …'));
+player.addEventListener('stalled', () => setStatus('Tok se je ustavil -- poskušam znova …', 'is-warn'));
+player.addEventListener('error', () => {
+  if (streamStarted) setStatus('Tok ni dosegljiv (strežnik ali povezava). Preveri, ali postaja teče, in poskusi znova.', 'is-error');
+});
+
+// Volume + mute, persisted locally.
+const VOL_KEY = 'radioclyde-volume';
+function applyVolume() {
+  const v = Number(els.volume.value) / 100;
+  player.volume = v;
+  player.muted = v === 0;
+  const muted = player.muted;
+  els.muteButton.querySelector('.icon-vol').hidden = muted;
+  els.muteButton.querySelector('.icon-muted').hidden = !muted;
+  els.muteButton.setAttribute('aria-pressed', String(muted));
+  els.muteButton.setAttribute('aria-label', muted ? 'Vklopi zvok' : 'Utišaj');
+  try {
+    localStorage.setItem(VOL_KEY, els.volume.value);
+  } catch { /* ignore */ }
+}
+els.volume.addEventListener('input', applyVolume);
+els.muteButton.addEventListener('click', () => {
+  els.volume.value = player.muted || player.volume === 0 ? 80 : 0;
+  applyVolume();
+});
+try {
+  const saved = localStorage.getItem(VOL_KEY);
+  if (saved !== null) els.volume.value = saved;
+} catch { /* ignore */ }
+applyVolume();
+
+els.likeButton.addEventListener('click', () => {
+  if (!currentTrackKey) return;
+  toggleFav(...currentTrackKey);
+});
+
+// ---------- tabs ----------
+
+const TABS = [
+  { tab: 'tab-now', panel: 'panel-now', onShow: null },
+  { tab: 'tab-schedule', panel: 'panel-schedule', onShow: fetchSchedule },
+  { tab: 'tab-requests', panel: 'panel-requests', onShow: null },
+];
+
+function selectTab(id) {
+  for (const { tab, panel, onShow } of TABS) {
+    const active = tab === id;
+    $(tab).setAttribute('aria-selected', String(active));
+    $(panel).hidden = !active;
+    if (active && onShow) onShow();
+  }
+}
+for (const { tab } of TABS) $(tab).addEventListener('click', () => selectTab(tab));
+
+// Retry buttons
+document.querySelectorAll('[data-retry]').forEach((btn) =>
+  btn.addEventListener('click', () => {
+    const what = btn.dataset.retry;
+    if (what === 'history') fetchHistory();
+    if (what === 'upcoming') fetchUpcoming();
+    if (what === 'schedule') fetchSchedule();
+  })
+);
+
+// ---------- boot ----------
+
+els.form.addEventListener('submit', submitRequest);
+els.checkButton.addEventListener('click', checkRequest);
+
+renderFavs();
 fetchNowPlaying();
 fetchHistory();
 fetchUpcoming();
-setInterval(fetchNowPlaying, POLL_INTERVAL_MS);
-setInterval(fetchHistory, POLL_INTERVAL_MS);
-setInterval(fetchUpcoming, POLL_INTERVAL_MS);
-setInterval(tickTrackProgress, 1000);
+fetchWeather();
+setInterval(fetchNowPlaying, POLL_MS);
+setInterval(fetchHistory, POLL_MS);
+setInterval(fetchUpcoming, POLL_MS);
+setInterval(fetchWeather, 10 * 60 * 1000);
+setInterval(fetchSchedule, SCHEDULE_POLL_MS); // keeps marks fresh while the tab is open
+setInterval(tickProgress, 1000);

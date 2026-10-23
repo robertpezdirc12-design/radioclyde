@@ -15,6 +15,11 @@ function readAiredEntries() {
   }
 }
 
+// Raw entries (with ratingKey) for server-side analysis that must NOT go
+// through getRecentHistory's listener-facing projection -- currently the
+// studio diagnostics repeat-detector, which groups by ratingKey.
+export { readAiredEntries };
+
 // history/aired.jsonl is append-only chronological (oldest first), written
 // by plex/scrobbleTrack.js at real track-start -- unlike producer/history.js's
 // played.jsonl, which is written at production time and isn't safe to show a

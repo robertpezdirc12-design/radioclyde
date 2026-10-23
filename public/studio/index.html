@@ -15,6 +15,10 @@
         <li><a href="#shows" data-view="shows">Shows</a></li>
         <li><a href="#schedule" data-view="schedule">Schedule</a></li>
         <li><a href="#prompts" data-view="prompts">Prompts</a></li>
+        <li><a href="#requests" data-view="requests">Requests</a></li>
+        <li><a href="#library" data-view="library">Library</a></li>
+        <li><a href="#voice" data-view="voice">Voice</a></li>
+        <li><a href="#diagnostics" data-view="diagnostics">Diagnostics</a></li>
       </ul>
     </nav>
 
@@ -140,6 +144,116 @@
             <button id="save-personas" type="button" class="btn btn-primary">Save all personas</button>
             <span id="personas-message" class="action-message"></span>
           </div>
+        </div>
+      </section>
+
+      <section id="view-requests" class="view" hidden>
+        <h1>Requests &amp; dedications</h1>
+        <p class="view-hint">Listener submissions from POST /api/requests. Approve or reject with a note -- the listener's status check shows exactly what you set here, nothing more.</p>
+        <div class="toolbar">
+          <select id="requests-filter" class="input-inline">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button id="requests-refresh" type="button" class="btn">Refresh</button>
+        </div>
+        <div class="card">
+          <table class="data-table">
+            <thead>
+              <tr><th>Received</th><th>Type</th><th>Track</th><th>Message</th><th>From</th><th>IP</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="requests-table-body"></tbody>
+          </table>
+          <p class="empty-note" id="requests-empty" hidden>No requests yet.</p>
+        </div>
+      </section>
+
+      <section id="view-library" class="view" hidden>
+        <h1>Music library &amp; rotation</h1>
+        <div class="columns">
+          <div class="card">
+            <h2>Rotation health</h2>
+            <div id="rotation-summary" class="kv-list"></div>
+            <p class="view-hint">Repeat offenders are computed from the real aired history (history/aired.jsonl) inside the rotation window -- the same evidence the hourly-repeat audit used.</p>
+          </div>
+          <div class="card">
+            <h2>Recently played</h2>
+            <ul id="rotation-history" class="data-list"></ul>
+          </div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <h2 style="margin:0">Library</h2>
+            <input id="library-search" type="search" class="input-inline" placeholder="Search artist / title / album...">
+            <span id="library-count" class="muted"></span>
+          </div>
+          <p class="view-hint" id="library-note" hidden></p>
+          <table class="data-table">
+            <thead>
+              <tr><th>Artist</th><th>Title</th><th>Album</th><th>Genres</th><th>Duration</th></tr>
+            </thead>
+            <tbody id="library-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="view-voice" class="view" hidden>
+        <h1>Voice &amp; station scripts</h1>
+        <p class="view-hint">Read-only status of the deterministic voice layer (no AI models). Mode switching is a config.json change + service restart -- by design, the studio does not flip it silently.</p>
+        <div class="columns">
+          <div class="card">
+            <h2>Active mode</h2>
+            <div id="voice-summary" class="kv-list"></div>
+          </div>
+          <div class="card">
+            <h2>Piper TTS</h2>
+            <div id="voice-piper" class="kv-list"></div>
+          </div>
+        </div>
+        <div class="columns">
+          <div class="card">
+            <h2>Persona clips</h2>
+            <div id="voice-clips" class="kv-list"></div>
+          </div>
+          <div class="card">
+            <h2>Pregenerated slots</h2>
+            <div id="voice-pregen" class="kv-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-diagnostics" class="view" hidden>
+        <h1>Diagnostics</h1>
+        <div class="columns">
+          <div class="card">
+            <h2>Process</h2>
+            <div id="diag-process" class="kv-list"></div>
+          </div>
+          <div class="card">
+            <h2>Stream</h2>
+            <div id="diag-stream" class="kv-list"></div>
+          </div>
+        </div>
+        <div class="columns">
+          <div class="card">
+            <h2>Playlists &amp; metadata</h2>
+            <div id="diag-playlists" class="kv-list"></div>
+          </div>
+          <div class="card">
+            <h2>Repeat check (rotation window)</h2>
+            <div id="diag-repeats" class="kv-list"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Recent errors (process ring)</h2>
+          <ul id="diag-errors" class="data-list"></ul>
+          <p class="empty-note" id="diag-errors-empty" hidden>No process-level errors recorded.</p>
+        </div>
+        <div class="card">
+          <h2>Log tails</h2>
+          <div id="diag-logs"></div>
         </div>
       </section>
     </main>

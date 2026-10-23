@@ -39,6 +39,10 @@ config.paths = {
   trackRatingKeysLockPath: path.join(config.dataDir, '.track_ratingkeys.lock'),
   nowPlayingTrackPath: path.join(config.dataDir, 'now_playing_track.json'),
   airedHistoryFile: path.join(config.dataDir, 'history', 'aired.jsonl'),
+  // Listener song requests / dedications (server/requestsStore.js): one JSON
+  // object per line, appended by POST /api/requests, rewritten atomically on
+  // moderation (studioRequestsApi.js).
+  requestsFile: path.join(config.dataDir, 'requests.jsonl'),
   artCacheDir: path.join(config.dataDir, 'cache', 'art'),
   // Persona system prompts + the script-review system prompt, split out of
   // this boot-time-loaded config.json into their own file so studio admin

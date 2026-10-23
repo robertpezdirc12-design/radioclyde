@@ -16,6 +16,7 @@
 import Fastify from 'fastify';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import { recordError } from '../lib/errorRing.js';
 import { startScheduler } from '../scheduler/scheduler.js';
 import { registerAuthHook } from './auth.js';
 import { registerStaticRoutes } from './staticFiles.js';
@@ -38,9 +39,11 @@ const log = createLogger('web');
 // Node-level fault), but a stray unhandled rejection in scheduler-side code
 // shouldn't be able to do that on its own.
 process.on('uncaughtException', (err) => {
+  recordError('uncaughtException', err);
   log(`uncaughtException: ${err.stack || err.message}`);
 });
 process.on('unhandledRejection', (err) => {
+  recordError('unhandledRejection', err);
   log(`unhandledRejection: ${err?.stack || err}`);
 });
 

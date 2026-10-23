@@ -227,7 +227,11 @@ export function mostRecentOccurrence(schedule, now) {
       }
     }
   }
-  return best && { show: best.show, weekday: best.weekday, date: best.date, timeKey: best.timeKey };
+  // `start` (minute-of-day, offset-aware -- yesterday's spill carries
+  // -1440) is part of the return so callers can tell whether the occurrence
+  // is still inside its nominal slot; scheduleGrid.js's on-air marking
+  // depends on it, and the field is additive for every existing consumer.
+  return best && { show: best.show, weekday: best.weekday, date: best.date, timeKey: best.timeKey, start: best.start };
 }
 
 // Every occurrence starting within horizonMinutes from now, checking today's

@@ -1,6 +1,8 @@
 import { composeNowPlaying } from './nowPlaying.js';
 import { getRecentHistory } from './historyApi.js';
 import { getUpcomingShows } from './upcoming.js';
+import { registerScheduleRoute } from './scheduleApi.js';
+import { registerRequestsRoutes } from './requestsApi.js';
 
 // Natural future home for POST /api/requests (song requests) -- same file,
 // same auth hook already applied globally in index.js, no rework needed.
@@ -13,4 +15,7 @@ export function registerApiRoutes(fastify) {
   });
 
   fastify.get('/api/upcoming', () => ({ shows: getUpcomingShows() }));
+
+  registerScheduleRoute(fastify);
+  registerRequestsRoutes(fastify);
 }

@@ -14,6 +14,10 @@ const ASSETS = [
   { route: '/js/shows.js', file: 'js/shows.js', contentType: 'application/javascript' },
   { route: '/js/schedule.js', file: 'js/schedule.js', contentType: 'application/javascript' },
   { route: '/js/prompts.js', file: 'js/prompts.js', contentType: 'application/javascript' },
+  { route: '/js/requests.js', file: 'js/requests.js', contentType: 'application/javascript' },
+  { route: '/js/library.js', file: 'js/library.js', contentType: 'application/javascript' },
+  { route: '/js/voice.js', file: 'js/voice.js', contentType: 'application/javascript' },
+  { route: '/js/diagnostics.js', file: 'js/diagnostics.js', contentType: 'application/javascript' },
 ];
 
 // Same fixed-route approach as staticFiles.js -- small, fixed asset set, no

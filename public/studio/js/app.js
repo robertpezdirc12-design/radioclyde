@@ -2,9 +2,22 @@ import { startOnAirView } from './onAir.js';
 import { startShowsView } from './shows.js';
 import { startScheduleView } from './schedule.js';
 import { startPromptsView } from './prompts.js';
+import { startRequestsView } from './requests.js';
+import { startLibraryView } from './library.js';
+import { startVoiceView } from './voice.js';
+import { startDiagnosticsView } from './diagnostics.js';
 
-const VIEWS = ['on-air', 'shows', 'schedule', 'prompts'];
-const STARTERS = { 'on-air': startOnAirView, shows: startShowsView, schedule: startScheduleView, prompts: startPromptsView };
+const VIEWS = ['on-air', 'shows', 'schedule', 'prompts', 'requests', 'library', 'voice', 'diagnostics'];
+const STARTERS = {
+  'on-air': startOnAirView,
+  shows: startShowsView,
+  schedule: startScheduleView,
+  prompts: startPromptsView,
+  requests: startRequestsView,
+  library: startLibraryView,
+  voice: startVoiceView,
+  diagnostics: startDiagnosticsView,
+};
 const started = new Set();
 
 function currentView() {
@@ -25,7 +38,7 @@ function showView(view) {
   if (!started.has(view)) {
     started.add(view);
     STARTERS[view]();
-  } else if (view === 'shows' || view === 'schedule' || view === 'prompts') {
+  } else if (['shows', 'schedule', 'prompts', 'requests', 'library', 'voice'].includes(view)) {
     // Re-fetch on every visit for views that don't self-poll, so a stale
     // client doesn't show data another tab (or the scheduler) already
     // changed on disk.

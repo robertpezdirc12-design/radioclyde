@@ -17,6 +17,10 @@ import { registerStudioShowsApi } from './studioShowsApi.js';
 import { registerStudioScheduleApi } from './studioScheduleApi.js';
 import { registerStudioPromptsApi } from './studioPromptsApi.js';
 import { registerStudioOnAirApi } from './studioOnAirApi.js';
+import { registerStudioRequestsApi } from './studioRequestsApi.js';
+import { registerStudioDiagnosticsApi } from './studioDiagnosticsApi.js';
+import { registerStudioLibraryApi } from './studioLibraryApi.js';
+import { registerStudioVoiceApi } from './studioVoiceApi.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -61,4 +65,8 @@ export async function registerStudioRoutes(fastify) {
   registerStudioScheduleApi(fastify);
   registerStudioPromptsApi(fastify);
   registerStudioOnAirApi(fastify);
+  registerStudioRequestsApi(fastify);
+  registerStudioDiagnosticsApi(fastify);
+  registerStudioLibraryApi(fastify);
+  registerStudioVoiceApi(fastify);
 }
