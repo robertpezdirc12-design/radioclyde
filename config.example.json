@@ -103,6 +103,11 @@
     "impactMinSamples": 2,
     "impactMinCoverage": 0.5
   },
+  "broadcast": {
+    "tuneIn": null,
+    "discordWebhook": null,
+    "publicStreamUrl": null
+  },
   "scripts": {
     "maxToolIterations": 60,
     "defaultRepeatWindowDays": 7

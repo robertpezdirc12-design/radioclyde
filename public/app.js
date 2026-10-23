@@ -14,6 +14,7 @@ const els = {
   brandName: $('brand-name'),
   liveChip: $('live-chip'),
   weatherChip: $('weather-chip'),
+  listenersChip: $('listeners-chip'),
   art: $('art'),
   artFallback: $('art-fallback'),
   onAirLabel: $('on-air-label'),
@@ -320,7 +321,6 @@ async function fetchUpcoming() {
 }
 
 // ---------- weather (real, optional) ----------
-
 async function fetchWeather() {
   try {
     const res = await fetch('/api/weather');
@@ -331,6 +331,31 @@ async function fetchWeather() {
     els.weatherChip.hidden = false;
   } catch {
     els.weatherChip.hidden = true; // optional feature failing silently is fine
+  }
+}
+
+// ---------- live listener count (real, optional) ----------
+
+// Slovenian pluralization done properly: 1 poslušalec, 2–4 poslušalca,
+// 5+ poslušalcev (the 11/12/14 exceptions from Russian-style counts don't
+// apply here, but the tens/teens rule does: 12 poslušalcev, 22 poslušalca).
+function listenersLabel(n) {
+  const mod100 = n % 100;
+  if (n === 1) return '1 poslušalec';
+  if (mod100 >= 2 && mod100 <= 4) return `${n} poslušalca`;
+  return `${n} poslušalcev`;
+}
+
+async function fetchListeners() {
+  try {
+    const res = await fetch('/api/listeners');
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    if (data?.listeners == null) throw new Error('no count');
+    els.listenersChip.textContent = listenersLabel(data.listeners);
+    els.listenersChip.hidden = false;
+  } catch {
+    els.listenersChip.hidden = true; // dead/unreachable stream hides the chip -- never a stale number
   }
 }
 
@@ -591,9 +616,11 @@ fetchNowPlaying();
 fetchHistory();
 fetchUpcoming();
 fetchWeather();
+fetchListeners();
 setInterval(fetchNowPlaying, POLL_MS);
 setInterval(fetchHistory, POLL_MS);
 setInterval(fetchUpcoming, POLL_MS);
 setInterval(fetchWeather, 10 * 60 * 1000);
+setInterval(fetchListeners, 60 * 1000);
 setInterval(fetchSchedule, SCHEDULE_POLL_MS); // keeps marks fresh while the tab is open
 setInterval(tickProgress, 1000);

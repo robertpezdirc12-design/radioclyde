@@ -97,6 +97,14 @@ phases hand off through.
   over time and joins it with the real aired history for per-track
   impact (Δ listeners start→end per play). Outages are stored as explicit
   gaps, never interpolated — [details](docs/listener-analytics.md).
+- **Real listener count on the public page**: a topbar chip shows how many
+  people are listening right now, with proper Slovenian pluralization;
+  when Icecast doesn't answer, the chip hides itself instead of showing a
+  stale number.
+- **External now-playing (optional, off by default)**: every aired track
+  updates TuneIn's metadata via the AIR API, and curated show tracks post
+  to a Discord webhook — both configured in `config.json`'s `broadcast`
+  block, both failure-safe (a dead webhook can never affect playout).
 - **Listeners everywhere**: Icecast stream, web now-playing page, JSON API,
   authenticated stream proxy, studio admin UI, native Android TV/Google TV
   and Android mobile apps.

@@ -77,6 +77,11 @@
     "impactMinSamples": 2,
     "impactMinCoverage": 0.5
   },
+  "broadcast": {
+    "tuneIn": null,
+    "discordWebhook": null,
+    "publicStreamUrl": null
+  },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
     "telnetPort": 1234,

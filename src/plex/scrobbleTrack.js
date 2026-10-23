@@ -18,6 +18,7 @@ import { readNowPlayingState, confirmOccurrenceStart, updateNowPlaying } from '.
 import { recordFillerPlays } from '../scheduler/fillerRotation.js';
 import { occurrenceDir } from '../scheduler/scheduleUtil.js';
 import { getListenerCount } from '../icecast/listeners.js';
+import { pushNowPlaying } from '../broadcast/nowPlayingPush.js';
 
 const log = createLogger('station');
 const filePath = process.argv[2];
@@ -154,6 +155,16 @@ async function main() {
 
   const track = await getTrackByRatingKey(ratingKey);
   recordNowPlaying(track);
+
+  // External now-playing metadata (TuneIn AIR + Discord webhook) -- both are
+  // config-gated no-ops by default and pushNowPlaying itself never throws
+  // (every channel failure is caught inside and returned as a result object).
+  // The await only paces this detached process's exit; a dead webhook can
+  // never delay playout, because Liquidsoap moved on the moment the segment
+  // started. TuneIn hears every aired track (filler included -- it displays
+  // what is actually playing); Discord hears only curated show tracks, so
+  // the community channel isn't spammed by the filler rotation itself.
+  await pushNowPlaying({ track, isFiller });
 }
 
 main().catch((err) => {
