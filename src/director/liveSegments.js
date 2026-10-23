@@ -3,11 +3,22 @@ import { complete } from '../llm/client.js';
 import { PARALINGUISTIC_INSTRUCTION, TIME_OF_DAY_INSTRUCTION } from '../llm/prompts.js';
 import { loadPersonas } from '../scheduler/promptsUtil.js';
 import { fetchCurrentWeather, describeWeatherCode, currentLocalTimeString, currentLocalDateString } from './weather.js';
+import { autoRadioEnabled } from '../auto/voice.js';
+import { resolveLiveLineAuto } from '../auto/liveLines.js';
 
 // Real data first (deterministic fetch, or the server clock for time --
 // no network call, per script-format.md), THEN one small tool-free
 // completion turns it into a spoken line shaped by the segment's `brief`.
+//
+// autoRadio mode keeps "real data first" and drops the completion: the fact
+// set is dropped into the station's configured live template
+// (auto/liveLines.js -> auto/templates.js), with the weather code described
+// in Slovenian from the same WMO table mapping. Same facts, no model.
 export async function resolveLiveLine({ persona, kind, brief }) {
+  if (autoRadioEnabled()) {
+    return resolveLiveLineAuto({ persona, kind, brief });
+  }
+
   const facts = [];
   if (kind === 'time' || kind === 'time-weather') {
     facts.push(`Current local date: ${currentLocalDateString(config.weather.timezone)}. Current local time: ${currentLocalTimeString(config.weather.timezone)}.`);

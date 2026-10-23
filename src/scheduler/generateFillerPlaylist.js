@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
-import { fetchAllTracks } from '../plex/tracks.js';
+import { fetchAllTracksAny } from '../auto/librarySource.js';
 import { dedupeByTitle, isBannedTrack } from '../plex/trackFilters.js';
 import { recentlyPlayedRatingKeys } from '../producer/history.js';
 import { toLocalPath } from '../plex/musicLibrary.js';
@@ -20,8 +20,15 @@ import { annotateTrackEntry } from '../director/playlist.js';
 
 const log = createLogger('station');
 
+// Resolves a track object to its playable local path for playlist entries --
+// auto-radio's local library tracks carry localPath directly (there is no
+// Plex path prefix to map), Plex tracks keep the config-mapped conversion.
+function trackLocalPath(t) {
+  return t.localPath ?? toLocalPath(t.plexPath);
+}
+
 export async function generateFillerPlaylist() {
-  const all = await fetchAllTracks();
+  const all = await fetchAllTracksAny();
   const recentlyPlayed = recentlyPlayedRatingKeys();
   // Station-wide never-play list (keywords + artists) lives on station.json,
   // not config.json -- config.filler keeps poolSize/intervals/max duration.
@@ -37,7 +44,7 @@ export async function generateFillerPlaylist() {
   );
 
   const pool = shuffle(eligible).slice(0, config.filler.poolSize);
-  const localPaths = pool.map((t) => toLocalPath(t.plexPath));
+  const localPaths = pool.map(trackLocalPath);
   // Same fade-up as show tracks (director/playlist.js's annotateTrackEntry)
   // -- filler is real music too, no reason it should hard-cut in while show
   // tracks fade.

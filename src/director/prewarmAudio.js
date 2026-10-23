@@ -22,23 +22,28 @@ export async function prewarmShowAudio({ id, weekday, date }) {
 
   const djSegments = parsed.segments.filter((s) => s.type === 'dj');
   let warmed = 0;
+  let skipped = 0;
   for (const [i, seg] of parsed.segments.entries()) {
     if (seg.type !== 'dj') continue;
-    const { cached } = await getCachedDjAudio(djAudioDir, i, seg.persona, seg.body);
-    if (!cached) warmed++;
+    // slot/seed must match directShow()'s own call exactly, so prewarm fills
+    // the exact cache entries directShow will hit (persona clip selection in
+    // autoRadio clips mode keys off both).
+    const { cached, skipped: segSkipped } = await getCachedDjAudio(djAudioDir, i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`);
+    if (segSkipped) skipped++;
+    else if (!cached) warmed++;
   }
 
   // Same reasoning as directShow()'s own restartChatterbox call: reclaim
   // whatever accumulated in the process's memory/swap during this show's TTS
   // rather than leaving it resident until the next one. Best-effort -- a
   // failure here shouldn't block the prewarm pass from moving on to the next
-  // show.
+  // show. No-ops under autoRadio (no Chatterbox to restart).
   try {
     await restartChatterbox();
   } catch (err) {
     log(`[${id}] NOTE: Chatterbox restart failed after prewarm: ${err.message}`);
   }
 
-  log(`[${id}] Prewarmed dj audio for ${weekday} ${date}: ${warmed}/${djSegments.length} segment(s) synthesized (rest already cached).`);
-  return { warmed, total: djSegments.length };
+  log(`[${id}] Prewarmed dj audio for ${weekday} ${date}: ${warmed}/${djSegments.length} segment(s) synthesized${skipped ? `, ${skipped} skipped (no-model voice mode with no audio for the slot)` : ''} (rest already cached).`);
+  return { warmed, total: djSegments.length, skipped };
 }

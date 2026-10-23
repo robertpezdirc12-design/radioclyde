@@ -36,6 +36,8 @@ import { produceTrackQuery } from './trackSelection/query.js';
 import { researchTracks, researchAlbumTracks } from './research/trackResearch.js';
 import { buildSegments } from './boundaryWalk.js';
 import { reviewScript } from './reviewScript.js';
+import { autoRadioEnabled } from '../auto/voice.js';
+import { runAutoProducerPipeline, recordAutoPlayedTracks } from '../auto/produce.js';
 
 const log = createLogger('station');
 
@@ -171,18 +173,35 @@ export async function generateScript({ id, weekday, date, descriptionPath, durat
   const runDir = scheduleUtil.dateDir(weekday, id, date);
 
   try {
-    const { markdown, tracks, debug } = await runProducerPipeline({ id, descriptionText, durationMinutes, date });
+    // autoRadio mode swaps the whole producer pipeline for its deterministic
+    // counterpart -- same inputs, same output files, zero model calls. The
+    // scheduler/studio/CLI entry points all land here through one config
+    // flag; nothing else about the caller changes.
+    const { markdown, tracks, debug } = autoRadioEnabled()
+      ? await runAutoProducerPipeline({ id, descriptionText, durationMinutes, date })
+      : await runProducerPipeline({ id, descriptionText, durationMinutes, date });
 
     // Recorded now, at finalization, not on every intermediate lookup or on
     // a failed run -- a script that never finished shouldn't burn down the
     // eligible-track pool for a retry of the same brief.
-    for (const track of tracks) {
-      recordPlayed({ ratingKey: track.ratingKey, artist: track.artist, title: track.title, album: track.album }, id);
+    if (autoRadioEnabled()) {
+      recordAutoPlayedTracks(tracks, id);
+    } else {
+      for (const track of tracks) {
+        recordPlayed({ ratingKey: track.ratingKey, artist: track.artist, title: track.title, album: track.album }, id);
+      }
     }
 
     fs.mkdirSync(runDir, { recursive: true });
     fs.writeFileSync(path.join(runDir, 'script.md'), markdown);
     fs.writeFileSync(path.join(runDir, 'transcript.json'), JSON.stringify(debug, null, 2));
+    // Auto mode's director must resolve ratingKeys without Plex (the local
+    // provider has no Plex metadata endpoint) -- the full track objects are
+    // written as a sidecar next to script.md and read back by
+    // director/scriptLoader.js when Plex isn't the metadata source.
+    if (autoRadioEnabled()) {
+      fs.writeFileSync(path.join(runDir, 'tracks.json'), JSON.stringify(tracks, null, 2));
+    }
     fs.writeFileSync(
       path.join(runDir, 'context.json'),
       JSON.stringify(
@@ -193,7 +212,8 @@ export async function generateScript({ id, weekday, date, descriptionPath, durat
           descriptionPath: resolvedDescriptionPath,
           durationMinutes,
           repeatWindowDays: debug.brief.repeatWindowDays,
-          model: config.lmStudio.model,
+          mode: autoRadioEnabled() ? 'auto' : 'ai',
+          model: config.lmStudio?.model ?? null,
           generatedAt: toLocalISOString(),
           trackCount: tracks.length,
           validationOk: debug.validation.ok,

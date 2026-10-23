@@ -7,12 +7,15 @@
 // fitting and catalog-variety problems that surfaced testing the AI-driven
 // version.
 import { config } from '../../config/index.js';
-import { fetchCandidateTracks } from '../../plex/tracks.js';
+import { fetchCandidateTracksAny, musicSource } from '../../auto/librarySource.js';
 import { fetchCandidateAlbums, fetchAlbumTracks, fetchAlbumsByFolder } from '../../plex/albums.js';
 import { dedupeByTitle, isBannedTrack, matchesExcludedKeyword, popularityWeight, weightedShuffle } from '../../plex/trackFilters.js';
 import { recentlyPlayedRatingKeys, recentlyPlayedAlbumKeys, recentlyPlayedAlbumTitles, albumKey } from '../history.js';
 import { shuffle } from '../../lib/format.js';
 import { loadNeverPlay } from '../../scheduler/scheduleUtil.js';
+import { createLogger } from '../../lib/logger.js';
+
+const log = createLogger('station');
 
 function neverPlayBans(excludeKeywords) {
   const station = loadNeverPlay();
@@ -64,6 +67,15 @@ const DEFAULT_COMPILATION_ALBUM_KEYWORDS = [
 // artist-locked show with a small catalog, run often enough), fall back to
 // the full list rather than failing the show outright.
 async function pickRandomAlbum({ artist, genre, decade, albumKeyword, albumGenre, excludeKeywords, excludeAlbumKeys = new Set() }) {
+  // Local-library mode has no album entities to pick from (folders carry no
+  // album grouping beyond tags) -- say so clearly instead of surfacing a raw
+  // Plex connection error.
+  if (musicSource() === 'local') {
+    throw new Error(
+      'singleAlbum shows need Plex album metadata, which the local-folder library does not provide. ' +
+        'Restyle the brief as a plain artist/genre/decade selection (with oneTrackPerAlbum for variety), or point music.source back at Plex.'
+    );
+  }
   const albums = await fetchCandidateAlbums({ artist, genre, decade, albumKeyword, albumGenre });
   const bans = neverPlayBans(excludeKeywords);
   const compilationKeywords = [...DEFAULT_COMPILATION_ALBUM_KEYWORDS, ...bans.keywords];
@@ -235,6 +247,19 @@ export async function buildTrackQueue({
   targetDurationMinutes,
   djOverheadSeconds = DEFAULT_DJ_OVERHEAD_SECONDS,
   repeatWindowDays,
+  // Auto-radio rule extensions (all optional; defaults preserve the exact
+  // pre-autoRadio behavior):
+  //   excludeArtists -- Set of lowercased artist names excluded from the
+  //     eligible pool (auto/rules.js's artist cooldown). If the exclusion
+  //     empties the pool entirely, it is retried WITHOUT the cooldown rather
+  //     than failing the show, and cooldownExcluded reports what happened.
+  //   popularShare -- 0..1 fraction of selected slots drawn from the pool's
+  //     popular half (median popularityWeight split), e.g. 0.7 = ~70/30 mix.
+  //   decadeSpread -- round-robin the ordered candidates across decades so a
+  //     multi-decade pool alternates instead of weighted-shuffle clumping.
+  excludeArtists = null,
+  popularShare = null,
+  decadeSpread = false,
 } = {}) {
   if (singleAlbum) {
     return buildSingleAlbumTrackQueue({
@@ -276,18 +301,78 @@ export async function buildTrackQueue({
   const maxTrackDurationMs = effectiveMaxTrackDurationSeconds ? effectiveMaxTrackDurationSeconds * 1000 : undefined;
   const effectiveMinTrackDurationSeconds = minTrackDurationSeconds ?? config.shows.minTrackDurationSeconds;
   const minTrackDurationMs = effectiveMinTrackDurationSeconds ? effectiveMinTrackDurationSeconds * 1000 : undefined;
-  const rawCandidates = await fetchCandidateTracks({ artist, genre, decade, albumKeyword, folder, artistList, albumGenre, recentlyAdded });
+  const rawCandidates = await fetchCandidateTracksAny({ artist, genre, decade, albumKeyword, folder, artistList, albumGenre, recentlyAdded });
   const recentlyPlayed = recentlyPlayedRatingKeys(repeatWindowDays);
   const bans = neverPlayBans(excludeKeywords);
-  const eligible = dedupeByTitle(rawCandidates).filter(
-    (t) =>
-      !recentlyPlayed.has(String(t.ratingKey)) &&
-      !isBannedTrack(t, bans) &&
-      (!maxTrackDurationMs || t.durationMs <= maxTrackDurationMs) &&
-      (!minTrackDurationMs || t.durationMs >= minTrackDurationMs)
-  );
+  const applyCooldown = (t) => !excludeArtists?.size || !excludeArtists.has(String(t.artist).toLowerCase());
+  const filterEligible = (withCooldown) =>
+    dedupeByTitle(rawCandidates).filter(
+      (t) =>
+        !recentlyPlayed.has(String(t.ratingKey)) &&
+        !isBannedTrack(t, bans) &&
+        (!maxTrackDurationMs || t.durationMs <= maxTrackDurationMs) &&
+        (!minTrackDurationMs || t.durationMs >= minTrackDurationMs) &&
+        (withCooldown ? applyCooldown(t) : true)
+    );
+  const withoutCooldown = filterEligible(false);
+  let eligible = filterEligible(true);
+  // A cooldown that starves the whole pool (single-artist show, or a tiny
+  // local library where every artist is still "warm") gives up on the
+  // cooldown rather than on the show.
+  let cooldownBypassed = false;
+  if (eligible.length === 0 && excludeArtists?.size && withoutCooldown.length > 0) {
+    eligible = withoutCooldown;
+    cooldownBypassed = true;
+    log(`buildTrackQueue: artist cooldown starved the pool -- retrying without it (${eligible.length} candidate(s) still available).`);
+  }
 
-  const ordered = weightPopular ? weightedShuffle(eligible, popularityWeight) : shuffle(eligible);
+  let ordered = weightPopular ? weightedShuffle(eligible, popularityWeight) : shuffle(eligible);
+
+  // Decade spread: group by decade and interleave one track per decade per
+  // round, so a pool spanning several decades alternates between them.
+  // Within a decade, the weighted/shuffled order is preserved.
+  if (decadeSpread && ordered.length > 1) {
+    const byDecade = new Map();
+    for (const t of ordered) {
+      const key = t.year != null ? String(Math.floor(t.year / 10)) : 'unknown';
+      if (!byDecade.has(key)) byDecade.set(key, []);
+      byDecade.get(key).push(t);
+    }
+    if (byDecade.size > 1) {
+      const queues = [...byDecade.values()];
+      const spread = [];
+      let exhausted = false;
+      while (!exhausted) {
+        exhausted = true;
+        for (const q of queues) {
+          if (q.length > 0) {
+            spread.push(q.shift());
+            exhausted = false;
+          }
+        }
+      }
+      ordered = spread;
+    }
+  }
+
+  // Popularity mix: two walkers (popular half / lesser-known half, each in
+  // its own weighted-shuffled order) drawn from in the configured proportion
+  // -- an exact enforcement of e.g. "70% well-known, 30% deep cuts" that
+  // still ends when the duration target is met.
+  let popularWalker = null;
+  let lesserWalker = null;
+  if (popularShare != null && popularShare > 0 && popularShare < 1 && ordered.length > 1) {
+    const weights = ordered.map(popularityWeight);
+    const sorted = [...weights].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const popular = ordered.filter((t) => popularityWeight(t) >= median);
+    const lesser = ordered.filter((t) => popularityWeight(t) < median);
+    if (popular.length > 0 && lesser.length > 0) {
+      popularWalker = popular[Symbol.iterator]();
+      lesserWalker = lesser[Symbol.iterator]();
+      ordered = null; // selection below now pulls from the two walkers
+    }
+  }
 
   const targetMs = targetDurationMinutes * 60 * 1000;
   const overheadMs = djOverheadSeconds * 1000;
@@ -295,8 +380,32 @@ export async function buildTrackQueue({
   const usedAlbums = new Set();
   const selected = [];
   let totalMs = 0;
+  let selectedPopular = 0;
+  let selectedLesser = 0;
 
-  for (const track of ordered) {
+  const nextMixed = () => {
+    if (!popularWalker) return null;
+    // Keep the running ratio honest: draw from the popular walker whenever
+    // the popular share of what's been picked so far is still under target,
+    // otherwise from the lesser-known walker; whichever walker is exhausted
+    // gives way to the other.
+    const wantPopular = selectedPopular / Math.max(selectedPopular + selectedLesser, 1) < popularShare;
+    const first = wantPopular ? popularWalker : lesserWalker;
+    const second = wantPopular ? lesserWalker : popularWalker;
+    for (const it of [first, second]) {
+      const { value, done } = it.next();
+      if (!done) {
+        if (it === popularWalker) selectedPopular++;
+        else selectedLesser++;
+        return value;
+      }
+    }
+    return null;
+  };
+
+  for (;;) {
+    const track = popularWalker ? nextMixed() : ordered?.shift();
+    if (!track) break;
     if (totalMs >= targetMs) break;
     // Artist-themed selections are expected to repeat the artist by
     // definition (every track already is that artist) -- the no-repeat
@@ -320,5 +429,13 @@ export async function buildTrackQueue({
     estimatedMusicMs: selected.reduce((sum, t) => sum + t.durationMs, 0),
     targetMs,
     poolSize: eligible.length,
+    ...(excludeArtists?.size
+      ? {
+          cooldownExcluded: cooldownBypassed ? 0 : withoutCooldown.length - eligible.length,
+          cooldownBypassed,
+        }
+      : {}),
+    ...(popularShare != null ? { popularShare } : {}),
+    ...(decadeSpread ? { decadeSpread: true } : {}),
   };
 }

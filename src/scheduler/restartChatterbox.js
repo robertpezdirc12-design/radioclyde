@@ -63,6 +63,14 @@ async function waitForReady({ timeoutMs = 30000, intervalMs = 1000 } = {}) {
 }
 
 export async function restartChatterbox() {
+  // autoRadio stations have no Chatterbox service at all (the no-model voice
+  // layer replaced it), and stations that simply haven't configured a
+  // chatterbox URL have nothing to restart either -- no-op on both, instead
+  // of the old unconditional systemctl call failing every show.
+  if (config.autoRadio?.enabled || !config.chatterbox?.url) {
+    log('Chatterbox restart skipped (autoRadio mode or no chatterbox URL configured).');
+    return;
+  }
   await withLock(config.paths.chatterboxLockPath, async () => {
     const oldPid = getMainPid();
     if (!oldPid) throw new Error(`${SERVICE_NAME} is not running (no MainPID)`);

@@ -240,6 +240,22 @@ station.json entry required):
 - `npm run preview-track-queue -- --duration=<minutes> [--artist=... --genre=... --decade=...]`: the deterministic track-selection step directly, bypassing the AI query-producing step entirely.
 - `npm run preview-show-prep -- --file=<path> --duration=<minutes>`: the fuller show-prep dry run (track query + research), still short of full script writing.
 
+## Auto Radio mode (no LLM, no Chatterbox)
+
+The station can also run **fully deterministically** — no language model for
+track selection or script writing, no neural TTS: rule-based track selection
+(artist cooldown, popularity mix, decade spread, time-of-day blocks), DJ lines
+from configurable templates (Slovenian by default, fully overridable in
+`config.json`), and voice from pre-recorded clips, Windows SAPI, or espeak-ng.
+Set `"autoRadio": { "enabled": true }` in `config.json` (see
+`config.example.json`) and everything else — scheduling, directing, the web
+pages, the apps — works exactly as before. Full reference (SI):
+[docs/auto-radio.md](docs/auto-radio.md). Quick dry run of one show:
+
+```
+npm run preview-auto-show -- <show-name> [--offline]
+```
+
 ## Documentation
 
 - [sample-data/](sample-data/): a working example `dataDir`, a full

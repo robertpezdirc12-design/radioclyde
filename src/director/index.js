@@ -91,17 +91,22 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // occurrence of this same-day repeat, or by schedulePrewarmAudio.js's
   // downtime pass (see director/djAudio.js) -- so this is normally a cache
   // hit. Only `live` segments actually need fresh synthesis here.
-  async function getDjAudio(segmentIndex, persona, text) {
-    const { filePath, ttsDurationMs, cached } = await getCachedDjAudio(djAudioDir, segmentIndex, persona, text);
-    ttsLog.push({ persona, text, filePath, aiGenerationMs: 0, ttsDurationMs, gain: config.djDrops.gain ?? 1, cached });
-    return filePath;
+  //
+  // autoRadio note: in no-model voice modes a segment can come back SKIPPED
+  // (voice mode "none", or a clips-mode persona with no clip for that slot)
+  // -- it is then simply absent from the playlist and the show flows on to
+  // the next segment, with a NOTE logged once per skip.
+  async function getDjAudio(segmentIndex, persona, text, slot = 'dj', seed = '') {
+    const { filePath, ttsDurationMs, cached, skipped } = await getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot, seed);
+    ttsLog.push({ persona, slot, text, filePath, aiGenerationMs: 0, ttsDurationMs, gain: config.djDrops?.gain ?? 1, cached, skipped });
+    return skipped ? null : filePath;
   }
 
-  async function getLiveAudio(persona, text, aiGenerationMs) {
+  async function getLiveAudio(persona, slot, text, aiGenerationMs) {
     const filePath = path.join(showOccurrenceDir, `live_${String(liveSeq++).padStart(3, '0')}.wav`);
-    const ttsDurationMs = await synthesizeSpeechToPath(persona, text, filePath);
-    ttsLog.push({ persona, text, filePath, aiGenerationMs, ttsDurationMs, gain: config.djDrops.gain ?? 1 });
-    return filePath;
+    const { ttsDurationMs, skipped } = await synthesizeSpeechToPath(persona, text, filePath, slot, text);
+    ttsLog.push({ persona, slot, text, filePath: skipped ? null : filePath, aiGenerationMs, ttsDurationMs, gain: config.djDrops?.gain ?? 1, skipped });
+    return skipped ? null : filePath;
   }
 
   // Consecutive dj/live segments (no track between them -- e.g. the show
@@ -147,15 +152,22 @@ export async function directShow({ id, weekday, date, timeKey }) {
     if (seg.type === 'track') {
       await flushPendingSpeech();
       const track = knownRatingKeys.get(String(seg.ratingKey));
-      const localPath = toLocalPath(track.plexPath);
+      // Auto-radio's local library tracks carry their absolute local path
+      // directly (no Plex prefix mapping exists for them); Plex tracks keep
+      // the toLocalPath mapping they always used.
+      const localPath = track.localPath ?? toLocalPath(track.plexPath);
       segments.push(localPath);
       ratingKeyEntries.push([localPath, track.ratingKey]);
     } else if (seg.type === 'dj') {
       speechSegmentSeq++;
       const startedAt = Date.now();
-      const audioPath = await getDjAudio(i, seg.persona, seg.body);
+      const audioPath = await getDjAudio(i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`);
+      if (!audioPath) {
+        log(`[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] dj (${seg.persona}): SKIPPED (no-model voice mode, no audio) -- "${preview(seg.body)}"`);
+        continue;
+      }
       log(
-        `[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] dj (${seg.persona}): "${preview(seg.body)}" (${Date.now() - startedAt}ms)`
+        `[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] dj (${seg.persona}${seg.slot ? `, ${seg.slot}` : ''}): "${preview(seg.body)}" (${Date.now() - startedAt}ms)`
       );
       pendingSpeechFiles.push(audioPath);
       pendingSpeechPersonas.push(seg.persona);
@@ -166,7 +178,11 @@ export async function directShow({ id, weekday, date, timeKey }) {
       const aiGenerationMs = Date.now() - textStartedAt;
       liveLog.push({ persona: seg.persona, kind: seg.kind, brief: seg.brief, text, aiGenerationMs });
       const audioStartedAt = Date.now();
-      const audioPath = await getLiveAudio(seg.persona, text, aiGenerationMs);
+      const audioPath = await getLiveAudio(seg.persona, `live:${seg.kind}`, text, aiGenerationMs);
+      if (!audioPath) {
+        log(`[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] live (${seg.persona}, ${seg.kind}): SKIPPED (no-model voice mode) -- "${preview(text)}"`);
+        continue;
+      }
       log(
         `[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] live (${seg.persona}, ${seg.kind}): "${preview(text)}" (text ${aiGenerationMs}ms, tts ${Date.now() - audioStartedAt}ms)`
       );
@@ -181,9 +197,9 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // scheduler/restartChatterbox.js: unloading the model alone doesn't
   // reclaim everything that accumulates in the process's memory/swap over
   // many shows). Best-effort: a failure here shouldn't block this show from
-  // finishing production, and it doesn't need scrobbleEnabled-style config
-  // gating -- reclaiming memory has no meaningful "disabled" state a user
-  // would want.
+  // finishing production. In autoRadio mode there IS no Chatterbox (the
+  // no-model voice layer replaced it) and restartChatterbox() no-ops
+  // internally, so this stays a harmless call on both paths.
   try {
     await restartChatterbox();
   } catch (err) {

@@ -42,15 +42,19 @@ export function describeWeatherCode(code) {
 // resolveLiveLine()) awaits it directly -- a single hung request here froze
 // the entire shared production queue indefinitely with no error logged,
 // exactly like the un-timed-out LM Studio call in src/llm/client.js.
-export async function fetchCurrentWeather() {
+// Units default to the station's historical US settings (fahrenheit/mph) so
+// the AI path's spoken lines keep their facts; the auto-radio template path
+// passes celsius/kmh explicitly (see auto/liveLines.js) since its Slovenian
+// templates read "°C" and "km/h" literally.
+export async function fetchCurrentWeather({ temperatureUnit = 'fahrenheit', windSpeedUnit = 'mph' } = {}) {
   const { url, latitude, longitude, timezone } = config.weather;
   const qs = new URLSearchParams({
     latitude: String(latitude),
     longitude: String(longitude),
     timezone,
     current: 'temperature_2m,weather_code,wind_speed_10m',
-    temperature_unit: 'fahrenheit',
-    wind_speed_unit: 'mph',
+    temperature_unit: temperatureUnit,
+    wind_speed_unit: windSpeedUnit,
   });
   const res = await fetch(`${url}?${qs}`, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {

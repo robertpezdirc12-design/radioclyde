@@ -12,3 +12,15 @@ scripts, logs, playlists, and other runtime output into `dataDir`).
 The `station.jingle` path (`jingles/on_air.mp3`) is illustrative only; no
 audio file is included. Jingles are optional — if the file isn't found, it's
 skipped.
+
+Two extras beyond `station.json` + `show-descriptions/`:
+
+- `prompts.json` — persona registry shared by every brief here (keys match
+  the `**Personas:**` lines). Copy it into your `dataDir` too; in autoRadio
+  mode only the keys matter (voices come from `autoRadio.voice`), while the
+  AI mode additionally uses each persona's `voiceFile`/`systemPrompt`.
+- `voice-clips/` — starter folder for the no-model voice mode
+  (`autoRadio.voice.mode: "clips"`); see its README for the slot list.
+
+For the deterministic (no-AI) show in this set, see
+`show-descriptions/80s-rock-auto.md` and `docs/auto-radio.md`.

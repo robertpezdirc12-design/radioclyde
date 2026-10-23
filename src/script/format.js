@@ -88,7 +88,9 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
         issues.push(`${label}: persona "${persona}" is not a known persona (${Object.keys(personas).join(', ')}).`);
       }
       if (!body) issues.push(`${label}: dj segment has no body text to speak.`);
-      segments.push({ type, persona, body });
+      // slot is optional auto-radio metadata (open/intro/recap/...); plain
+      // scripts have none and everything downstream treats it as "dj".
+      segments.push({ type, persona, body, slot: fields.slot ?? null });
     } else if (type === 'track') {
       const { artist, title: trackTitle, ratingKey } = fields;
       if (!artist) issues.push(`${label}: track segment missing "artist:".`);
@@ -167,7 +169,15 @@ export function renderScript({ title, durationMinutes, segments }) {
   const lines = [`# ${title}`, '', `**Duration:** ${durationMinutes} min`, '', '---', ''];
   for (const seg of segments) {
     if (seg.type === 'dj') {
-      lines.push(`## DJ — ${seg.persona}`, 'type: dj', `persona: ${seg.persona}`, '', seg.body.trim(), '');
+      lines.push(
+        `## DJ — ${seg.persona}`,
+        'type: dj',
+        `persona: ${seg.persona}`,
+        ...(seg.slot ? [`slot: ${seg.slot}`] : []),
+        '',
+        seg.body.trim(),
+        ''
+      );
     } else if (seg.type === 'track') {
       lines.push(
         '## Track',

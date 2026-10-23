@@ -20,8 +20,11 @@ import { config } from '../config/index.js';
 // dispatcher with a generous explicit ceiling instead of relying on the
 // ambient default.
 const dispatcher = new Agent({
-  headersTimeout: (config.chatterbox.requestTimeoutMinutes ?? 20) * 60 * 1000,
-  bodyTimeout: (config.chatterbox.requestTimeoutMinutes ?? 20) * 60 * 1000,
+  // ?. -- autoRadio stations run with no chatterbox block in config.json at
+  // all (this module is imported but never called there); the ?? 20 default
+  // keeps the module loadable either way.
+  headersTimeout: (config.chatterbox?.requestTimeoutMinutes ?? 20) * 60 * 1000,
+  bodyTimeout: (config.chatterbox?.requestTimeoutMinutes ?? 20) * 60 * 1000,
 });
 
 // exaggeration/cfgWeight/temperature are Chatterbox's own generation knobs,
