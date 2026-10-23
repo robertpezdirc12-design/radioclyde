@@ -90,7 +90,13 @@ phases hand off through.
   air time from real data, not baked into yesterday's recording.
 - **Filler that never sleeps**: off-air gaps are filled by a generated
   filler playlist (music source-routed, so it works with Plex or local
-  folders alike).
+  folders alike), with a rotation ledger that remembers what filler already
+  aired — no "songs repeat every hour" on small libraries.
+- **Listener analytics**: Icecast's listener count is sampled once a minute
+  into an append-only ledger; the studio Analytics view charts the audience
+  over time and joins it with the real aired history for per-track
+  impact (Δ listeners start→end per play). Outages are stored as explicit
+  gaps, never interpolated — [details](docs/listener-analytics.md).
 - **Listeners everywhere**: Icecast stream, web now-playing page, JSON API,
   authenticated stream proxy, studio admin UI, native Android TV/Google TV
   and Android mobile apps.

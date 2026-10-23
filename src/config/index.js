@@ -39,6 +39,10 @@ config.paths = {
   trackRatingKeysLockPath: path.join(config.dataDir, '.track_ratingkeys.lock'),
   nowPlayingTrackPath: path.join(config.dataDir, 'now_playing_track.json'),
   airedHistoryFile: path.join(config.dataDir, 'history', 'aired.jsonl'),
+  // Listener-audience samples (analytics/listenerSamples.js): one JSON object
+  // per line, appended by the scheduler's listener_sample job, pruned to
+  // config.analytics.maxEntries. Read by the studio Analytics endpoint.
+  listenerSamplesFile: path.join(config.dataDir, 'history', 'listener-samples.jsonl'),
   // Listener song requests / dedications (server/requestsStore.js): one JSON
   // object per line, appended by POST /api/requests, rewritten atomically on
   // moderation (studioRequestsApi.js).

@@ -844,3 +844,24 @@ textarea {
   line-height: 1.45;
   white-space: pre;
 }
+
+/* Analytics view */
+.chart-box {
+  padding: 4px 4px 0;
+}
+.chart-box svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.delta-pos {
+  color: var(--live);
+  font-weight: 600;
+}
+.delta-neg {
+  color: var(--danger);
+  font-weight: 600;
+}
+.kv-value.warn {
+  color: var(--pending);
+}

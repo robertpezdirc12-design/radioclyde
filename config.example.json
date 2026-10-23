@@ -96,6 +96,13 @@
     "dir": "TBD - absolute path to a folder (ideally off-box or on separate storage) where daily backups of station.json and show-descriptions/ are written",
     "intervalMinutes": 1440
   },
+  "analytics": {
+    "sampleIntervalMinutes": 1,
+    "maxEntries": 43200,
+    "impactWindowHours": 168,
+    "impactMinSamples": 2,
+    "impactMinCoverage": 0.5
+  },
   "scripts": {
     "maxToolIterations": 60,
     "defaultRepeatWindowDays": 7

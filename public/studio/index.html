@@ -17,6 +17,7 @@
         <li><a href="#prompts" data-view="prompts">Prompts</a></li>
         <li><a href="#requests" data-view="requests">Requests</a></li>
         <li><a href="#library" data-view="library">Library</a></li>
+        <li><a href="#analytics" data-view="analytics">Analytics</a></li>
         <li><a href="#voice" data-view="voice">Voice</a></li>
         <li><a href="#diagnostics" data-view="diagnostics">Diagnostics</a></li>
       </ul>
@@ -196,6 +197,45 @@
             </thead>
             <tbody id="library-table-body"></tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="view-analytics" class="view" hidden>
+        <h1>Analytics</h1>
+        <p class="view-hint">Audience truth from two ledgers: listener samples (Icecast status polled every minute; outages are stored as gaps, never interpolated) and the real aired history. &Delta; compares the first and last sample inside a track's window &mdash; a correlation, never proof of causality.</p>
+        <div class="toolbar">
+          <select id="analytics-range" class="input-inline">
+            <option value="24">Last 24 hours</option>
+            <option value="72">Last 3 days</option>
+            <option value="168">Last 7 days</option>
+          </select>
+          <button id="analytics-refresh" type="button" class="btn">Refresh</button>
+        </div>
+        <div class="columns">
+          <div class="card">
+            <h2>Listeners</h2>
+            <div id="analytics-summary" class="kv-list"></div>
+          </div>
+          <div class="card">
+            <h2>Measurement rules</h2>
+            <div id="analytics-method" class="kv-list"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Listener count over time</h2>
+          <div id="analytics-chart" class="chart-box"></div>
+          <p class="empty-note" id="analytics-chart-empty" hidden></p>
+        </div>
+        <div class="card">
+          <h2>Track impact (&Delta; start&rarr;end per play)</h2>
+          <table class="data-table">
+            <thead>
+              <tr><th>Track</th><th>Measured plays</th><th>Avg listeners</th><th>&Delta; start&rarr;end</th><th>Last measured</th></tr>
+            </thead>
+            <tbody id="impact-table-body"></tbody>
+          </table>
+          <p class="empty-note" id="impact-empty" hidden></p>
+          <p class="view-hint" id="impact-skipped" hidden></p>
         </div>
       </section>
 

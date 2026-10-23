@@ -22,6 +22,7 @@ import { generateFillerPlaylist } from './generateFillerPlaylist.js';
 import { cleanupOldShows } from './cleanupOldShows.js';
 import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
+import { sampleNow } from '../analytics/listenerSamples.js';
 
 const log = createLogger('station');
 
@@ -112,7 +113,19 @@ export function startScheduler() {
   every(config.filler.regenerateIntervalMinutes, 'filler', generateFillerPlaylist);
   every(config.cleanup.intervalMinutes, 'cleanup', cleanupOldShows);
   every(config.backup.intervalMinutes, 'backup', backupStation);
-  every(config.chatterbox.restartIntervalMinutes ?? 1440, 'chatterbox_restart', restartChatterbox);
+  // ?. matters: config.linux.json ships WITHOUT a chatterbox block (auto-radio
+  // installs have no Chatterbox to restart), and reading
+  // config.chatterbox.restartIntervalMinutes unguarded threw TypeError at boot
+  // -- which silently killed every job registered AFTER it (auditor's F2 class
+  // of defect, caught by the listener-analytics smoke test on 2026-10-24).
+  every(config.chatterbox?.restartIntervalMinutes ?? 1440, 'chatterbox_restart', restartChatterbox);
+  // Audience memory: one Icecast status poll per minute appended to the
+  // listener-samples ledger (analytics/listenerSamples.js) -- the studio
+  // Analytics view charts it and joins it with aired.jsonl for per-track
+  // impact. Optional-chained + defaulted everywhere so existing configs
+  // without an analytics block keep booting exactly as before; the sample
+  // itself is also honest on failure (a gap entry, not a skipped tick).
+  every(Math.max(1, config.analytics?.sampleIntervalMinutes ?? 1), 'listener_sample', sampleNow);
 
   log('Scheduler started.');
 }

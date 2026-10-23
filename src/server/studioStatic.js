@@ -17,6 +17,7 @@ const ASSETS = [
   { route: '/js/requests.js', file: 'js/requests.js', contentType: 'application/javascript' },
   { route: '/js/library.js', file: 'js/library.js', contentType: 'application/javascript' },
   { route: '/js/voice.js', file: 'js/voice.js', contentType: 'application/javascript' },
+  { route: '/js/analytics.js', file: 'js/analytics.js', contentType: 'application/javascript' },
   { route: '/js/diagnostics.js', file: 'js/diagnostics.js', contentType: 'application/javascript' },
 ];
 

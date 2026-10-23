@@ -70,6 +70,13 @@
     "dir": "/opt/radioclyde/backups",
     "intervalMinutes": 1440
   },
+  "analytics": {
+    "sampleIntervalMinutes": 1,
+    "maxEntries": 43200,
+    "impactWindowHours": 168,
+    "impactMinSamples": 2,
+    "impactMinCoverage": 0.5
+  },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
     "telnetPort": 1234,

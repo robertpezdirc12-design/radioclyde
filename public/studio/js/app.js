@@ -4,10 +4,11 @@ import { startScheduleView } from './schedule.js';
 import { startPromptsView } from './prompts.js';
 import { startRequestsView } from './requests.js';
 import { startLibraryView } from './library.js';
+import { startAnalyticsView } from './analytics.js';
 import { startVoiceView } from './voice.js';
 import { startDiagnosticsView } from './diagnostics.js';
 
-const VIEWS = ['on-air', 'shows', 'schedule', 'prompts', 'requests', 'library', 'voice', 'diagnostics'];
+const VIEWS = ['on-air', 'shows', 'schedule', 'prompts', 'requests', 'library', 'analytics', 'voice', 'diagnostics'];
 const STARTERS = {
   'on-air': startOnAirView,
   shows: startShowsView,
@@ -15,6 +16,7 @@ const STARTERS = {
   prompts: startPromptsView,
   requests: startRequestsView,
   library: startLibraryView,
+  analytics: startAnalyticsView,
   voice: startVoiceView,
   diagnostics: startDiagnosticsView,
 };
@@ -38,7 +40,7 @@ function showView(view) {
   if (!started.has(view)) {
     started.add(view);
     STARTERS[view]();
-  } else if (['shows', 'schedule', 'prompts', 'requests', 'library', 'voice'].includes(view)) {
+  } else if (['shows', 'schedule', 'prompts', 'requests', 'library', 'analytics', 'voice'].includes(view)) {
     // Re-fetch on every visit for views that don't self-poll, so a stale
     // client doesn't show data another tab (or the scheduler) already
     // changed on disk.
