@@ -1,23 +1,39 @@
 # Radio Clyde
 
-A self-hosted AI DJ internet radio station: a real, continuous Icecast
-stream running on a schedule you define, with a weekly lineup of shows,
-each backed by its own tracklist pulled from your Plex library, its own
-AI-written DJ script, and its own synthesized DJ voice. When nothing's
-scheduled, it falls back to shuffled library filler instead of going quiet.
+**A self-hosted internet radio station that runs itself** — a real, continuous
+Icecast stream on a schedule you define, with a weekly lineup of shows, each
+backed by its own tracklist, its own DJ script, and its own DJ voice. When
+nothing is scheduled, it falls back to shuffled library filler instead of
+going quiet.
 
 Tune in however you like: the raw Icecast stream in any player, a clean web
-now-playing page in the browser, a native Google TV app built for the
-living room, or a native Android phone/tablet app for listening on the go.
+now-playing page in the browser, a native Google TV app for the living room,
+or a native Android app for listening on the go.
 
-Nothing here is a hosted service or SaaS: it's orchestration code you run
-against your own Plex server, your own local LLM, and your own TTS engine,
-described in more depth below.
+Nothing here is a hosted service or SaaS: it is orchestration code you run
+against your own Plex server (or plain music folders), and your choice of
+voice engine — including a **fully deterministic mode with no language model
+and no neural TTS at all**.
 
 <p align="center">
   <img src="docs/web.png" alt="Web now-playing page" width="49%">
   <img src="docs/GoogleTV.jpg" alt="Google TV app" width="49%">
 </p>
+
+## Two operating modes
+
+| | **AI mode** (classic Radio Clyde) | **Auto mode** (`autoRadio`) |
+|---|---|---|
+| Track selection | Local LLM resolves the brief into a Plex query | Deterministic rule parser + rule-based queue |
+| DJ script | LLM writes every line against Wikipedia-researched facts | Fixed Slovenian templates filled from library metadata |
+| Voice | Chatterbox (neural TTS) | **Edge neural TTS** / pre-recorded clips / Windows SAPI / espeak-ng / none |
+| Service segments | LLM-composed live lines | **Live data rubriques**: ARSO weather, RTV Slovenija sport headlines, Wikidata "on this day" |
+| Hardware needed | GPU/CPU heavy LLM + TTS model | Any box — even a Raspberry Pi |
+| Offline capable | No | Yes (`--offline` dry-run, music-only fallback) |
+
+Both modes share the same scheduler, director, Liquidsoap/Icecast playout,
+web pages and mobile apps. Switch with one flag — `"autoRadio": { "enabled":
+true }` — with no other wiring, and every part downstream works unchanged.
 
 ## What it does
 
@@ -26,8 +42,10 @@ upcoming show occurrence, runs two phases:
 
 1. **Produce**: turns a show's prose brief (`show-descriptions/*.md`, see
    [sample-data/](sample-data/) for real examples) into a validated
-   `.script.md`. Resolves the brief into a real Plex query, picks tracks,
-   researches facts about them, and writes every DJ line.
+   `.script.md`. In AI mode this resolves the brief into a real Plex query,
+   picks tracks, researches facts, and writes every DJ line. In auto mode the
+   brief is parsed by rules, tracks are picked by rules, and every line comes
+   from a template.
 2. **Direct**: turns that finished script into real broadcast assets.
    Synthesizes and caches the DJ audio, resolves any live segments (time,
    weather) fresh, and assembles the playlist Liquidsoap actually plays.
@@ -35,8 +53,8 @@ upcoming show occurrence, runs two phases:
 Everything ahead of air time can also be **prewarmed**: during a
 configurable daily downtime window, the scheduler widens its horizon and
 produces/directs the *whole* upcoming broadcast day at once, front-loading
-the heavy LLM/TTS work onto the hours nobody's listening rather than doing
-it just-in-time.
+the heavy work onto the hours nobody's listening rather than doing it
+just-in-time.
 
 See [docs/producer-pipeline.md](docs/producer-pipeline.md) for why this is
 built as a multi-phase pipeline rather than one open-ended agent loop, and
@@ -48,42 +66,34 @@ phases hand off through.
 - **Scheduled shows, not a static playlist**: a weekly `station.json`
   lineup, each slot backed by a plain-prose brief (artist/genre/decade,
   exclusions, repeat rules, popularity weighting, max track length; details
-  below) resolved against your actual Plex library.
-- **AI-written scripts with real research**: every DJ line is written
-  against real track/artist facts pulled from Wikipedia, not generic filler,
-  so the DJ can drop genuinely useful trivia about the artist or track
-  playing next, or turn it into a quiz for listeners before the track
-  starts. A final editing pass catches repeated phrasing across a script no
-  single writing step could see all at once.
-- **Distinct synthesized DJ personas**: each show picks a persona
-  (voice + system prompt); speech is synthesized and cached via Chatterbox.
+  below) resolved against your actual library.
+- **Auto mode: rule-based selection you can audit**: artist cooldown against
+  real play history (`history/played.jsonl`), a popularity mix (~70% well
+  known / 30% deep cuts) split at the library's popularity median, decade
+  spread, and time-of-day mood blocks (morning/daytime/evening/night, with
+  cross-midnight windows) — every decision deterministic and reproducible.
+- **Auto mode: Slovenian rubriques from live data**: today's weather from
+  **ARSO** (official Slovenian Environment Agency), sport headlines from
+  **RTV Slovenija**, and "na današnji dan" births/deaths from **Wikidata**
+  (Slovenian labels only, grammatical gender handled) — each rendered
+  through the same template system, each degrading gracefully to "skip the
+  segment" if its source is unreachable. Music never stops.
+- **AI mode: scripts with real research**: every DJ line is written against
+  real track/artist facts pulled from Wikipedia, so the DJ can drop genuinely
+  useful trivia, or turn it into a quiz before the track starts. A final
+  editing pass catches repeated phrasing across a script no single writing
+  step could see all at once.
+- **Distinct DJ personas**: each show picks a persona (photo + voice); speech
+  is synthesized and cached per persona. Auto mode maps personas onto neural
+  Slovenian voices `sl-SI-PetraNeural` / `sl-SI-RokNeural` with zero setup.
 - **Live segments resolved fresh**: time/weather call-ins are generated at
-  broadcast time using real current conditions from the Open-Meteo weather
-  API, not baked in ahead of time, so they're never stale.
-- **Continuous stream with graceful fallback**: Liquidsoap plays the
-  directed show when one's on; the moment nothing's scheduled or directed
-  yet, it falls back to a shuffled, regenerating filler pool instead of
-  going silent.
-- **Downtime prewarming**: a configurable daily quiet window where the
-  whole next day's scripts and DJ audio get produced ahead of time.
-- **Web now-playing page + JSON API**: now playing, recently played
-  history, and upcoming shows, plus an authenticated stream proxy.
-- **Password-protected studio admin**: a separate `/studio` section of the
-  same web app (its own Basic Auth realm) for creating, editing, and
-  scheduling shows through a browser, editing DJ persona/script-review
-  prompts, and an On Air dashboard (current track, listener count, upcoming,
-  history) with Skip and Force Next Show controls.
-- **Native Android TV / Google TV app**: a Leanback client for the same API
-  (now-playing card, live clock/weather, playback controls, history).
-- **Native Android phone/tablet app**: a touch client for the same API, with
-  two switchable server profiles (home network vs. away) that auto-select by
-  reachability, so the same app works whether you're on the station's LAN or
-  out and about.
-- **Plex scrobbling**: actual airplay updates Plex's own play count/history,
-  gated on real listener count so airtime to nobody doesn't inflate it.
-- **Production-ready as a systemd service**: one unit
-  (`radioclyde.service`) runs the web server, studio admin, and scheduling
-  daemon together in a single process.
+  air time from real data, not baked into yesterday's recording.
+- **Filler that never sleeps**: off-air gaps are filled by a generated
+  filler playlist (music source-routed, so it works with Plex or local
+  folders alike).
+- **Listeners everywhere**: Icecast stream, web now-playing page, JSON API,
+  authenticated stream proxy, studio admin UI, native Android TV/Google TV
+  and Android mobile apps.
 
 ## Meet the DJs
 
@@ -134,9 +144,9 @@ now-playing page and the Google TV app.
 | Component | Role |
 |---|---|
 | **Node.js** (this repo) | Orchestration: scheduling, script production, directing, the web server/API |
-| **Plex Media Server** | Music library backend: track/artist/album metadata and search |
-| **LM Studio** (or any OpenAI-compatible endpoint) | Local LLM: track-query resolution, script writing, script editing, live-segment lines |
-| **Chatterbox** | Text-to-speech engine: synthesizes each persona's DJ audio |
+| **Plex Media Server** or local folders | Music library backend: track/artist/album metadata and search |
+| **LM Studio** (AI mode only) | Local LLM: track-query resolution, script writing, script editing, live-segment lines |
+| **Chatterbox** (AI mode only) | Neural text-to-speech for the classic mode's DJ audio |
 | **Liquidsoap** | Playout engine: plays the directed playlist or falls back to filler, feeds Icecast |
 | **Icecast** | The actual stream server listeners connect to |
 | **Fastify** | Web server: now-playing page, JSON API, authenticated stream proxy, password-protected studio admin, and the scheduling daemon (one merged process) |
@@ -147,70 +157,36 @@ now-playing page and the Google TV app.
 
 1. `npm install`
 2. Copy `config.example.json` to `config.json` and fill in real values
-   (Plex token, Icecast credentials, LM Studio/Chatterbox URLs, studio admin
-   credentials, etc.). `config.json` is gitignored since it holds secrets.
-3. Point `dataDir` in `config.json` at wherever `station.json`,
-   `show-descriptions/*.md`, and all generated output should live. This is
-   deliberately kept outside the repo. See [sample-data/](sample-data/) for a
-   working example to copy as a starting point. Persona voices/system
-   prompts and the script-review prompt live in `prompts.json` under
-   `dataDir` (see [docs/adding-a-dj.md](docs/adding-a-dj.md)), editable
-   either by hand or through the studio admin's Prompts page.
-4. Run everything (web server, studio admin, and scheduler together) with
-   `npm run runweb`, or install `radioclyde.service` via systemd for
-   production.
+   (Plex token, Icecast credentials, studio admin password; for AI mode also
+   LM Studio/Chatterbox URLs, for auto mode the `autoRadio` block)
+3. Put your show briefs in `<dataDir>/show-descriptions/` and your weekly
+   lineup in `<dataDir>/station.json`
+4. `npm run runweb` — the scheduler + web server in one process
+
+For a station without a language model, set `"autoRadio": { "enabled": true,
+"voice": { "mode": "edge" } }` — see
+[docs/auto-radio.md](docs/auto-radio.md) for the complete Slovenian
+reference. Try one show end-to-end without touching Plex or the network:
+
+```
+npm run preview-auto-show -- <show-name> --offline
+npm run direct-show -- --id=<show-name> --weekday=<weekday> --date=<yyyy-mm-dd> --time=<HH:MM>
+```
 
 ## Writing a show's Track Selection brief
 
-Each `show-descriptions/*.md` file has a `## Track Selection` section: plain
-prose, not a config format. It's read by `src/producer/trackSelection/query.js`,
-which uses an LLM to turn it into a structured Plex query
-(`src/producer/trackSelection/queue.js` then runs that query, no AI
-involved past this one step). Things you can
-say there:
+Briefs are plain markdown. `**Personas:**`, `**Duration:**` and a
+`## Track Selection` section are all the pipeline needs; everything else is
+prose for humans. The selection section supports:
 
-- **Artist / genre / decade**: at least one is required (unless using album
-  keyword, below). Genre gets matched to the closest real tag in this Plex
-  library (you don't need to know Plex's internal tag names; "80s rock"
-  resolves to whatever this library actually calls it, e.g. "Pop/Rock"). All
-  three can combine (e.g. genre + decade).
-- **Album keyword**: for a brief naming a compilation/branding rather than a
-  real genre tag (e.g. "Disney", this library has no Disney genre, but does
-  have albums titled things like "Ultimate Disney"), say so directly (e.g.
-  "only from albums with Disney in the title") and it matches by album-title
-  substring instead.
-- **Folder**: for a brief scoped to one specific library folder (e.g. "only
-  from /volume1/media/_soundtrack"), name the path directly and it matches by
-  filesystem path substring. Works with `singleAlbum` too: tracks under the
-  folder get grouped by album title into pseudo-albums (folder-organized
-  soundtrack libraries don't credit one consistent artist per album, so
-  grouping is by title, not artist+title).
-- **Album genre**: a separate, richer tag vocabulary from plain genre in
-  this library (includes tags like "Instrumental" that don't exist at the
-  track level at all). Say so explicitly (e.g. "use the album genre
-  Classical") and it resolves via `albumGenre` instead of `genre`.
-- **A theme spanning many named artists** (e.g. "female vocalists"): there's
-  no such metadata in this library (only Genre/Country/artist/album/decade),
-  so a brief like this gets resolved to a list of real artist names instead
-  (`artistList`); whichever of those actually exist in the library get
-  pooled together. Say the theme plainly in the brief and let the AI query
-  step pick real, well-known artists who fit. It isn't scoped to a fixed
-  vocabulary the way genre is, so results depend on the model's judgment.
-- **Exclusions**: vague concepts are fine ("no christmas tracks", "nothing
-  from soundtracks or compilation albums") and get expanded into concrete
-  keyword matches against title/album/genre.
-- **Repeat behavior**: "don't repeat the same artist" (meaningful for
-  genre/decade shows; a no-op for single-artist shows, which repeat the
-  artist by definition) or "spread across different albums" for a
-  single-artist show that still wants catalog variety.
-- **Popularity weighting**: "favor well-known tracks" biases toward more
-  popular tracks without excluding deep cuts outright.
-- **Max track length**: a plain cap, e.g. "no tracks over 5 minutes" or
-  "radio edits only, under 3:30".
-
-Iterate on a brief without touching `station.json` or waiting for the
-scheduler using the preview tools below (`preview-tracks` is the fast one:
-brief in, tracklist out).
+- `genre:`, `decade:`, `artist:`, `artists:`, `album:`, `folder:`,
+  `exclude:`, `prefer:` lines (AI mode also understands free themes)
+- English or Slovenian rule sentences: *Don't repeat the same artist in a
+  single show* (artist cooldown, 3 h station-wide by default), *No track
+  longer than 5 minutes*, *Favor well-known tracks* (popularity mix)
+- `Rubrike: vreme, šport, obzorje` — opt the show into the live-data
+  service segments (see [docs/auto-radio.md](docs/auto-radio.md))
+- `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
 
@@ -231,6 +207,12 @@ Pipeline (normally only invoked by the scheduler, not by hand):
 Preview/dry-run tools, for iterating on a show while designing it (no
 station.json entry required):
 
+- `npm run preview-auto-show -- <show-name> [--duration=<minutes>] [--offline]`:
+  the full auto-mode dry run: deterministic brief parse, track queue (with
+  cooldown/popularity/decade stats), rubrique resolution, the complete
+  rendered script and validation. `--offline` forces the local library and
+  skips every network source. Writes the same `script.md`/`tracks.json` the
+  scheduler would, so the output can be directed as-is.
 - `npm run preview-tracks -- <show-name>`: the fast one. Resolves
   `show-descriptions/<show-name>.md`, pulls its `## Track Selection` text
   and `**Duration:**`, and prints the AI-produced Plex query plus the
@@ -242,24 +224,34 @@ station.json entry required):
 
 ## Auto Radio mode (no LLM, no Chatterbox)
 
-The station can also run **fully deterministically** — no language model for
-track selection or script writing, no neural TTS: rule-based track selection
-(artist cooldown, popularity mix, decade spread, time-of-day blocks), DJ lines
-from configurable templates (Slovenian by default, fully overridable in
-`config.json`), and voice from pre-recorded clips, Windows SAPI, or espeak-ng.
-Set `"autoRadio": { "enabled": true }` in `config.json` (see
-`config.example.json`) and everything else — scheduling, directing, the web
-pages, the apps — works exactly as before. Full reference (SI):
-[docs/auto-radio.md](docs/auto-radio.md). Quick dry run of one show:
+The station can run **fully deterministically** — no language model, no
+neural TTS model on your hardware:
 
-```
-npm run preview-auto-show -- <show-name> [--offline]
-```
+- **Voice engines** (pick one per station, per-show personas map onto them):
+  `edge` (Microsoft Edge neural TTS — real Slovenian voices
+  `sl-SI-PetraNeural`/`sl-SI-RokNeural`, no API key, no model download),
+  `clips` (your own recordings, one file per slot, numbered variants picked
+  by the same hash as the text), `sapi` (Windows voices), `espeak-ng`,
+  or `none` (music + jingles only). Every provider's output is normalized to
+  one codec contract, so splicing stays lossless.
+- **Rubriques from live Slovenian data**: ARSO current weather, RTV
+  Slovenija sport headlines, Wikidata "on this day" — enabled per-show with
+  one brief line, cached in-process, hard-timeout-guarded, and always
+  skip-not-fail.
+- **Everything else is the same station**: scheduling, prewarm, directing,
+  the web page, the apps. Scripts, transcripts and playlists are identical
+  in shape to AI mode's.
+
+Full Slovenian reference with every config knob:
+[docs/auto-radio.md](docs/auto-radio.md).
 
 ## Documentation
 
 - [sample-data/](sample-data/): a working example `dataDir`, a full
-  `station.json` and a real set of `show-descriptions/*.md` briefs.
+  `station.json` and a real set of `show-descriptions/*.md` briefs,
+  including the auto-mode `80s-rock-auto` show.
+- [docs/auto-radio.md](docs/auto-radio.md): complete Slovenian reference for
+  auto mode — rules, templates, voice engines, rubriques, config.
 - [script-format.md](script-format.md): the `.script.md` output grammar
   the director consumes mechanically to produce broadcast assets.
 - [docs/producer-pipeline.md](docs/producer-pipeline.md): architecture of
@@ -275,3 +267,15 @@ npm run preview-auto-show -- <show-name> [--offline]
   native Android phone/tablet client. What's different from the TV app
   (touch UI, no clock/weather, the dual server-profile auto-reachability
   design), package layout, key design decisions.
+
+## Credits & data sources
+
+- Radio Clyde was originally built by [a1anw2](https://github.com/a1anw2/radioclyde);
+  this fork adds the deterministic auto-radio mode and Slovenian voice/content
+  layer.
+- Weather data: [ARSO](https://meteo.arso.gov.si/) (Slovenian Environment
+  Agency) and [Open-Meteo](https://open-models.open-meteo.com).
+- Sport headlines: [RTV Slovenija](https://www.rtvslo.si/sport).
+- "On this day" facts: [Wikidata](https://www.wikidata.org) (CC0).
+- Neural Slovenian voices: Microsoft Edge read-aloud service (unofficial;
+  no key required) — used via [msedge-tts](https://www.npmjs.com/package/msedge-tts).

@@ -24,10 +24,11 @@ import { loadPersonas } from '../scheduler/promptsUtil.js';
 import { buildTrackQueue } from '../producer/trackSelection/queue.js';
 import { parseShowBrief } from '../producer/showBrief.js';
 import { recordPlayed } from '../producer/history.js';
-import { produceTrackQueryDeterministic } from './briefQuery.js';
+import { produceTrackQueryDeterministic, parseBriefRubrics } from './briefQuery.js';
 import { listGenreTagsAny, listAlbumGenreTagsAny } from './librarySource.js';
 import { artistCooldownFilter, popularityShare, timeBlockKey } from './rules.js';
 import { buildSegmentsAuto } from './scriptBuilder.js';
+import { collectRubricData } from './feeds.js';
 
 const log = createLogger('station');
 
@@ -94,7 +95,29 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   log(`[${id}] Phase C+D (auto): rendering template segments...`);
   const block = timeBlockKey();
   debug.timeBlock = block;
-  const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date });
+
+  // Phase B' -- rubrics (ARSO weather / RTV sport / Wikidata on-this-day),
+  // requested by the brief's "Rubrikes:" line. Every source nulls out on
+  // failure so the show degrades to fewer segments, never to no show.
+  const rubricNames = parseBriefRubrics(descriptionText);
+  const rubricData = rubricNames.length > 0
+    ? await collectRubricData({ names: rubricNames, date })
+    : { weather: null, sport: null, onThisDay: null };
+  debug.rubrics = {
+    requested: rubricNames,
+    resolved: {
+      weather: rubricData.weather ? rubricData.weather.station : null,
+      sport: rubricData.sport?.count ?? null,
+      onThisDay: rubricData.onThisDay?.events.length ?? 0,
+    },
+    offline: rubricData.offline ?? false,
+  };
+  if (rubricNames.length > 0) {
+    log(`[${id}] rubrics: ${rubricNames.join(', ')} -> weather=${debug.rubrics.resolved.weather ?? 'off'}, ` +
+      `sport=${debug.rubrics.resolved.sport ?? 'off'}, obzorje=${debug.rubrics.resolved.onThisDay}`);
+  }
+
+  const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData });
   debug.segments = segments.length;
   log(`[${id}] Phase D done (auto): ${segments.length} segments assembled (time block: ${block ?? 'n/a'}).`);
 

@@ -368,3 +368,37 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
   log(`briefQuery: query = ${JSON.stringify(query)}`);
   return { query };
 }
+
+// ---------------------------------------------------------------------------
+// rubric line parsing ("Rubrike: vreme, \u0161port, obzorje")
+// ---------------------------------------------------------------------------
+
+// Show briefs can request the service segments (auto/feeds.js) with a single
+// "Rubrikes:" line anywhere in the markdown. Slovenian keywords are primary;
+// English aliases work too. Diacritics-insensitive, order defines air order
+// (weather first is just how the caller orders the three slots).
+const RUBRIC_KEYWORDS = {
+  vreme: 'weather',
+  weather: 'weather',
+  sport: 'sport',
+  sportne: 'sport',
+  obzorje: 'onthisday',
+  'na dana\u0161nji dan': 'onthisday',
+  onthisday: 'onthisday',
+  'on this day': 'onthisday',
+};
+
+export function parseBriefRubrics(descriptionText) {
+  const match = String(descriptionText ?? '').match(/^\s*Rubrike\s*:\s*(.+)$/im);
+  if (!match) return [];
+  // Diacritics-insensitive: \u0161->s, \u010d->c, \u017e->z before matching.
+  const deDiacritic = (s) => s.replace(/[\u0161\u0160]/g, 's').replace(/[\u010d\u010c]/g, 'c').replace(/[\u017e\u017d]/g, 'z');
+  const seen = new Set();
+  for (const part of match[1].split(/[,;]/)) {
+    const keyword = deDiacritic(part.trim().toLowerCase());
+    const candidates = [keyword, keyword.split(/\s+/)[0]]; // "sportne novice" -> "sportne"
+    const rubric = candidates.map((candidate) => RUBRIC_KEYWORDS[candidate]).find(Boolean);
+    if (rubric) seen.add(rubric);
+  }
+  return [...seen];
+}

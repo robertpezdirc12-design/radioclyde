@@ -1,6 +1,6 @@
 // The no-model voice layer. In autoRadio mode every `dj`/`live` segment's
-// audio comes from one of four sources, chosen by
-// config.autoRadio.voice.mode -- none of which is an AI TTS model:
+// audio comes from one of five sources, chosen by
+// config.autoRadio.voice.mode -- none of which is a self-hosted AI TTS model:
 //
 //   "clips"  -- pre-recorded clips, one file per speech slot, per persona:
 //               <dataDir>/<clipsDir>/<persona>/<slot>.wav
@@ -10,6 +10,12 @@
 //               with no folder of their own. A missing clip SKIPS that
 //               speech segment with a logged NOTE rather than failing the
 //               show -- music keeps playing either way.
+//   "edge"   -- Microsoft Edge neural TTS (auto/edgeTts.js): real neural
+//               Slovenian voices (sl-SI-PetraNeural / sl-SI-RokNeural), no
+//               API key, no local model. Unofficial service, so on any
+//               failure the segment either falls back per
+//               autoRadio.voice.edgeFallback (clips/sapi/espeak/none) or is
+//               skipped, exactly like a missing clip.
 //   "sapi"   -- Windows SAPI (System.Speech) speaks the rendered template
 //               text. Zero downloads, zero models: the voices Windows ships
 //               with. Voice name is per-persona config (e.g. "Microsoft
@@ -30,6 +36,7 @@ import { promisify } from 'node:util';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { applyGain } from '../lib/audio.js';
+import { synthesizeWithEdge } from './edgeTts.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('station');
@@ -131,6 +138,30 @@ async function synthesizeWithEspeak(text, outPath, persona) {
   );
 }
 
+// Resolves `mode` (clips/sapi/espeak) into a source file the normalizer can
+// read. Shared by the top-level dispatch and edge's fallback path.
+async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed }) {
+  if (mode === 'clips') {
+    const sourcePath = resolveClipPath(persona, slot, seed);
+    if (!sourcePath) {
+      log(`voice/clips: no clip for ${persona}/${slot} (searched ${config.autoRadio?.voice?.clipsDir ?? 'voice-clips'}) -- skipping this speech segment.`);
+      return { sourcePath: null, fromClips: true };
+    }
+    return { sourcePath, fromClips: true };
+  }
+  if (mode === 'sapi') {
+    const sourcePath = `${outPath}.sapi-src.wav`;
+    await synthesizeWithSapi(text, sourcePath, persona);
+    return { sourcePath, fromClips: false };
+  }
+  if (mode === 'espeak') {
+    const sourcePath = `${outPath}.espeak-src.wav`;
+    await synthesizeWithEspeak(text, sourcePath, persona);
+    return { sourcePath, fromClips: false };
+  }
+  throw new Error(`Unknown voice provider "${mode}" (expected clips, sapi, or espeak).`);
+}
+
 // ---------------------------------------------------------------------------
 // unified entry -- what director/djAudio.js and prewarmAudio.js call
 // ---------------------------------------------------------------------------
@@ -146,23 +177,32 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
 
   let sourcePath = null;
   let wroteViaProvider = false;
+  let fromClips = false;
 
-  if (mode === 'clips') {
-    sourcePath = resolveClipPath(persona, slot, seed);
-    if (!sourcePath) {
-      log(`voice/clips: no clip for ${persona}/${slot} (searched ${config.autoRadio?.voice?.clipsDir ?? 'voice-clips'}) -- skipping this speech segment.`);
-      return false;
+  if (mode === 'clips' || mode === 'sapi' || mode === 'espeak') {
+    ({ sourcePath, fromClips } = await synthesizeWithProvider(mode, { text, outPath, persona, slot, seed }));
+    if (!sourcePath) return false;
+    wroteViaProvider = !fromClips;
+  } else if (mode === 'edge') {
+    sourcePath = `${outPath}.edge-src.mp3`;
+    try {
+      await synthesizeWithEdge(text, sourcePath, persona);
+      wroteViaProvider = true;
+    } catch (err) {
+      log(`voice/edge: synthesis failed (${err.message})`);
+      fs.rmSync(sourcePath, { force: true });
+      const fallback = config.autoRadio?.voice?.edgeFallback ?? 'none';
+      if (fallback === 'none') {
+        log('voice/edge: no edgeFallback configured -- skipping this speech segment.');
+        return false;
+      }
+      log(`voice/edge: falling back to "${fallback}" for this segment.`);
+      ({ sourcePath, fromClips } = await synthesizeWithProvider(fallback, { text, outPath, persona, slot, seed }));
+      if (!sourcePath) return false;
+      wroteViaProvider = !fromClips;
     }
-  } else if (mode === 'sapi') {
-    sourcePath = `${outPath}.sapi-src.wav`;
-    await synthesizeWithSapi(text, sourcePath, persona);
-    wroteViaProvider = true;
-  } else if (mode === 'espeak') {
-    sourcePath = `${outPath}.espeak-src.wav`;
-    await synthesizeWithEspeak(text, sourcePath, persona);
-    wroteViaProvider = true;
   } else {
-    throw new Error(`Unknown autoRadio.voice.mode "${mode}" (expected clips, sapi, espeak, or none).`);
+    throw new Error(`Unknown autoRadio.voice.mode "${mode}" (expected clips, edge, sapi, espeak, or none).`);
   }
 
   try {
@@ -175,7 +215,7 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
       '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le',
       tmp,
     ]);
-    const gain = mode === 'clips' ? null : (config.djDrops?.gain ?? 1);
+    const gain = fromClips ? null : (config.djDrops?.gain ?? 1);
     if (gain && gain !== 1) {
       const amplified = await applyGain(fs.readFileSync(tmp), gain, config.dataDir);
       fs.writeFileSync(outPath, amplified);

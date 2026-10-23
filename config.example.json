@@ -120,10 +120,22 @@
       }
     },
     "voice": {
-      "mode": "clips",
+      "mode": "edge",
+      "edgeVoice": "sl-SI-RokNeural",
+      "edgeFallback": "espeak",
       "clipsDir": "voice-clips",
       "defaultEspeakVoice": "sl",
-      "personas": {}
+      "personas": {
+        "elena": {
+          "edgeVoice": "sl-SI-PetraNeural"
+        }
+      }
+    },
+    "rubrics": {
+      "station": "Ljubljana",
+      "sportLimit": 4,
+      "onThisDayLimit": 2,
+      "timeoutSeconds": 10
     }
   }
 }

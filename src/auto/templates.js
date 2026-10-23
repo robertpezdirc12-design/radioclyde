@@ -75,6 +75,33 @@ const DEFAULT_TEMPLATES = {
     weather: ['Zunaj je {condition}, temperatura {temp} \u00b0C, veter piha s hitrostjo {wind} km/h.'],
     'time-weather': ['Je {time}, zunaj je {condition} in {temp} \u00b0C.'],
   },
+
+  // Rubrikes (service segments rendered from real data at produce time --
+  // see auto/feeds.js). weatherNow/sportHeadlines/obzorje read the ARSO
+  // observation, RTV Slovenija headlines and Wikidata "on this day"
+  // respectively; every pool degrades to a shorter variant when data is
+  // partial (e.g. ARSO reports a temperature but no condition).
+  weatherNow: {
+    withTemp: [
+      'Vreme: {station} -- {condition}, {temp} stopinj Celzija.',
+      'Trenutne razmere: {station}, {condition}, temperatura {temp} stopinj.',
+    ],
+    tempOnly: ['Vreme: {station}, trenutno {temp} stopinj Celzija.'],
+    generic: [
+      'Vreme: {station} -- {condition}.',
+      'Trenutne razmere na {station}: {condition}.',
+    ],
+  },
+  sportHeadlines: [
+    '\u0160portne novice: {headlines}',
+    'Poglejmo, kaj je novega v \u0161portu: {headlines}',
+  ],
+  obzorje: {
+    birth: ['Na dana\u0161nji dan leta {year} se je rodil {name}.'],
+    birthF: ['Na dana\u0161nji dan leta {year} se je rodila {name}.'],
+    death: ['Na dana\u0161nji dan leta {year} je umrl {name}.'],
+    deathF: ['Na dana\u0161nji dan leta {year} je umrla {name}.'],
+  },
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the
@@ -171,6 +198,12 @@ export function renderSlot(slot, { values, seed, block }) {
     pool = templates[slot];
   } else if (slot.startsWith('live:')) {
     pool = templates.live[slot.slice('live:'.length)];
+  } else if (slot === 'weatherNow') {
+    const pools = templates.weatherNow;
+    pool = values.temp != null ? (values.condition ? pools.withTemp : pools.tempOnly) : pools.generic;
+  } else if (slot === 'obzorje') {
+    const pools = templates.obzorje;
+    pool = pools[values.kindKey] ?? pools.birth;
   } else {
     pool = templates[slot]; // unknown slots resolve straight from config
   }

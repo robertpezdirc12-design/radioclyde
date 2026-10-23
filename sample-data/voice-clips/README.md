@@ -30,6 +30,9 @@ voice-clips/
 | slot (in script.md) | clip file | when it plays |
 |---|---|---|
 | `open` | `open.wav` | show opening line |
+| `weatherNow` | `weatherNow.wav` | rubric: current ARSO weather (see docs/auto-radio.md) |
+| `sportHeadlines` | `sportHeadlines.wav` | rubric: RTV Slovenija sport headlines |
+| `obzorje` | `obzorje.wav` | rubric: one "on this day" event (Wikidata) |
 | `intro` | `intro.wav` | right before every track |
 | `recap` | `recap.wav` | right after every track |
 | `quizIntro` | `quizIntro.wav` | quiz question before the quiz track |

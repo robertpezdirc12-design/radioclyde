@@ -100,8 +100,17 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 
 ## Govorjenje brez modelov (`autoRadio.voice`)
 
-`autoRadio.voice.mode` izbere enega izmed štirih virov — nobeden ni AI model:
+`autoRadio.voice.mode` izbere enega izmed petih virov — nobeden ni lokalni AI model:
 
+- **`edge`** — Microsoft Edge nevronska sinteza (privzeti priporočeni način):
+  pravi nevronski slovenski glasovi **`sl-SI-PetraNeural`** (ženski) in
+  **`sl-SI-RokNeural`** (moški), brez API-ključa in brez lokalnega modela —
+  ista storitev, ki jo uporablja Edgejev "Glasno branje". Glas po osebi:
+  `voice.personas.<ime>.edgeVoice`, sicer `voice.edgeVoice`
+  (privzeto `sl-SI-RokNeural`). Storitev je neuradna in lahko zavrne
+  (npr. HTTP 429) — takrat segment pade na `voice.edgeFallback`
+  (`clips`/`sapi`/`espeak`/`none`, privzeto `none` = spusti segment), z
+  enakim "spusti, ne mirovaj" dogovorom kot manjkajoči posnetek.
 - **`clips`** — vnaprej posneti posnetki: `<dataDir>/<clipsDir>/<oseba>/<slot>.wav`
   (npr. `voice-clips/elena/intro.wav`), rezervna mapa `default/`. Številčne
   različice (`intro-1.wav`, `intro-2.wav` …) se izbirajo z istim zgoščevalnim
@@ -120,8 +129,38 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 
 Vsi viri se ob prvi uporabi normalizirajo v pcm_s16le/24 kHz/mono (isti
 kodekski dogovor, ki ga je imel Chatterboxov izhod), zato spajanje sosednjih
-govornih odsekov ostane brez izgub. SAPI/espeak izhod dobi še `djDrops.gain`;
-posnetki (clips) ostanejo netaknuti.
+govornih odsekov ostane brez izgub. SAPI/espeak/edge izhod dobi še
+`djDrops.gain`; posnetki (clips) ostanejo netaknuti.
+
+## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
+
+Poleg glasbe lahko oddaja prebere **resnične podatke** iz slovenskih virov —
+vedno deterministično, brez jezikovnega modela. Oddaja jih zahteva z vrstico
+`Rubrike:` v briefu (šumniki so neobčutljivi):
+
+```markdown
+Rubrike: vreme, šport, obzorje
+```
+
+| Rubrika | Vir | Slot | Predloga |
+|---|---|---|---|
+| `vreme` | **ARSO** — uradna meteorološka služba RSS (opazovanja, ~20 slovenskih postaj, slovenski opisi) | `weatherNow` | `weatherNow.withTemp` / `.tempOnly` / `.generic` |
+| `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
+| `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
+
+Nastavitve v `config.autoRadio.rubrics`:
+
+- `station` — ARSO postaja (npr. `"Ljubljana"`; ujemanje: točno → začne se z →
+  vsebuje-najkrajše, tako da `"Ljubljana"` najde mestno postajo, ne letališča)
+- `sportLimit` — koliko naslovnic (privzeto 4)
+- `onThisDayLimit` — koliko dogodkov "na današnji dan" (privzeto 2)
+- `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
+
+Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
+čas poteče → segment spusti, oddaja teče dalje.** Odgovori so v procesu
+predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h), tako da prewarm in
+ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje, če je ni v
+briefu; `--offline` (preview) jih vedno spusti.
 
 ## Predloge (`autoRadio.templates`)
 

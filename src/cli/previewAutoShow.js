@@ -26,10 +26,11 @@ import { parseScript, renderScript } from '../script/format.js';
 import { loadPersonas } from '../scheduler/promptsUtil.js';
 import { parseShowBrief } from '../producer/showBrief.js';
 import { buildTrackQueue } from '../producer/trackSelection/queue.js';
-import { produceTrackQueryDeterministic } from '../auto/briefQuery.js';
+import { produceTrackQueryDeterministic, parseBriefRubrics } from '../auto/briefQuery.js';
 import { listGenreTagsAny, listAlbumGenreTagsAny } from '../auto/librarySource.js';
 import { artistCooldownFilter, popularityShare, timeBlockKey } from '../auto/rules.js';
 import { buildSegmentsAuto } from '../auto/scriptBuilder.js';
+import { collectRubricData } from '../auto/feeds.js';
 
 const args = parseArgs(process.argv.slice(2));
 const showName = args._?.[0];
@@ -40,13 +41,14 @@ if (!showName) {
 }
 
 // --offline forces the local library (the source router then never contacts
-// Plex). Live time/weather lines are resolved at DIRECT time, not here, so
-// this preview needs no network at all.
+// Plex), stubs the weather source and skips rubric fetches (ARSO / RTV /
+// Wikidata), so the preview needs no network at all.
 if (args.offline) {
   config.autoRadio = {
     ...(config.autoRadio ?? {}),
     enabled: true,
     music: { ...(config.autoRadio?.music ?? {}), source: 'local' },
+    rubrics: { ...(config.autoRadio?.rubrics ?? {}), offline: true },
   };
 }
 
@@ -103,8 +105,21 @@ console.log(
     `music ${(trackQueueResult.estimatedMusicMs / 60000).toFixed(1)} min of ${durationMinutes} target`
 );
 
-// Phase C+D: template segments
-const { segments } = buildSegmentsAuto({ tracks, brief, showId: showName, date: scheduleUtil.dateKey(new Date()) });
+// Phase C+D: template segments (+ rubrikes when the brief requests them and
+// we are not offline)
+const rubricNames = parseBriefRubrics(descriptionText);
+const dateKey = scheduleUtil.dateKey(new Date());
+const rubricData = rubricNames.length > 0
+  ? await collectRubricData({ names: rubricNames, offline: !!args.offline, date: dateKey })
+  : { weather: null, sport: null, onThisDay: null };
+if (rubricNames.length > 0) {
+  console.log(
+    `\n-- rubrikes (${rubricNames.join(', ')}): weather=${rubricData.weather?.station ?? 'off'}, ` +
+      `sport=${rubricData.sport?.count ?? 'off'}, obzorje=${rubricData.onThisDay?.events.length ?? 0}` +
+      `${args.offline ? ' (offline: skipped)' : ''}`
+  );
+}
+const { segments } = buildSegmentsAuto({ tracks, brief, showId: showName, date: dateKey, rubricData });
 const markdown = renderScript({ title: brief.title || showName, durationMinutes, segments });
 
 const knownRatingKeys = new Map(tracks.map((t) => [String(t.ratingKey), t]));

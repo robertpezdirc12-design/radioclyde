@@ -18,7 +18,62 @@ function seedFor({ showId, date, track, slot }) {
   return [showId, date, track?.ratingKey ?? 'none', slot].join('|');
 }
 
-export function buildSegmentsAuto({ tracks, brief, showId, date }) {
+// Rubrik segments (weatherNow / sportHeadlines / obzorje) rendered from the
+// data collectRubricData() fetched -- a null rubric simply contributes no
+// segments (skip-not-fail, the same contract as voice clips).
+function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
+  const segments = [];
+  if (!rubricData) return segments;
+
+  const weather = rubricData.weather;
+  if (weather) {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'weatherNow',
+      body: renderSlot('weatherNow', {
+        values: {
+          ...commonValues(),
+          station: weather.station,
+          condition: weather.condition,
+          temp: weather.temp,
+        },
+        seed: seedFor({ showId, date, slot: 'weatherNow' }),
+      }),
+    });
+  }
+
+  const sport = rubricData.sport;
+  if (sport?.headlines) {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'sportHeadlines',
+      body: renderSlot('sportHeadlines', {
+        values: { ...commonValues(), headlines: sport.headlines },
+        seed: seedFor({ showId, date, slot: 'sportHeadlines' }),
+      }),
+    });
+  }
+
+  for (const [index, event] of (rubricData.onThisDay?.events ?? []).entries()) {
+    const female = event.sex === 'female';
+    const kindKey = event.kind === 'death' ? (female ? 'deathF' : 'death') : female ? 'birthF' : 'birth';
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'obzorje',
+      body: renderSlot('obzorje', {
+        values: { ...commonValues(), year: event.year, name: event.name, kindKey },
+        seed: seedFor({ showId, date, slot: `obzorje:${index}` }),
+      }),
+    });
+  }
+
+  return segments;
+}
+
+export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = null }) {
   const segments = [];
   const n = tracks.length;
 
@@ -46,6 +101,14 @@ export function buildSegmentsAuto({ tracks, brief, showId, date }) {
       seed: seedFor({ showId, date, slot: 'open' }),
     }),
   });
+
+  // Rubrikes come right after the opening -- real data (ARSO / RTV /
+  // Wikidata), rendered through the same template machinery as everything
+  // else. Each one is its own slot so clips-mode users can record exactly
+  // those intros and nothing else.
+  segments.push(
+    ...rubricSegments({ rubricData, persona: primaryPersona, commonValues, showId, date })
+  );
 
   for (let i = 0; i < n; i++) {
     const track = tracks[i];
