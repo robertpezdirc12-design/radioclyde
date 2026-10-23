@@ -235,7 +235,7 @@ neural TTS model on your hardware:
   or `none` (music + jingles only). Every provider's output is normalized to
   one codec contract, so splicing stays lossless.
 - **Rubriques from live Slovenian data**: ARSO current weather, RTV
-  Slovenija sport headlines, Wikidata "on this day" — enabled per-show with
+  Slovenija news + sport headlines, Wikidata "on this day" — enabled per-show with
   one brief line, cached in-process, hard-timeout-guarded, and always
   skip-not-fail.
 - **Everything else is the same station**: scheduling, prewarm, directing,
@@ -249,7 +249,10 @@ Full Slovenian reference with every config knob:
 
 - [sample-data/](sample-data/): a working example `dataDir`, a full
   `station.json` and a real set of `show-descriptions/*.md` briefs,
-  including the auto-mode `80s-rock-auto` show.
+  including the auto-mode `80s-rock-auto` show — plus
+  **`station-auto.json`**, a ready-made 24/7 professional weekly schedule
+  (five Slovenian shows from "Dobro jutro" at 05:00 to "No\u010dni express"
+  overnight, hourly occurrences, all rubriques wired in).
 - [docs/auto-radio.md](docs/auto-radio.md): complete Slovenian reference for
   auto mode — rules, templates, voice engines, rubriques, config.
 - [script-format.md](script-format.md): the `.script.md` output grammar
@@ -275,7 +278,7 @@ Full Slovenian reference with every config knob:
   layer.
 - Weather data: [ARSO](https://meteo.arso.gov.si/) (Slovenian Environment
   Agency) and [Open-Meteo](https://open-models.open-meteo.com).
-- Sport headlines: [RTV Slovenija](https://www.rtvslo.si/sport).
+- News and sport headlines: [RTV Slovenija](https://www.rtvslo.si).
 - "On this day" facts: [Wikidata](https://www.wikidata.org) (CC0).
 - Neural Slovenian voices: Microsoft Edge read-aloud service (unofficial;
   no key required) — used via [msedge-tts](https://www.npmjs.com/package/msedge-tts).

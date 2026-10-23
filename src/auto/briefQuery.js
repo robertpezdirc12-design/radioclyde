@@ -380,6 +380,8 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
 const RUBRIC_KEYWORDS = {
   vreme: 'weather',
   weather: 'weather',
+  novice: 'news',
+  news: 'news',
   sport: 'sport',
   sportne: 'sport',
   obzorje: 'onthisday',

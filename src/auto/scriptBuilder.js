@@ -43,6 +43,19 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     });
   }
 
+  const news = rubricData.news;
+  if (news?.headlines) {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'newsHeadlines',
+      body: renderSlot('newsHeadlines', {
+        values: { ...commonValues(), headlines: news.headlines },
+        seed: seedFor({ showId, date, slot: 'newsHeadlines' }),
+      }),
+    });
+  }
+
   const sport = rubricData.sport;
   if (sport?.headlines) {
     segments.push({

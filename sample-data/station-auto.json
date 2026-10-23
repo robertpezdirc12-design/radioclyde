@@ -1,0 +1,1055 @@
+{
+  "station": {
+    "name": "Sample Radio Station",
+    "jingle": "jingles/on_air.mp3",
+    "filler": {
+      "excludeKeywords": [
+        "christmas",
+        "santa",
+        "xmas",
+        "holiday",
+        "soundtrack",
+        "_HeavyRock"
+      ]
+    },
+    "neverPlay": {
+      "keywords": [
+        "christmas",
+        "santa",
+        "xmas",
+        "holiday",
+        "soundtrack",
+        "_HeavyRock"
+      ],
+      "artists": []
+    }
+  },
+  "downtime": {
+    "start": "00:00",
+    "end": "00:00"
+  },
+  "schedule": {
+    "monday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "tuesday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "wednesday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "thursday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "friday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "saturday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ],
+    "sunday": [
+      {
+        "id": "noc-auto",
+        "startTime": "00:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "01:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "02:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "03:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "04:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "05:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "06:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "07:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "08:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "jutro-auto",
+        "startTime": "09:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/jutro-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "10:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "11:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "12:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "dopoldan-auto",
+        "startTime": "13:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/dopoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "14:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "15:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "16:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "popoldan-auto",
+        "startTime": "17:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/popoldan-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "18:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "19:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "20:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "21:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "vecer-auto",
+        "startTime": "22:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/vecer-auto.md"
+      },
+      {
+        "id": "noc-auto",
+        "startTime": "23:00",
+        "durationMinutes": 60,
+        "description": "show-descriptions/noc-auto.md"
+      }
+    ]
+  }
+}

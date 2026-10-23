@@ -31,6 +31,7 @@ voice-clips/
 |---|---|---|
 | `open` | `open.wav` | show opening line |
 | `weatherNow` | `weatherNow.wav` | rubric: current ARSO weather (see docs/auto-radio.md) |
+| `newsHeadlines` | `newsHeadlines.wav` | rubric: RTV Slovenija news headlines |
 | `sportHeadlines` | `sportHeadlines.wav` | rubric: RTV Slovenija sport headlines |
 | `obzorje` | `obzorje.wav` | rubric: one "on this day" event (Wikidata) |
 | `intro` | `intro.wav` | right before every track |

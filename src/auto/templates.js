@@ -96,6 +96,10 @@ const DEFAULT_TEMPLATES = {
     '\u0160portne novice: {headlines}',
     'Poglejmo, kaj je novega v \u0161portu: {headlines}',
   ],
+  newsHeadlines: [
+    'Novice: {headlines}',
+    'Iz Slovenije in sveta: {headlines}',
+  ],
   obzorje: {
     birth: ['Na dana\u0161nji dan leta {year} se je rodil {name}.'],
     birthF: ['Na dana\u0161nji dan leta {year} se je rodila {name}.'],

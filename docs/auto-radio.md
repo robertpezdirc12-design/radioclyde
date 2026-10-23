@@ -139,20 +139,22 @@ vedno deterministično, brez jezikovnega modela. Oddaja jih zahteva z vrstico
 `Rubrike:` v briefu (šumniki so neobčutljivi):
 
 ```markdown
-Rubrike: vreme, šport, obzorje
+Rubrike: vreme, novice, šport, obzorje
 ```
 
 | Rubrika | Vir | Slot | Predloga |
 |---|---|---|---|
 | `vreme` | **ARSO** — uradna meteorološka služba RSS (opazovanja, ~20 slovenskih postaj, slovenski opisi) | `weatherNow` | `weatherNow.withTemp` / `.tempOnly` / `.generic` |
 | `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
+| `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta | `newsHeadlines` | `newsHeadlines` |
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
 
 Nastavitve v `config.autoRadio.rubrics`:
 
 - `station` — ARSO postaja (npr. `"Ljubljana"`; ujemanje: točno → začne se z →
   vsebuje-najkrajše, tako da `"Ljubljana"` najde mestno postajo, ne letališča)
-- `sportLimit` — koliko naslovnic (privzeto 4)
+- `newsLimit` — koliko novičnih naslovnic (privzeto 3)
+- `sportLimit` — koliko športnih naslovnic (privzeto 4)
 - `onThisDayLimit` — koliko dogodkov "na današnji dan" (privzeto 2)
 - `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
 

@@ -133,6 +133,7 @@
     },
     "rubrics": {
       "station": "Ljubljana",
+      "newsLimit": 3,
       "sportLimit": 4,
       "onThisDayLimit": 2,
       "timeoutSeconds": 10

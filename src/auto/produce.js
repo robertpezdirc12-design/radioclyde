@@ -102,11 +102,12 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   const rubricNames = parseBriefRubrics(descriptionText);
   const rubricData = rubricNames.length > 0
     ? await collectRubricData({ names: rubricNames, date })
-    : { weather: null, sport: null, onThisDay: null };
+    : { weather: null, news: null, sport: null, onThisDay: null };
   debug.rubrics = {
     requested: rubricNames,
     resolved: {
       weather: rubricData.weather ? rubricData.weather.station : null,
+      news: rubricData.news?.count ?? null,
       sport: rubricData.sport?.count ?? null,
       onThisDay: rubricData.onThisDay?.events.length ?? 0,
     },
@@ -114,7 +115,7 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   };
   if (rubricNames.length > 0) {
     log(`[${id}] rubrics: ${rubricNames.join(', ')} -> weather=${debug.rubrics.resolved.weather ?? 'off'}, ` +
-      `sport=${debug.rubrics.resolved.sport ?? 'off'}, obzorje=${debug.rubrics.resolved.onThisDay}`);
+      `news=${debug.rubrics.resolved.news ?? 'off'}, sport=${debug.rubrics.resolved.sport ?? 'off'}, obzorje=${debug.rubrics.resolved.onThisDay}`);
   }
 
   const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData });

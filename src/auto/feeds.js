@@ -29,6 +29,7 @@ const log = createLogger('station');
 const ARSO_OBSERVATIONS_RSS =
   'https://meteo.arso.gov.si/uploads/probase/www/observ/surface/text/sl/observation_si_latest.rss';
 const RTV_SPORT_RSS = 'https://www.rtvslo.si/sport/rss';
+const RTV_NEWS_RSS = 'https://www.rtvslo.si/feeds/novice.xml';
 const WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql';
 const USER_AGENT = 'RadioClyde-autoRadio/1.0 (self-hosted radio automation; deterministic templates)';
 
@@ -185,6 +186,31 @@ export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs
 }
 
 // ---------------------------------------------------------------------------
+// news: RTV Slovenija headlines
+// ---------------------------------------------------------------------------
+
+export async function fetchNewsHeadlines({ limit = 3, timeoutMs = 10_000, ttlMs = 30 * 60_000 } = {}) {
+  const key = cacheKey(['rtv-news', limit]);
+  const hit = cacheGet(key, ttlMs);
+  if (hit !== undefined) return hit;
+  try {
+    const xml = await fetchText(RTV_NEWS_RSS, timeoutMs);
+    const titles = rssItems(xml).map((item) => item.title);
+    if (titles.length === 0) {
+      log('feeds/rtv-news: empty feed -- news rubric skipped.');
+      cacheSet(key, null);
+      return null;
+    }
+    const value = { source: 'rtv', headlines: joinSlovenianHeadlines(titles.slice(0, limit)), count: Math.min(limit, titles.length) };
+    cacheSet(key, value);
+    return value;
+  } catch (err) {
+    log(`feeds/rtv-news: fetch failed (${err.message}) -- news rubric skipped.`);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // on this day: Wikidata births/deaths with Slovenian labels
 // ---------------------------------------------------------------------------
 
@@ -311,6 +337,7 @@ export function rubricSettings() {
   const cfg = config.autoRadio?.rubrics ?? {};
   return {
     station: cfg.station ?? 'Ljubljana',
+    newsLimit: cfg.newsLimit ?? 3,
     sportLimit: cfg.sportLimit ?? 4,
     onThisDayLimit: cfg.onThisDayLimit ?? 2,
     timeoutSeconds: cfg.timeoutSeconds ?? 10,
@@ -323,15 +350,16 @@ export function rubricSettings() {
 export async function collectRubricData({ names = [], offline = false, date } = {}) {
   if (offline) {
     log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, sport: null, onThisDay: null, offline: true };
+    return { weather: null, news: null, sport: null, onThisDay: null, offline: true };
   }
   const settings = rubricSettings();
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
-  const [weather, sport, onThisDay] = await Promise.all([
+  const [weather, news, sport, onThisDay] = await Promise.all([
     wants('weather') ? fetchArsoCurrentWeather({ station: settings.station, timeoutMs }) : null,
+    wants('news') ? fetchNewsHeadlines({ limit: settings.newsLimit, timeoutMs }) : null,
     wants('sport') ? fetchSportHeadlines({ limit: settings.sportLimit, timeoutMs }) : null,
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
   ]);
-  return { weather, sport, onThisDay, offline: false };
+  return { weather, news, sport, onThisDay, offline: false };
 }
