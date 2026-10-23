@@ -11,6 +11,10 @@ config.json
 # Generated at runtime, not source
 .env
 
+# Local test/dev log artifacts (never commit logs)
+*.log
+!docs/**/*.log
+
 # Android TV app (android-tv/) — standard Android Gradle project ignores
 android-tv/local.properties
 android-tv/.gradle/
