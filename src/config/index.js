@@ -56,4 +56,17 @@ config.paths = {
   promptsFile: path.join(config.dataDir, 'prompts.json'),
   promptsLockPath: path.join(config.dataDir, '.prompts.lock'),
   stationLockPath: path.join(config.dataDir, '.station.lock'),
+  // Imaging layer (scheduler/imagingPlaylists.js + liquidsoap/radio.liq):
+  // short produced clips layered over the program. Node scans the clip
+  // directories and writes the three .m3u files radio.liq watches; the clip
+  // audio itself is produced out-of-band (TTS / ffmpeg), see
+  // docs/imaging-layer.md. A missing clip directory yields an empty .m3u,
+  // which makes that Liquidsoap source fallible-empty -- the layer simply
+  // drops off air instead of breaking anything.
+  imagingIdDir: path.join(config.dataDir, 'imaging', 'id'),
+  imagingStingerDir: path.join(config.dataDir, 'imaging', 'stingers'),
+  imagingEmergencyDir: path.join(config.dataDir, 'imaging', 'emergency'),
+  imagingIdPath: path.join(config.dataDir, 'imaging', 'id.m3u'),
+  imagingStingerPath: path.join(config.dataDir, 'imaging', 'stingers.m3u'),
+  imagingEmergencyPath: path.join(config.dataDir, 'imaging', 'emergency.m3u'),
 };

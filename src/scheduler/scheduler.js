@@ -22,6 +22,7 @@ import { generateFillerPlaylist } from './generateFillerPlaylist.js';
 import { cleanupOldShows } from './cleanupOldShows.js';
 import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
+import { writeImagingPlaylists } from './imagingPlaylists.js';
 import { sampleNow } from '../analytics/listenerSamples.js';
 
 const log = createLogger('station');
@@ -126,6 +127,15 @@ export function startScheduler() {
   // without an analytics block keep booting exactly as before; the sample
   // itself is also honest on failure (a gap entry, not a skipped tick).
   every(Math.max(1, config.analytics?.sampleIntervalMinutes ?? 1), 'listener_sample', sampleNow);
+  // Imaging layer: refresh the id/stingers/emergency .m3u playlists from their
+  // clip directories (scheduler/imagingPlaylists.js -- Liquidsoap watches the
+  // files; a rewrite is also what refills an exhausted layer's pool).
+  // Optional-chained + defaulted like every other optional block, so configs
+  // without an imaging block boot exactly as before (the F2 class of defect
+  // caught by the chatterbox regression on 2026-10-24 -- must not come back).
+  // The rescan is cheap (three small dir listings); it runs at boot too via
+  // every()'s immediate first tick, so the .m3u files exist from the start.
+  every(Math.max(1, config.imaging?.checkIntervalMinutes ?? 30), 'imaging', writeImagingPlaylists);
 
   log('Scheduler started.');
 }

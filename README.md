@@ -129,6 +129,11 @@ phases hand off through.
   prefixes to anonymous visitors; together with the self-contained
   `/embed.html` mini player it enables site embedding and anonymous player
   URLs when you decide the stream should be public — [decision guide](docs/p1-listener-experience.md).
+- **Imaging layer**: station ID overlay at the top of the hour (official
+  Liquidsoap overlay recipe), timed stingers (`delay()`-gated, track-boundary
+  only) and an emergency bed below the program sources — all three degrade
+  gracefully: an empty/missing clip directory simply drops that layer off
+  air, never the program — [design & asset production](docs/imaging-layer.md).
 
 ## Meet the DJs
 

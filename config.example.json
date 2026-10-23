@@ -104,6 +104,9 @@
     "impactMinSamples": 2,
     "impactMinCoverage": 0.5
   },
+  "imaging": {
+    "checkIntervalMinutes": 30
+  },
   "broadcast": {
     "tuneIn": null,
     "discordWebhook": null,

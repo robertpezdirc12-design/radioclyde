@@ -79,7 +79,71 @@ filler_source = fade.in(duration=0., filler_source)
 # scheduling gap (or a show that isn't directed yet) fall back to music
 # instead of silence. mksafe stays as the last-resort safety net in case
 # filler_source is itself briefly empty (e.g. mid-regeneration).
-radio = mksafe(fallback(track_sensitive=false, [show_source, filler_source]))
+#
+# --- Imaging layer (docs/imaging-layer.md) -----------------------------------
+# Three optional layers on top of the show/filler core, in "outside-in" order:
+# stingers join at track boundaries, the hour ID rides OVER the mix, and the
+# emergency bed sits below everything but above mksafe's blank. Every source
+# here is a playlist() (fallible): an empty or missing .m3u (which is what
+# scheduler/imagingPlaylists.js writes when a clip directory is empty/absent)
+# makes that layer simply unavailable, so a station with no imaging assets
+# behaves exactly as it did before this block existed -- the degradation
+# ladder is "skip the layer", never "skip the program".
+#
+# Stingeri -- delay() semantics verified against Liquidsoap 2.2.5's
+# src/core/operators/delay.ml: after a track of the wrapped source ends, the
+# source stays unavailable until <interval> seconds have passed; at startup
+# "last" is 0., so exactly ONE stinger plays at the first track boundary
+# after boot, then at most one per interval afterwards. The outer
+# fallback(track_sensitive=true) is what keeps this on track boundaries --
+# with track_sensitive=false it would cut music mid-track the moment the
+# interval elapsed. Interval is a literal here on purpose (like {0m0s}
+# below): radio.liq's json.parse type stays untouched, so an older
+# config.json without an imaging block still boots. Edit 1800. (seconds) to
+# retune.
+stinger_source = playlist(id="imaging_stingers", reload_mode="watch", mode="randomize", loop=false,
+  config.dataDir ^ "/imaging/stingers.m3u")
+stinger_timed = delay(1800., stinger_source)
+
+# Station ID at the top of the hour -- the official cookbook overlay recipe
+# ("Mixing and switching": add([normal, switch([({0m0s}, jingle)])])). The
+# switch has no default branch: before :00 it's unavailable and contributes
+# nothing; at :00 it becomes available and starts the clip immediately (it
+# has no current track to be track-sensitive about), mixing the ID OVER the
+# program. Keep id clips SHORT (2-5 s) -- they can ride over a show's intro
+# speech if a show starts exactly on the hour; that overlap is how real
+# stations sound. predicate.activates was evaluated and REJECTED for this:
+# its false->true edge is only observable when something samples the
+# predicate (predicate.liq, LS 2.2.5: ans = (not last()) and cur), so with
+# boundary-only re-selection a track boundary can fall outside the 0m-5m
+# window and the ID would silently skip whole hours. mode="randomize" +
+# loop=false: one clip per hour from the pool, pool refilled by the next
+# imaging rescan's rewrite (watch reload).
+id_source = playlist(id="imaging_id", reload_mode="watch", mode="randomize", loop=false,
+  config.dataDir ^ "/imaging/id.m3u")
+
+# Emergency bed: the last playlist below show+filler, above mksafe's blank --
+# if both program sources die (e.g. both m3u files unreadable mid-write),
+# this plays a recognizable "we know it's broken" clip on loop instead of
+# pure silence that would still keep Icecast/Sonos clients connected
+# (SUB/WAVE's dead-air guard idea, minimal form). playlist() with loop=true,
+# NOT single(): a fallible source that is unavailable while its playlist is
+# empty keeps the degradation ladder honest, while single() with a missing
+# file has murkier availability semantics on this build.
+emergency_source = playlist(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,
+  config.dataDir ^ "/imaging/emergency.m3u")
+
+radio = fallback(track_sensitive=false, [show_source, filler_source])
+# Stingers slot in between show/filler tracks (their own fallback with
+# track_sensitive=true re-selects at track starts; after the stinger ends,
+# delay() blocks it again and the next boundary returns to the program).
+radio = fallback(track_sensitive=true, [stinger_timed, radio])
+# Hour ID overlay (see comment above).
+radio = add([radio, switch([({0m0s}, id_source)])])
+# Emergency below everything (immediately preempts when the program sources
+# are both unavailable -- track_sensitive=false), then mksafe's blank stays
+# as the final net if even the emergency playlist is empty.
+radio = mksafe(fallback(track_sensitive=false, [radio, emergency_source]))
 
 # Plex scrobble: Plex never sees these plays otherwise -- playback here reads
 # straight off the filesystem, bypassing Plex entirely -- so this pings its
