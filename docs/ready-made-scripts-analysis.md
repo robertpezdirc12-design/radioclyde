@@ -1,14 +1,28 @@
 # Najboljše pripravljene skripte na GitHubu: samodejne oddaje, prehodi govor↔glasba, napovedovanje
 
-*Datum: 2026-10-24 · raziskava nad živimi viri (raw GitHub, dokumentacija, AzuraCast razprave) · Radio Clyde main `96afcfe`, Liquidsoap 2.2.4-1+dev*
+*Datum: 2026-10-24 · **v2 (druga iteracija: hipoteza → iskanje → verifikacija → matrika)** · Radio Clyde main `a1c1fee`, Liquidsoap 2.2.4-1+dev*
 
-Naloga: najti **že pripravljene** skripte z največ funkcijami za (1) samodejno generiranje oddaj, (2) prehode med govorom in glasbo, (3) napovedovanje (ID-ji, časniki, vreme/novice). Vsak nosilec je ocenjen po: dokaz v produkciji, determinističnost, prileganje naši arhitekturi (Node piše m3u + annotate → Liquidsoap mixa), licenca, cena integracije. Na koncu je urejen predlog integracije.
+Naloga: najti **že pripravljene** skripte z največ funkcijami za (1) samodejno generiranje oddaj, (2) prehode med govorom in glasbo, (3) napovedovanje (ID-ji, časniki, vreme/novice). Vsak nosilec je ocenjen po: dokaz v produkciji, determinističnost, prileganje naši arhitekturi (Node piše m3u + annotate → Liquidsoap mixa), licenca, cena integracije. Na koncu sta urejena matrika primerjave in predlog integracije.
 
 ---
 
+## 0. Metodologija in hipoteza (novo v v2)
+
+Vrstni red po nalogu: **najprej razmislek, potem iskanje, nato verifikacija iz primarnih virov** (raw GitHub, uradna dokumentacija, razprave maintainerjev). Hipoteza zapisana PRED iskanjem, z oceno po dejstvih:
+
+| # | Hipoteza (pred iskanjem) | Sodba po verifikaciji |
+|---|---|---|
+| H1 | TTS→oddaja gre povsod prek `request.dynamic` + začasna datoteka; profesionalni sloj je normalizacija glasnosti (R128) | **Potrjeno, delno:** `request.dynamic` je uradna pot (cookbook); R128 ne pride kot ločen korak, ampak prek annotate `liq_amplify` (autocue / AzuraCast #6252) |
+| H2 | Prehodi govor↔glasba imajo le 4 kanonične vzorce: trd rez z cue, crossfade ovojnica, ducking podlaga, jingle overlay | **Potrjeno in razširjeno:** 5. kanonični vzorec je **dispatch po oznaki vira** (`source_tag`) — uradni cookbook ga zapiše dobesedno; generalizira naš annotate »0« model |
+| H3 | Generatorje oddaj vodijo rotacijska pravila (`rotate(weights)`, `switch({{0m}})`, `delay()`); deterministični razporejevalniki so redki | **Potrjeno:** vsi trije vzorci uradni; format ura obstaja kot AzuraCast »Clockwheel/Playlist Groups« (PR #8433); edini čisto deterministični Node generator = defenestratexp |
+| H4 | Napovedovanje = predloga + podatkovni vir (vreme/novice) → TTS | **Potrjeno** (WRIT-FM taksonomija, defenestratexp predloge, Rivendell RDCatch); **novo odkritje:** `predicate.activates` rešuje »natančno ENA napoved na okno« — v1 vzorec z golo `switch` je imel to napako |
+| H5 | Novih pun repozitorijev bo malo; vrednost je v verificiranih uradnih vzorcih | **Potrjeno:** nič novih glavnih kandidatov; nove pridobitve so drobci — EBU meta-indeks, Piper naslednik, Clockwheel dizajn, 8 uradnih receptov 2.2.5 dobesedno |
+
+Kaj je v v2 novo iskano in najdeno: meta-indeksi (EBU), status Piper runtime (arhiviran → naslednik), format ure pri AzuraCastu (kljub priloženi razpravi #8432 do konca), uradni cookbook 2.2.5 (verificirane kodo-vrstice), gist z `smooth_add`.
+
 ## 1. Naša izhodiščna točka (iskrena samopodoba)
 
-`liquidsoap/radio.liq` (132 vrstic) je danes minimalen: `playlist(now_playing.m3u, watch)` → `fade.in` z annotate `liq_fade_in` (skladbe se zavejo, govor dobi »0« = trz» rez) → `fallback(track_sensitive=false, [show_source, filler_source])` + `mksafe` → en MP3 Icecast mount. Ključna zgodovina: `crossfade()` je že **dvakrat spodletel** (obrezal je živ govor DJ-ja; global `fade.out` v tej verziji utiša celo skladbo), zato so prehodi rešeni z vnaprej renderiranim fade-out (samo jingle) in hard cut povsod drugje. To je varno, a zveni »digitalno«. Prav ta bolečina je v svetu Liquidsoapa že dvakrat rešena — spodaj.
+`liquidsoap/radio.liq` (131 vrstic) je danes minimalen: `playlist(now_playing.m3u, watch)` → `fade.in` z annotate `liq_fade_in` (skladbe se zavejo, govor dobi »0« = trd rez) → `fallback(track_sensitive=false, [show_source, filler_source])` + `mksafe` → en MP3 Icecast mount. Ključna zgodovina: `crossfade()` je že **dvakrat spodletel** (obrezal je živ govor DJ-ja; global `fade.out` v tej verziji utiša celo skladbo), zato so prehodi rešeni z vnaprej renderiranim fade-out (samo jingle) in trdim rezom povsod drugje. To je varno, a zveni »digitalno«. Prav ta bolečina je v svetu Liquidsoapa že dvakrat rešena — spodaj.
 
 ## 2. Prehodi govor↔glasba — uvrstitev
 
@@ -16,75 +30,158 @@ Naloga: najti **že pripravljene** skripte z največ funkcijami za (1) samodejno
 
 Repo: `https://github.com/Moonbase59/autocue` (51★, MIT, 225 commitov, zadnja aktivnost 2024-10). Dela: `cue_file` (Python3 + ffmpeg ebur128 + Mutagen) analizira vsako datoteko in vrne JSON: `liq_cue_in`, `liq_cue_out`, `liq_cross_start_next`, `liq_fade_in/out`, **`liq_amplify` (R128 glasnost → dB korekcija)**, `liq_longtail`, `liq_sustained_ending`, true peak, blankskip. Integracija: protokol `autocue:` (`%include autocue.cue_file.liq`) ali **od 2.2.5 vgrajeno**: `enable_autocue_metadata()` — ena vrstica (notranja implementacija, samo ffmpeg povezave).
 
-Zakaj je to točno naš primer: (a) narejen za LS **2.2.5** (mi: 2.2.4 — ena minor verzija; pri 2.3.x imajo težave, ne obratno); (b) vgrajen v AzuraCast od 2024-05; (c) **ne prekriva virov** — oblikuje ovojnico posamezne datoteke (cue/fade/loudness), torej ne trpi problema, ki je ubil naš `crossfade()`; (d) R128 normalizacija je pravi mehanizem za »nivojsko poravnane« meje govor↔glasba, ki jih trenutno dosegamo le sStaticnimi ugibi; (e) podpira predobdelavo z oznakami (»za dramatično hitrost«) — naš Node scheduler lahko analizira enkrat, offline.
+Zakaj je to točno naš primer: (a) narejen za LS **2.2.5** (mi: 2.2.4 — ena minor verzija; pri 2.3.x imajo težave, ne obratno); (b) vgrajen v AzuraCast od 2024-05; (c) **ne prekriva virov** — oblikuje ovojnico posamezne datoteke (cue/fade/loudness), torej ne trpi problema, ki je ubil naš `crossfade()`; (d) R128 normalizacija je pravi mehanizem za »nivojsko poravnane« meje govor↔glasba, ki jih trenutno dosegamo le s statičnimi ugibi; (e) podpira predobdelavo z oznakami (»za dramatično hitrost«) — naš Node scheduler lahko analizira enkrat, offline.
 
 Opozorila, dobesedno iz README: »Ne uporabljajte blankskip s govorjenim ali TTS-generiranim besedilom — pogosto odreže sporočilo« (naš govor ima lastno pot z annotate »0«, tako da varno); »Pred spreminjanjem nastavitev točno vedite, kaj počnete«. Privzete nastavitve (za našo dokumentacijo): fade_in 0,1 s, fade_out 2,5 s, cilj −18 LUFS, tišina −42 LU, overlay −8 LU, longtail 15 s.
 
 ### 2.2 AzuraCast »Profesionalni Crossfade« (nit #6252, Moonbase59) — radijski standard v številkah
 
-Vir: `github.com/AzuraCast/AzuraCast/discussions/6252` (127 komentarjev; rojstni list autocue). Kostni izvleček, ki vreden zapisa v našo dokumentacijo: »V radiu navadno NE uporabljamo fade-inov«; radijski standard: **fade_in = 0 s, fade_out = 3,5 s, začetek fade-out pri −15 dB (EBU R128), največji preklop 4,0 s, okno računanja moči 2,0 s**; priporočljiva kombinacija: `amplify(1., override="replaygain_track_gain", radio)` pred `cross()` in `cross.simple(old, new, fade_in=0.00, fade_out=3.50)` znotraj `cross(minimum=0.00, duration=4.00, width=2.00, …)`; izrek avtorja: **»Ne uporabljajte cross.smart, ker ni tako pameten«** (pravila po dB povprečjih so pregroba). Podatkovna pot: AzuraCast od LS 2.2.x pošilja **annotate na vsako skladbo** (`liq_fade_in`, `liq_fade_out`, `liq_cue_in/out`, `liq_amplify`) in se zanaša na samodejno ponastavljanje oznak — točno isti model, ki ga že uporablja naš director (`annotate:liq_fade_in=…` v m3u). To pomeni: naša arhitektura je že na pravi poti, manjka le **realna analiza** za vrednosti namesto ugibov.
+Vir: `github.com/AzuraCast/AzuraCast/discussions/6252` (127 komentarjev; rojstni list autocue). Kostni izvleček, vreden zapisa v našo dokumentacijo: »V radiu navadno NE uporabljamo fade-inov«; radijski standard: **fade_in = 0 s, fade_out = 3,5 s, začetek fade-out pri −15 dB (EBU R128), največji preklop 4,0 s, okno računanja moči 2,0 s**; priporočljiva kombinacija: `amplify(1., override="replaygain_track_gain", radio)` pred `cross()` in `cross.simple(old, new, fade_in=0.00, fade_out=3.50)` znotraj `cross(minimum=0.00, duration=4.00, width=2.00, …)`; izrek avtorja: **»Ne uporabljajte cross.smart, ker ni tako pameten«** (pravila po dB povprečjih so pregroba). Podatkovna pot: AzuraCast od LS 2.2.x pošilja **annotate na vsako skladbo** (`liq_fade_in`, `liq_fade_out`, `liq_cue_in/out`, `liq_amplify`) in se zanaša na samodejno ponastavljanje oznak — točno isti model, ki ga že uporablja naš director (`annotate:liq_fade_in=…` v m3u). To pomeni: naša arhitektura je že na pravi poti, manjka le **realna analiza** za vrednosti namesto ugibov.
 
 ### 2.3 SUB/WAVE `radio.liq` (MIT, 2.324 vrstic) — najbogatejši enoten primer, a zahteva nov Liquidsoap
 
-Vir: `raw.githubusercontent.com/perminder-klair/subwave/main/liquidsoap/radio.liq`. Izvlečki, ki so vredni učenja ne glede na različico: (a) **±6 dB invarianta preklopa** — »fade.out/fade.in morata segati čez CEL cross buffer, sicer izhodna ostane na polni glasnosti ob prilivanju prihajajoče: +6 dB, čuten podvajanj«; (b) **cross žigi** — en liq_cross_duration na skladbo se prepiše v ločena start/end žiga, ker `cross` sicer velikost izhodnega repa velikosti po oznaki PREJŠNJE skladbe (izmerjeno: 3.931/3.997 prehodov); (c) `cue_cut` za trdne omejitve dolžine; (d) **dead-air stražar**: `fallback([music, emergency])` s 30 s rožnatim šumom + `music-starved.json` srčni utrip; (e) `request.queue` polnjen iz `next.txt` (poll 1 s) — mehanizem vstavljanja brez reload; (f) `subhttp` protokol, ki **zavrača JSON/XML body kot »ne-zvok«** (Navidrome vrne 200 z napako!) in <4 KiB datoteke; (g) runtime nastavitve prek besedilnih datotek. **Ključna ovira, dobesedno iz datoteke:** »v2.4.6 je NAJMANJŠI runtime; 2.4.4 O(n) clock scan zasede jedro, 2.4.5 odvrne delni okvir po vsakem cross« — torej SUB/WAVE-jevi efekti (chop/washout/dissolve) so za nas šele po nadgradnji na 2.4.6+. To je projekt P3, ne današnja izposoja.
+Vir: `raw.githubusercontent.com/perminder-klair/subwave/main/liquidsoap/radio.liq`. Izvlečki, vredni učenja ne glede na različico: (a) **±6 dB invarianta preklopa** — »fade.out/fade.in morata segati čez CEL cross buffer, sicer izhodna ostane na polni glasnosti ob prilivanju prihajajoče: +6 dB, čuten podvajanj«; (b) **cross žigi** — en liq_cross_duration na skladbo se prepiše v ločena start/end žiga, ker `cross` sicer velikost izhodnega repa velikosti po oznaki PREJŠNJE skladbe (izmerjeno: 3.931/3.997 prehodov); (c) `cue_cut` za trdne omejitve dolžine; (d) **dead-air stražar**: `fallback([music, emergency])` s 30 s rožnatim šumom + `music-starved.json` srčni utrip; (e) `request.queue` polnjen iz `next.txt` (poll 1 s) — mehanizem vstavljanja brez reload; (f) `subhttp` protokol, ki **zavrača JSON/XML body kot »ne-zvok«** (Navidrome vrne 200 z napako!) in <4 KiB datoteke; (g) runtime nastavitve prek besedilnih datotek. **Ključna ovira, dobesedno iz datoteke:** »v2.4.6 je NAJMANJŠI runtime; 2.4.4 O(n) clock scan zasede jedro, 2.4.5 odvrne delni okvir po vsakem cross« — torej SUB/WAVE-jevi efekti (chop/washout/dissolve) so za nas šele po nadgradnji na 2.4.6+. To je projekt P3, ne današnja izposoja.
 
 ### 2.4 uradni `cross.smart` (dok. Liquidsoap 2.2.5) — vzemite kot učbenik, ne kot rešitev
 
 Vir: `liquidsoap.info/doc-2.2.5/crossfade`. Javna koda (dB-pravila: medium −32, high −15, margin 4 dB → izbere full-cross/fade-out/fade-in/no-fade/default). Uporabna kot referenčna taksonomija prehodov; v praksi odsvetovana (2.2). Ničesar ne uvajamo.
 
-## 3. Napovedovanje — uradni vzorci (canonical answer)
+### 2.5 NOVO: `source_tag` dispatch — kanonični vzorec za govor vs glasba (uradni cookbook 2.2.5)
 
-Vir: `liquidsoap.info/doc-2.4.5/complete_case` + cookbook. To so zapisane rešitve za našo vrzel »ni ID ob polni uri«:
+Vir: `liquidsoap.info/doc-2.2.5/cookbook`, dobesedno. Vsak vir dobi oznako, prehod pa se odloči po njej:
 
 ```liquidsoap
-# ID postaje na polni uri, zmešan NAD programom:
-radio = add([radio, switch([({0m0s}, clock_jingle)])])
-# Jingle vsakih ~5 skladb:
-radio = random(weights=[1, 5], [jingles, radio])
-# Dan/noč sporedi:
-radio = fallback([request.queue(id="request"),
-                  switch([({6h-22h}, day), ({22h-6h}, night)]), default])
+def source_tag(s, tag) = ... metadata.map(id=tag, insert_missing=true, f, s) end
+music   = source_tag(<glasba>, "music")
+jingles = source_tag(<jingli>, "jingles")
+radio   = rotate(weights = [1, 3], [jingles, music])
+# Če katerikoli rob NI glasba → trd rez (sequence); sicer standardni preklop:
+def transition(a, b)
+  if a.metadata["source_tag"] != "music" or b.metadata["source_tag"] != "music" then
+    sequence([a.source, b.source])
+  else
+    cross.smart(a, b)
+  end
+end
+radio = cross(duration=5., transition, radio)
 ```
 
-Naš primer: obstoječi pre-renderirani jingle + novi ID-ji (Piper, enkratna proizvodnja) v `switch([{0m0s}, …])` — nič novega v Node, čista `radio.liq` sprememba, enostavno reverzibilna. To je najcenejša izboljšava »zveni kot radio« na celotnem seznamu.
+*(V publikaciji stoji pogoj z `a.` v obeh krakih — očitna tipkarska napaka; namen je »če KATERIKOLI vir ni glasba«, kot zgoraj popravljen. `cross.smart` znotraj vzorca je le ilustracija — v praksi nadomestimo z našo annotate enačbo.)*
+
+To je **generalizacija našega modela**: namesto implicitnega »govor ima annotate 0« explicitno označimo vire in razdelimo pravila. Naš Node writer že poznajo `dj` polje, torej je cena nizka: ena meta oznaka v m3u + ena funkcija v `radio.liq`. Prednost: prehod glasba→jingel→glasba postane enolično določen v enem mestu, namesto razpršenega po annotate vrednostih.
+
+### 2.6 NOVO: `smooth_add` — napoved ČEZ glasbo brez sidechaina (vzorčni gist)
+
+Vir: gist `9ebb70312419427cdb42a7170993faa6` (»Liquidsoap Radio System«), dobesedno:
+
+```liquidsoap
+radio = smooth_add(delay=0.8, p=background_volume, normal=radio, special=microphone)
+# Make quick announcements on the fly with this.
+```
+
+`smooth_add` je uradni operator: `special` utiša `normal` na `p` (delež glasnosti) brez ffmpeg sidechaina, z `delay` pripravi mehko mejo. Za nas zanimivo za P3 »postelje« — bolj preprosto kot radio-dj-jev `sidechaincompress`, brez dodatnega procesa, deluje na 2.2.x. Omejitev: zahteva STROJNO ločena vira (special = govor), naš tok je ena m3u — torej šele po prehodu na `request.queue` vstavljanje (P2 #6).
+
+## 3. Napovedovanje — uradni vzorci (canonical answer), v2 dobesedno verificirani
+
+Vir: `liquidsoap.info/doc-2.2.5/cookbook` + `doc-2.4.5/complete_case`. Vsi naslednji izvlečki so prebrani iz primarne strani v tej iteraciji:
+
+```liquidsoap
+# (1) Jingle vsakih ~3-5 skladb — uradni vzorec (rotate):
+radio = rotate(weights = [1, 3], [jingles, music])
+
+# (2) ID postaje na polni uri, zmešan NAD programom (brez prekinitve):
+radio = add([normal, switch([({0m0s}, jingle)])])
+
+# (3) NOVO — natančno ENA napoved v prvih 5 minutah ure (popravek v1 vzorca!):
+#     goli switch({0m-5m}) bi lahko odigral VEČ jinglov; predicate.activates
+#     zazna trenutek, ko predikat postane resničen, in odigra natanko enega:
+radio = switch([(predicate.activates({0m-5m}), jingles), ({true}, playlist)])
+
+# (4) Periodni imaging (uradni recept »Periodic playlists«):
+timed_promotions = delay(1200., promotions)   # vsakih 20 min
+main_source = fallback([timed_promotions, other_source])
+
+# (5) Stražar pred tišino (uradni recept, blank.strip):
+stripped_stream = blank.strip(<vir>)
+fallback(track_sensitive=false, [stripped_stream, blank.strip(normal)])
+```
+
+Naš primer: obstoječi pre-renderirani jingle + novi ID-ji (Piper, enkratna proizvodnja) — nič novega v Node, čista `radio.liq` sprememba, enostavno reverzibilna. Za ID ob polni uri uporabimo **(2) overlay** (ID nad pesmijo, kot pravi radio) ali **(3) predicate.activates** (ID med skladbama); (4) reši P1 #3 imaging sloj (stingeri vs. 20–30 min), (5) je uradna varianta našega P2 #7 dead-air stražarja.
 
 ## 4. Samodejna generacija oddaj — uvrstitev
 
-### 4.1 defenestratexp/liquidsoap-icecast-radio (MIT) — glasanje: arhitekturno nas dvojček
+### 4.1 defenestratexp/liquidsoap-icecast-radio (MIT) — arhitekturni dvojček
 
-Repo: `github.com/defenestratexp/liquidsoap-icecast-radio` (0★, sveže 2026-09, Ansible, MIT). Pomembnost ni v zvezdicah, temveč v tem, da je **edini najdeni projekt z identično filozofijo**: fiksni predlogni tekstri + Piper TTS + žanrski sporedi + play log, brez LLM. Njegov DJ tok: Liquidsoap vsakih 5 skladb zapiše oznake zadnjih treh skladb v datoteko → `dj-announce.sh` napolni fiksne predloge (»From the album X by Y, that was Z … Next up …«) → Piper → ffmpeg 44,1 kHz/128k MP3 → **`request.queue`** predvaja med skladbami. Izposojljivo konkretno: (a) pravila pametnega plejlista — deduplikacija po (izvajalec, naslov), **omejitve 30 skladb/izvajalec in 5/(izvajalec, album)** (kompilacije se ne izstradajo), izključitev vseh predvajanih v zadnjih 12 h, **utež po 7-dnevnem števcu vrtenc** (manj predvajane pridejo prej), boost novosti (7 dni); (b) `audit-show-playlists.sh` — poročilo skladb z napačnim žanrom v sporedu (določena vsebina za naš Diagnostics); (c) `radio-manifest.json.j2` + `radio-sw.js.j2` — PWA datoteke, neposredno prenosljive za naš P1 (MediaSession+PWA); (d) naslednja skladba prek telnet `music.next` + ffprobe za »Next up« besedilo — deterministična nadgradnja našega liveLines predlog.
+Repo: `github.com/defenestratexp/liquidsoap-icecast-radio` (0★, sveže 2026-09, Ansible, MIT). Pomembnost ni v zvezdicah, temveč v tem, da je **edini najdeni projekt z identično filozofijo**: fiksni predlogni tekstri + Piper TTS + žanrski sporedi + play log, brez LLM. Njegov DJ tok: Liquidsoap vsakih 5 skladb zapiše oznake zadnjih treh skladb v datoteko → `dj-announce.sh` napolni fiksne predloge (»From the album X by Y, that was Z … Next up …«) → Piper → ffmpeg 44,1 kHz/128k MP3 → **`request.queue`** predvaja med skladbami. Izposojljivo konkretno: (a) pravila pametnega plejlista — deduplikacija po (izvajalec, naslov), **omejitve 30 skladb/izvajalec in 5/(izvajalec, album)** (kompilacije ne preplavijo sporeda), izključitev vseh predvajanih v zadnjih 12 h, **utež po 7-dnevnem števcu vrtenc** (manj predvajane pridejo prej), boost novosti (7 dni); (b) `audit-show-playlists.sh` — poročilo skladb z napačnim žanrom v sporedu (določena vsebina za naš Diagnostics); (c) `radio-manifest.json.j2` + `radio-sw.js.j2` — PWA datoteke (že izposojeno v P1); (d) naslednja skladba prek telnet `music.next` + ffprobe za »Next up« besedilo — deterministična nadgradnja našega liveLines predlog.
 
 ### 4.2 WRIT-FM (382★, MIT) — struktura je deterministična, vsebina AI (preverjeno)
 
-Repo: `github.com/keltokhy/writ-fm`. Vsebinski generator je LLM (Claude/Kodex) + Kokoro/Chatterbox/Voxtral; **struktura pa je vredna kopiranja tudi nam**: taksonomija segmentov (deep_dive, news_analysis iz RSS, interview, panel, story, **listener_mailbag**, music_essay + kratke: **station_id, show_intro, show_outro** kot prvovrstni vsebinski tipi), tedenski premik (nedeljski »Listener Hours«), **min-zalogovanje** (≥3 govorni prekini/slot, ≥20 skladb/oddaja — javno zdravstveno merilo), station-local topic bank + append-only **uredniški vodnik** (kontinuiteta med oddajami), več-stancijska izolacija (WRIT/KLOD/CDEX iz enega runtime). Za nas: tipi segmentov se 1:1 prevedejo v naše template vrste (liveLines + prewarmed slots), min-zaloga pa v Diagnostics »vsebina pripravljena za naslednji slot«.
+Repo: `github.com/keltokhy/writ-fm`. Vsebinski generator je LLM (Claude/Kodex) + Kokoro/Chatterbox/Voxtral; **struktura pa je vredna kopiranja tudi nam**: taksonomija segmentov (deep_dive, news_analysis iz RSS, interview, panel, story, **listener_mailbag**, music_essay + kratke: **station_id, show_intro, show_outro** kot prvovrstni vsebinski tipi), tedenski premik (nedeljski »Listener Hours«), **min-zaloga** (≥3 govorni prekini/slot, ≥20 skladb/oddaja — zdravstveno merilo), station-local topic bank + append-only **uredniški vodnik** (kontinuiteta med oddajami), več-stancijska izolacija (WRIT/KLOD/CDEX iz enega runtime). Za nas: tipi segmentov se 1:1 prevedejo v naše template vrste (liveLines + prewarmed slots), min-zaloga pa v Diagnostics »vsebina pripravljena za naslednji slot«.
 
 ### 4.3 radio-dj (60★, MIT, Go 8,7 MB) — drobci
 
-Veščine kot **urejanje besedilnih datotek** (`~/.radio-dj/skills/`, brez prevajanja), `radio-dj install` (ustvari systemd/launchd/OpenRC enoto), ffmpeg **sidechaincompress** ducking (DJ govor čez glasbo — pri nas trenutno nič, ker naš govor nikoli ne teče čez glasbo; zanimivo za prihodnje »postelje«), PWA UI z DJ dnevnikom. Jedro je LLM direktor — ostalo je mehanika.
+Veščine kot **urejanje besedilnih datotek** (`~/.radio-dj/skills/`, brez prevajanja), `radio-dj install` (ustvari systemd/launchd/OpenRC enoto), ffmpeg **sidechaincompress** ducking (DJ govor čez glasbo — pri nas trenutno nič, ker naš govor nikoli ne teče čez glasbo; zanimivo za prihodnje »postelje«, poenostavljena uradna alternativa je 2.6 `smooth_add`), PWA UI z DJ dnevnikom. Jedro je LLM direktor — ostalo je mehanika.
 
 ### 4.4 LibreTime Smart Blocks + Rivendell — modeli pravil
 
 LibreTime (AGPL): kriterijski bloki (»12 ambient skladb < 6 min«) — polje/kriteriji/operaterji so prenesljivi v naš rules.js kot »deterministični Smart Block«. Rivendell: RDCatch planirani snemalnik (vzorec za samodejne vremenske/novičarske prevzeme v fiksne ure) — koncept, ne koda.
 
-## 5. Končna razvrstitev in predlog integracije
+### 4.5 NOVO: AzuraCast Clockwheel → Playlist Groups (PR #8433) — format ura kot profesionalni model
+
+Vir: `github.com/AzuraCast/AzuraCast/discussions/8432` (prebrana do konca, vključno z odzivom maintainerjev). Problem, ki ga rešujejo, je *isti kot naš*: uteži + naključje ne dajejo deterministične kontrole, ki jo pravi radio ima. Dizajn (poenoteno v Vaalynov PR #8433, RM-FM #8434 zaprt): **seznam korakov, vsak korak kaže na obstoječi plejlist** (primer: Glasba A → Glasba B → Jingle → Glasba A → Postajni ID → ponovi); AutoDJ sledi korakom po vrsti, na vsakem koraku poteče N skladb iz otroka (spoštuje njegovo naključno/vrstno vedenje), na koncu zank; koraki lahko dovolijo **prevzem s poslušalčevim zahtevkom** ali so prazni namenski sloti; otroci so med delovanjem **umaknjeni iz splošne rotacije**; podpora za **del dneva** (dayparts); vsak odigran track v »Song Playback Timeline« pokaže vijolično značko, kateri clockwheel in korak ga je čakal. Odziv skupnosti: močno pozitiven (»uporabniki so odšli ravno zaradi tega«). Za nas: to je **izvedljiv načrt za P2 »format ura«** — naš Node scheduler že zna pisati m3u, torej clockwheel = majhna podatkovna struktura (krožni seznam (plejlist, N) korakov) + eno pravilo v pridobivanju naslednje skladbe. Opomba: eden od komentatorjev (eternityready2) pokaže lastno različico z **AI newscasterjem/DJ-jem** — zavržemo (arhitektura brez LLM).
+
+### 4.6 NOVO: EBU awesome-broadcasting (1,8k★) — meta-indeks, pokrajina potrjena
+
+Vir: `github.com/ebu/awesome-broadcasting` (kurira EBU, evropska zveza javnih radijev). Pregled sekcij play-out/razporejanje/avdio: Rivendell, OpenBroadcaster, Airtime/LibreTime, AzuraCast, Liquidsoap, SoX/FFmpeg/GStreamer; razporejanje: OnTime (pregled radijske ure). **Ni skritega biseru za naš ozki problem** — kar potrjuje, da je v1 pokrajina popolna in da je Liquidsoap prva izbira: njegova domača stran izrecno navede Radio France s 77 postajami ter AzuraCast in LibreTime kot playout motorje. TTS sekcije v indeksu ni — potrjuje, da je TTS-napovedovanje v radijskem svetu redkost, ne standard.
+
+### 4.7 NOVO: status Piper runtime — arhiviran, naslednik aktiven
+
+Dejstva preverjena v tej iteraciji: `rhasspy/piper` je **6. 10. 2025 arhiviran** (read-only; 11,3k★, MIT). Aktivni naslednik je **`OHF-Voice/piper1-gpl`** (5,9k★, **GPL-3.0-or-later**, v1.8.0 z 4. 9. 2026, pod okriljem Open Home Foundation; `pip install piper-tts`; CLI/web/Python/C++ vmesniki; fonemizacija prek espeak-ng). Slovenščina obstaja kot glas v piper-samples katalogu (filter »Slovenščina«). Vpliv na nas: (a) če uporabljamo Piper binarne datoteke, so zamrznjene na stari verziji — pri naslednjem dotiku TTS načrtujemo prehod na piper1-gpl; (b) sprememba licence MIT→GPL **ne vpliva** na klic CLI-ja iz Node (proces), ampak samo na vdelavo/predelavo kode; (c) Edge TTS pot je neodvisna od tega. Vir: `github.com/OHF-voice/piper1-gpl`, promptquorum pregled (primerjava obeh repozitorijev), `rhasspy.github.io/piper-samples`.
+
+## 5. NOVO: matrika primerjave (kandidat × merila)
+
+Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši trenutni različici brez nadgradnje.
+
+| Kandidat | Produkc. dokaz | Determinizem | Prileganje Node→m3u→LS | Licenca | LS 2.2.4 | Sodba |
+|---|---|---|---|---|---|---|
+| autocue (Moonbase59) | ● (AzuraCast) | ● (offline analiza) | ● (annotate polja = naša pogodba) | MIT | ○ (2.2.5; ena minor stran) | **izposoja #1** |
+| AzuraCast nit #6252 (standard v številkah) | ● | ● | ● | — (znanje) | ● | **parametri izposoje** |
+| uradni cookbook vzorci (§3) | ● (Radio France 77 postaj) | ● | ● (čista .liq) | — (dok) | ● (verificirano 2.2.5 API) | **izposoja #2** |
+| SUB/WAVE radio.liq | ● | ● | ○ (request.queue ja; efekti ne) | MIT | — (zahteva 2.4.6+) | P3 po nadgradnji |
+| defenestratexp radio | ○ (sveže, 0★) | ● (pravila, predloge) | ● (isti filozofiji) | MIT | ● | **izposoja #3** (pravila rotacije) |
+| AzuraCast Clockwheel/Playlist Groups | ● (v glavnem repozitoriju) | ● (koraki po vrsti) | ○ (koncept; implementiramo v Node) | AGPL (koncept) | n/a (Node stran) | **načrt za format uro** |
+| WRIT-FM | ○ | ○ (struktura da, vsebina LLM) | ○ (taksonomija tipov) | MIT | n/a | drobci (tipi, min-zaloga) |
+| radio-dj | ○ | — (LLM jedro) | ○ (skills, install, sidechain) | MIT | ● | drobci |
+| LibreTime Smart Blocks | ● | ● | ○ (kriteriji → rules.js) | AGPL | n/a | koncept |
+| `smooth_add` (gist) | ● (uradni operator) | ● | ○ (zahteva ločena vira) | — (dok) | ● | P3 postelje |
+| Rivendell / OpenBroadcaster / EBU ostalo | ● | ● | — (težke platforme) | razne | n/a | ne uvajamo |
+| WRIT-FM / radio-dj LLM jedra | ● | — (stohastično) | — (proti brez-AI arhitekturi) | MIT | n/a | zavrženo |
+| Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | ob naslednjem TTS dotiku |
+
+## 6. Končna razvrstitev in predlog integracije
 
 | # | Izposoja | Vir | Cena | Učinek | Priložnost |
 |---|---|---|---|---|---|
-| 1 | ID ob polni uri + rotacija jinglov (`switch`/`random(weights)`) | uradni cookbook | ~1 h + enkratna proizvodnja ID-jev | postaja »dihá« kot radio | P1 |
-| 2 | autocue analiza → annotate (`liq_cue_in/out`, `liq_fade_out`, `liq_amplify`) | Moonbase59/autocue (MIT) | 1–2 dni (Node offline analizator + m3u writer + test) | tihi začetki, pravi fade-outi, poravnana glasnost — zven »profesionalnega AutoDJ« | P1 |
-| 3 | PWA datoteke (manifest + SW) + MediaSession | defenestratexp vzorec | 1 dan | namestljivost, zaklenjeni zaslon | P1 (že planirano) |
-| 4 | Pametna pravila zaloge (omejitve/izvajalec, uteži vrtenc, boost novosti) | defenestratexp | 1 dan | boljša rotacija od naključja | P2 |
-| 5 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 |
-| 6 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 |
-| 7 | dead-air stražar z nujnim virom | SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 |
-| 8 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
-| 9 | sidechaincompress »postelje« | radio-dj | srednji | glasba pod govorom | P3 |
-| 10 | deterministični Smart Blocki | LibreTime | srednji | kriterijski bloki v rules.js | P3 |
+| 1 | ID ob polni uri — overlay `add([radio, switch([({0m0s}, id)])])` **ali** `predicate.activates({0m-5m})` (natančno ena!) | cookbook §3 (2)/(3) | ~1 h + enkratna proizvodnja ID-jev | postaja »diha« kot radio | P1 |
+| 2 | autocue analiza → annotate (`liq_cue_in/out`, `liq_fade_out`, `liq_amplify`) | Moonbase59/autocue (MIT) | 1–2 dni (Node offline analizator + m3u writer + test) | tihi začetki, pravi fade-outi, poravnana glasnost | P1 |
+| 3 | Periodni imaging: `delay(1800., stingers)` + fallback | cookbook §3 (4) | ~1 h + stingeri | stinger/ID vs. 20–30 min = P1 #3 imaging sloj | P1 |
+| 4 | PWA datoteke (manifest + SW) + MediaSession | defenestratexp vzorec | — (že opravljeno v a1c1fee) | namestljivost, zaklenjeni zaslon | P1 ✓ |
+| 5 | `source_tag` dispatch prehodov (glasba↔govor v enem mestu) | cookbook §2.5 | pol dneva | posploši naš annotate »0« model, brez crossfade tveganja | P2 |
+| 6 | Pametna pravila zaloge (30/izvajalec, 5/(izvajalec,album), 12 h izključitev, uteži vrtenc, boost novosti) | defenestratexp | 1 dan | boljša rotacija od naključja | P2 |
+| 7 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 |
+| 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 |
+| 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 |
+| 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2/P3 |
+| 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
+| 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 |
+| 13 | sidechaincompress »postelje« (natančnejše od 12) | radio-dj | srednja | glasba pod govorom | P3 |
+| 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 |
+| 15 | prehod TTS na piper1-gpl (v1.8.0, aktivno) | §4.7 | pol dneva | vzdrževan runtime, nove glasove | P3 |
 
-**Eksplicitna ne-priporočila (raziskana in zavržena):** `cross.smart` (odsvetovan tudi od avtorja autocue; 2.2); global `fade.out` na naši 2.2.4 (utrjen bug: utiša celo skladbo — ostaja prepoved do ponovne verifikacije); SUB/WAVE efekti pred nadgradnjo LS (2.4.5 odvrne delne okvirje po crossu); blankskip na TTS posnetkih (odreže konec sporočila); WRIT-FM/radio-dj LLM jedra (proti arhitekturi brez AI).
+**Eksplicitna ne-priporočila (raziskana in zavržena):** `cross.smart` (odsvetovan tudi od avtorja autocue; 2.2); global `fade.out` na naši 2.2.4 (utrjen bug: utiša celo skladbo — ostaja prepoved do ponovne verifikacije); SUB/WAVE efekti pred nadgradnjo LS (2.4.5 odvrne delne okvirje po crossu); blankskip na TTS posnetkih (odreže konec sporočila); WRIT-FM/radio-dj LLM jedra in eternityready2 AI newscaster (proti arhitekturi brez AI); Rivendell/OpenBroadcaster/težke platforme (spreminjata infrastrukturo, ne dodajata funkcij); goli `switch({0m-5m})` za ID (prikaže lahko več jinglov — vzemimo `predicate.activates`); `medialib` predmeta (zahteva LS 2.5.x — zanimiv kasneje za kriterijske iskalne bloke).
 
-**Naslednji konkreten korak** (če se strinjaš): #1 + #7 v enem večeru (čisti `radio.liq`, reverzibilno), potem #2 kot prva »velika« izboljšava zvečnega zvoka — offline analizator v Node, ki zapiše ista annotate polja, ki jih že beremo, torej brez spremembe pogodbe z Liquidsoapom.
+**Naslednji konkreten korak** (če se strinjaš): #1 + #3 + #9 v enem večeru (čisti `radio.liq`, reverzibilno, vsi trije uradni vzorci že verificirani na 2.2.x API), potem #2 kot prva »velika« izboljšava večernega zvoka — offline analizator v Node, ki zapiše ista annotate polja, ki jih že beremo, torej brez spremembe pogodbe z Liquidsoapom.
 
-## 6. Viri
+## 7. Viri
 
-Moonbase59/autocue (README, predstavitev Liquidshop 4, FAQ) · AzuraCast discussion #6252 »Proof of Concept: More professional AzuraCast/Liquidsoap AutoDJ Crossfading« · savonet/liquidsoap docs (2.2.5 crossfade, 2.4.5 complete_case, cookbook, migrating) · perminder-klair/subwave `liquidsoap/radio.liq` (raw) · defenestratexp/liquidsoap-icecast-radio (README) · keltokhy/writ-fm (README, arhitektura) · johncrash64/radio-dj (README) · LibreTime docs · ElvishArtisan/rivendell. Vse povezave preverjene 2026-10-24.
+Moonbase59/autocue (README, predstavitev Liquidshop 4, FAQ) · AzuraCast discussion #6252 »Proof of Concept: More professional AzuraCast/Liquidsoap AutoDJ Crossfading« · AzuraCast discussion #8432 »Introducing Clockwheel Playlists« (z odzivi RM-FM #8434 in Vaalyn PR #8433) · savonet/liquidsoap docs (2.2.5 crossfade, 2.2.5 cookbook — dobesedno prebrano, 2.4.5 complete_case, 2.4.5 quick_start, dev composition) · gist 9ebb70312419427cdb42a7170993faa6 (smooth_add) · liquidsoap.info domača stran (Radio France 77, AzuraCast/LibreTime playout) · perminder-klair/subwave `liquidsoap/radio.liq` (raw) · defenestratexp/liquidsoap-icecast-radio (README) · keltokhy/writ-fm (README, arhitektura) · johncrash64/radio-dj (README) · LibreTime docs · ElvishArtisan/rivendell · ebu/awesome-broadcasting (README prek fetch) · rhasspy/piper (status arhiviran) · OHF-Voice/piper1-gpl (README, izdaje) · rhasspy.github.io/piper-samples (Slovenščina) · promptquorum Piper pregled (primerjava rhasspy vs OHF-Voice). Vse povezave preverjene 2026-10-24 (druga iteracija).
