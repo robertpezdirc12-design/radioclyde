@@ -596,9 +596,17 @@ API tipk:
   obvestil.
 
 Rute: `GET /api/push/vapid`, `POST /api/push/subscribe`,
-`POST /api/push/unsubscribe` (javna plast, privzeto za Basic Auth vrati —
-lastnik jih odpre z `config.web.publicPaths`, npr. `"/api/push"`, po istem
-precedensu kot `/podcast` v P5 #3). Studio dobi `GET /studio/api/push`
+`POST /api/push/unsubscribe` (javna plast, privzeto za Basic Auth vrati).
+Odpiranje za javno postajo (poslušalci brez poverilnic) poteka prek **dveh**
+vzvodov: `web.publicPaths` odpre bralno polovico (`GET /api/push/vapid`),
+pisali ruti pa zahtevata izrecni `web.publicWritePaths`, npr.
+`"publicWritePaths": ["/api/push/subscribe", "/api/push/unsubscribe"]` —
+namensko ločeno od `publicPaths`, ker preširok prefix (npr. `"/api"`) ne sme
+anonimno odpreti tudi `POST /api/requests` in lastniških polls akcij;
+subscribe je edina anonimna pisalna ruta s hitrostno omejitvijo (30 s/IP)
+in stropom naročnin (2000). `config.push.enabled: false` plast pošteno
+izklopi: dispatch tick se odregistrira, subscribe odgovori 503, vapid vrne
+`enabled: false`. Studio dobi `GET /studio/api/push`
 (število naročnin, zadnji poslani termin iz ležerja) in
 `POST /studio/api/push/test` (testno obvestilo vsem — edini način, da
 lastnik preveri cevovod, preden ga ob oddaji rabi).

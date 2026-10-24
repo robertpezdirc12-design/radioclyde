@@ -33,14 +33,36 @@ import { credentialEqual } from '../lib/credentialEqual.js';
 // prefix like "/api" therefore exposes reads but never POST /api/requests
 // or the polls write endpoints -- the method gate turns a config mistake
 // into a smaller mistake instead of an anonymous write surface.
+//
+// The ONE deliberate exception: config.web.publicWritePaths, a SEPARATE
+// list for the narrow class of endpoints that are safe for anonymous
+// writes because they only touch an opt-in, per-device record and are
+// rate-limited/capped at the route (today: push subscribe/unsubscribe --
+// a public station's listeners have no credentials, yet the browser must
+// be able to register its push subscription). Listing "/api/push" HERE
+// would not help anyway: the method gate above would still block POSTs,
+// which is exactly the point of keeping the two levers apart.
 export function publicPathsConfigured() {
   const paths = config.web.publicPaths;
   return Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.startsWith('/')) : [];
 }
 
-function isPublicPath(url) {
+export function publicWritePathsConfigured() {
+  const paths = config.web.publicWritePaths;
+  return Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.startsWith('/')) : [];
+}
+
+function matchesPathList(list, url) {
   const path = (url ?? '').split('?')[0] || '/';
-  return publicPathsConfigured().some((p) => path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`));
+  return list.some((p) => path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`));
+}
+
+function isPublicPath(url) {
+  return matchesPathList(publicPathsConfigured(), url);
+}
+
+function isPublicWritePath(url) {
+  return matchesPathList(publicWritePathsConfigured(), url);
 }
 
 export function registerAuthHook(fastify) {
@@ -48,6 +70,7 @@ export function registerAuthHook(fastify) {
     if (isTrustedIp(request.ip, config.web.trustedNetworks)) return;
     const readOnly = request.method === 'GET' || request.method === 'HEAD';
     if (readOnly && isPublicPath(request.raw.url)) return;
+    if (!readOnly && isPublicWritePath(request.raw.url)) return; // narrow, explicit anonymous-write allowlist
 
     const header = request.headers.authorization;
     if (!header || !header.startsWith('Basic ')) {

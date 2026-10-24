@@ -43,10 +43,19 @@ function jwkToRawPublic(jwk) {
 
 function writeVapidFile(filePath, { publicKeyJwk, privateKeyJwk }) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  // Atomic tmp+rename with 0600: this file carries the PRIVATE half of the
+  // signing pair. A plain write interrupted mid-way leaves a torn file whose
+  // next read falls back to regeneration (silently invalidating every
+  // existing browser subscription), and the default 0644 mode would leave
+  // the private key readable by every account on a shared box. One write,
+  // right perms, either the old file or the new one -- never a torn one.
+  const tmp = `${filePath}.tmp-${process.pid}`;
   fs.writeFileSync(
-    filePath,
-    JSON.stringify({ publicKey: publicKeyJwk, privateKey: privateKeyJwk }, null, 2) + '\n'
+    tmp,
+    JSON.stringify({ publicKey: publicKeyJwk, privateKey: privateKeyJwk }, null, 2) + '\n',
+    { mode: 0o600 }
   );
+  fs.renameSync(tmp, filePath);
 }
 
 // Ustvari par le, ce ga se ni; sicer vrne obstojeci. Vrne { publicKey,

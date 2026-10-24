@@ -88,6 +88,29 @@ export function loadSentKeysSet({ filePath = null } = {}) {
   return keys;
 }
 
+// Retencija po vzoru listenerSamples.js: ledger je append-only in bi s casom
+// rasel brez meje (~2k vrstic/leto je majhno, a poceni zavarovalo). Nad
+// SENT_LEDGER_MAX vrsticami prepis obdrzi zadnjih SENT_LEDGER_KEEP -- ključi
+// so datum@cas@oddaja, torej najstarejši odpadejo prvi, kar je točno tisto,
+// kar idempotentnost potrebuje (samo nedavno okno ima pomen). Atomska zamenjava,
+// poceni pogoj (stevilo vrstic, ne branje vsakega ticka).
+const SENT_LEDGER_MAX = 20_000;
+const SENT_LEDGER_KEEP = 10_000;
+
+export function pruneSentLedger({ filePath = null } = {}) {
+  const target = filePath ?? sentLedgerPath();
+  if (!fs.existsSync(target)) return 0;
+  const lines = fs.readFileSync(target, 'utf8').split('\n').filter((l) => l.trim());
+  if (lines.length <= SENT_LEDGER_MAX) return 0;
+  const kept = lines.slice(-SENT_LEDGER_KEEP);
+  const tmp = `${target}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(tmp, kept.join('\n') + '\n');
+  fs.renameSync(tmp, target);
+  log(`push dispatch: sent.jsonl porezan (${lines.length} -> ${kept.length} vrstic)`);
+  return lines.length - kept.length;
+}
+
 // ---------- transport ----------
 
 // Privzeti transport: globalni fetch (node 24), z casovno omejitvijo --
@@ -160,6 +183,7 @@ export async function dispatchPush({
 
   const station = schedule ?? loadSchedule();
   const sentKeys = loadSentKeysSet();
+  pruneSentLedger(); // obenem z branjem -- cena je ze placana
   const due = showsToNotify(station, now, leadMinutes, sentKeys);
   if (due.length === 0) return { due: 0, delivered: 0, failed: 0, pruned: 0 };
 

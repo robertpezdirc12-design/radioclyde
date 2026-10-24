@@ -51,7 +51,15 @@ function readAll(filePath) {
 
 function writeAll(filePath, subs) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(subs, null, 2) + '\n');
+  // Atomic tmp+rename, same discipline as every other rewritten store
+  // (stationWriter/pollsStore/requestsStore): an interrupted plain write
+  // here would corrupt subscriptions.json, and readAll's fail-open then
+  // reads it as EMPTY -- every listener's opt-in silently lost. The tmp
+  // name carries the pid so a concurrent subscribe/unsubscribe pair can't
+  // race onto the same temp file.
+  const tmp = `${filePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(subs, null, 2) + '\n');
+  fs.renameSync(tmp, filePath);
 }
 
 export function loadSubscriptions({ filePath = null } = {}) {
@@ -62,6 +70,11 @@ export function countSubscriptions({ filePath = null } = {}) {
   return loadSubscriptions({ filePath }).length;
 }
 
+// Strop: objavljen je zgolj en zapis na napravo; 2000 naprav na osebni
+// postaji pomeni, da nekaj drugega ni v redu (strgano narocanje prek javne
+// rute). Presežek zavrnemo s posteno napako -- datoteka ostane nedotaknjena.
+export const MAX_SUBSCRIPTIONS = 2000;
+
 // Dodaj ali posodobi obstojeco narocnino (isti endpoint = ista naprava;
 // brskalnik lahko rotira keys, zadnji vpis je resnica). Vrne koncno stevilo.
 export function addSubscription(sub, { filePath = null, addedAt = null } = {}) {
@@ -69,6 +82,9 @@ export function addSubscription(sub, { filePath = null, addedAt = null } = {}) {
   const target = filePath ?? subscriptionsFilePath();
   const all = readAll(target);
   const filtered = all.filter((s) => s.endpoint !== sub.endpoint);
+  if (filtered.length >= MAX_SUBSCRIPTIONS) {
+    throw new Error(`Dosegli smo največje število naročnin (${MAX_SUBSCRIPTIONS}) -- obvesti lastnika postaje.`);
+  }
   filtered.push({
     endpoint: sub.endpoint,
     keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },

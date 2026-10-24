@@ -17,6 +17,13 @@ import { loadSubscriptions, removeManySubscriptions } from '../push/subscription
 import { loadOrCreateVapidKeys } from '../push/vapid.js';
 import { loadSentKeysSet, sentLedgerPath, sendPushTo } from '../push/dispatch.js';
 
+// config.push.enabled === false pomeni: dispatch tick je odregistriran
+// (scheduler.js) in subscribe odgovarja 503 -- studio status ne sme tvrditi
+// "configured: true" cez isto konfiguracijo, ki je pravkar izklopila plast.
+function pushEnabled() {
+  return config.push?.enabled !== false;
+}
+
 export function registerStudioPushRoutes(fastify) {
   fastify.get('/studio/api/push', () => {
     const subscribers = loadSubscriptions();
@@ -32,7 +39,7 @@ export function registerStudioPushRoutes(fastify) {
       lastSent = null;
     }
     return {
-      configured: true,
+      configured: pushEnabled(),
       publicKey: keys.publicKeyB64u,
       subscriberCount: subscribers.length,
       leadMinutes: config.push?.leadMinutes ?? 2,
@@ -42,6 +49,9 @@ export function registerStudioPushRoutes(fastify) {
   });
 
   fastify.post('/studio/api/push/test', async (request, reply) => {
+    if (!pushEnabled()) {
+      return reply.code(503).send({ error: 'Push obvestila so izklopljena (config.push.enabled = false) -- najprej jih vklopi.' });
+    }
     const subs = loadSubscriptions();
     if (subs.length === 0) {
       return reply.code(200).send({

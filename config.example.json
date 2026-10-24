@@ -33,7 +33,8 @@
         "password": "CHANGE_ME"
       }
     ],
-    "publicPaths": []
+    "publicPaths": [],
+    "publicWritePaths": []
   },
   "studio": {
     "users": [

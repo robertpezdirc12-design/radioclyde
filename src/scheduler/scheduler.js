@@ -160,7 +160,14 @@ export function startScheduler() {
   // zašcitne verige bi bilo naslednje ponovitev F2-razreda (TypeError ob
   // zagonu tiho ubije vse jobe registrirane za to vrstico -- analytics
   // regresija 2026-10-24, ki se NE SME vrniti).
-  every(Math.max(1, config.push?.checkIntervalMinutes ?? 1), 'push_dispatch', pushDispatchTick);
+  // enabled !== false: config.example.json obljublja "enabled" stikalo, in
+  // stikalo, ki ga nic ne bere, je laž -- izklopljen dispatch tick tudi
+  // pomeni, da posljalci nikoli ne dobijo obvestil, medtem ko rute se
+  // odgovorijo posteno (503). Odsoten blok = prizanesljivo prazen tick
+  // (en JSON read), zato default ON ohranja obnasanje obstojecih konfigov.
+  if (config.push?.enabled !== false) {
+    every(Math.max(1, config.push?.checkIntervalMinutes ?? 1), 'push_dispatch', pushDispatchTick);
+  }
 
   log('Scheduler started.');
 }

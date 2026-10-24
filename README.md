@@ -360,8 +360,13 @@ prose for humans. The selection section supports:
   encrypted with the browser's own keys (RFC 8291 aes128gcm), the scheduler
   job `push_dispatch` fires once per minute and an append-only ledger makes
   it idempotent across restarts; dead endpoints (404/410) are pruned.
-  Subscription routes live behind Basic Auth by default -- open them with
-  `web.publicPaths: ["/api/push"]`. The studio gets the subscriber count,
+  Subscription routes live behind Basic Auth by default -- on a public
+  station open the read side with `web.publicPaths: ["/api/push/vapid"]` and
+  the (rate-limited, capped) subscribe/unsubscribe writes with
+  `web.publicWritePaths: ["/api/push/subscribe", "/api/push/unsubscribe"]` --
+  a separate lever so a broad publicPaths prefix can never expose anonymous
+  writes elsewhere. `config.push.enabled: false` disables the layer honestly
+  (no scheduler job, 503 on subscribe). The studio gets the subscriber count,
   the last-sent truth from the ledger and a test-send button.
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
