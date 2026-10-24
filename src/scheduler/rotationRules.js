@@ -46,7 +46,9 @@ export function fillerRotationConfig() {
 // Same normalization localLibrary.js uses for artist/genre matching: case-
 // and diacritics-folded, so "Beyoncé" and "beyonce" land in one cap group
 // even when the library mixes tagged and filename-derived metadata.
-function fold(text) {
+// Exported for clockwheel.js's pool filters -- one fold everywhere keeps
+// "Beyoncé" matching in caps, pool filters, and dedupe alike.
+export function fold(text) {
   return String(text ?? '')
     .toLowerCase()
     .normalize('NFD')

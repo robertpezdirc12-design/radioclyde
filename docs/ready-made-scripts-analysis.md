@@ -175,6 +175,20 @@ LibreTime (AGPL): kriterijski bloki (»12 ambient skladb < 6 min«) — polje/kr
 
 Vir: `github.com/AzuraCast/AzuraCast/discussions/8432` (prebrana do konca, vključno z odzivom maintainerjev). Problem, ki ga rešujejo, je *isti kot naš*: uteži + naključje ne dajejo deterministične kontrole, ki jo pravi radio ima. Dizajn (poenoteno v Vaalynov PR #8433, RM-FM #8434 zaprt): **seznam korakov, vsak korak kaže na obstoječi plejlist** (primer: Glasba A → Glasba B → Jingle → Glasba A → Postajni ID → ponovi); AutoDJ sledi korakom po vrsti, na vsakem koraku poteče N skladb iz otroka (spoštuje njegovo naključno/vrstno vedenje), na koncu zank; koraki lahko dovolijo **prevzem s poslušalčevim zahtevkom** ali so prazni namenski sloti; otroci so med delovanjem **umaknjeni iz splošne rotacije**; podpora za **del dneva** (dayparts); vsak odigran track v »Song Playback Timeline« pokaže vijolično značko, kateri clockwheel in korak ga je čakal. Odziv skupnosti: močno pozitiven (»uporabniki so odšli ravno zaradi tega«). Za nas: to je **izvedljiv načrt za P2 »format ura«** — naš Node scheduler že zna pisati m3u, torej clockwheel = majhna podatkovna struktura (krožni seznam (plejlist, N) korakov) + eno pravilo v pridobivanju naslednje skladbe. Opomba: eden od komentatorjev (eternityready2) pokaže lastno različico z **AI newscasterjem/DJ-jem** — zavržemo (arhitektura brez LLM).
 
+**Status: IMPLEMENTIRANA (P2 #10).** `src/scheduler/clockwheel.js` + integracija v `generateFillerPlaylist.js`. Preslikava AzuraCast dizajna na našo arhitekturo:
+
+| AzuraCast koncept | Naša implementacija |
+|---|---|
+| Playlist Groups (otroci) | imenovani **pools**: `filler.clockwheel.pools` z filtri `artists` / `genres` / `keywords` / `excludeKeywords` (AND med polji, OR znotraj polja; fold diakritik kot povsod) nad isto `eligible` množico kot današnji filler |
+| »children removed from general rotation« | `splitPools()`: vsak track pade v PRVI urejevali pool (vrstni red v configu = prioriteta); neusvojeno ostane v rezerviranem poolu `rotation` — izsvojen track nikoli ne pride ven |
+| koraki → plejlisti, N skladb/korak | `steps: [{pool, count}]` krožno; `walkWheel()` porablja pool čakalni vrsti (shift) — znotraj ene regeneracije se track ne ponovi, dokler njegov pool ni izčrpan |
+| dayparts | `dayparts: [{from, to, steps}]` — PRVI okno, ki vsebuje trenutno minuto (od inkluzivno, do ekskluzivno); v1 brez preloma čez polnoč (noč = dve okni: 00:00–05:00 in 23:00–24:00); brez zadetka = privzeti `steps` |
+| koraki z dovoljenim prevzemom zahtevka | **preseženo s P2 #8**: `request.queue` prevzame NA vsaki meji skladbe nad vsem programom — kolo ne rabi rezervirati slotov |
+| Song Playback Timeline vijolične značke | NI v1 (ni operator UI-časa); iskren nadomestek = log vrstica vsake regeneracije (kateri daypart, izpisi po poolih) |
+| children imajo svoje random/vrstno vedenje | vsak pool gre skozi ISTO rotacijsko verigo (uteži 7-dnov + novelty + caps) — caps vežejo znotraj poola, tako da eno-izvajalčev pool ni obglavljen |
+
+LS polovica (verificirano iz tar 2.2.4 `src/libs/playlist.liq`, vrstice 173–176, 190–196, 227–239, 247–253): veljavni načini so točno `normal` / `random` / `randomize`; `randomize` meša ob nalaganju, ob vsakem watch reloadu IN ob vsaki zanki — torej kolo sliši le z `mode="normal"` na filler playlisti (ena beseda, pripravljena vrstica v komentarju nad `filler_source` v radio.liq). Z `normal` zapisani vrstni red igra točno tak, kot je zapisan; vsaka regeneracija zamenja vrstni red na naslednji meji skladbe. Privzeto repo pusti `randomize` (box brez kola se ne spremeni), `runClockwheel()` pa vsako regeneracijo zapiše opomnik o preklopu. Degradacija: brez `filler.clockwheel` bloka = točno današnje vedenje; neveljavni vnosi se izpustijo in preštejejo v logu; suh pool da manj, kolo hodi naprej; popolnoma suho kolo pade v isti ledger-oldest backfill kot gladka pot. Reverzibilno: izbriši blok.
+
 ### 4.6 NOVO: EBU awesome-broadcasting (1,8k★) — meta-indeks, pokrajina potrjena
 
 Vir: `github.com/ebu/awesome-broadcasting` (kurira EBU, evropska zveza javnih radijev). Pregled sekcij play-out/razporejanje/avdio: Rivendell, OpenBroadcaster, Airtime/LibreTime, AzuraCast, Liquidsoap, SoX/FFmpeg/GStreamer; razporejanje: OnTime (pregled radijske ure). **Ni skritega biseru za naš ozki problem** — kar potrjuje, da je v1 pokrajina popolna in da je Liquidsoap prva izbira: njegova domača stran izrecno navede Radio France s 77 postajami ter AzuraCast in LibreTime kot playout motorje. TTS sekcije v indeksu ni — potrjuje, da je TTS-napovedovanje v radijskem svetu redkost, ne standard.
@@ -216,7 +230,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 7 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 |
 | 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 ✓ |
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 |
-| 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2/P3 |
+| 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2 ✓ |
 | 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
 | 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 |
 | 13 | sidechaincompress »postelje« (natančnejše od 12) | radio-dj | srednja | glasba pod govorom | P3 |

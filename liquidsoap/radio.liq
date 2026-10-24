@@ -71,6 +71,20 @@ show_source = fade.in(duration=0., show_source)
 # (scheduler/generateFillerPlaylist.js, regenerated periodically by scheduler/scheduler.js),
 # no DJ talk. mode="randomize" so it doesn't play the same order every time
 # it loops back around. Same fade-up-only annotate as show_source's tracks.
+#
+# Clockwheel (P2 #10, docs/ready-made-scripts-analysis.md §4.5): when
+# config.json defines filler.clockwheel, the Node scheduler writes THIS file
+# in strict wheel order (steps -> named pools, N tracks per step, dayparts).
+# A wheel is only audible with mode="normal" here -- verified against this
+# build's src/libs/playlist.liq: "randomize" shuffles at load, on every
+# watch reload AND on every loop, so it would scramble the wheel sequence
+# before air (generateFillerPlaylist logs a standing reminder while a wheel
+# is configured). To enable, flip ONE word on the next line:
+# filler_source = playlist(reload_mode="watch", mode="normal", config.dataDir ^ "/filler.m3u")
+# With mode="normal" the written order plays as written; each regeneration
+# swaps in the new file's order at the next track boundary, and looping
+# before the next regeneration replays the same written sequence (Node
+# reshuffles every regeneration, which is where the variety comes from).
 filler_source = playlist(reload_mode="watch", mode="randomize", config.dataDir ^ "/filler.m3u")
 filler_source = fade.in(duration=0., filler_source)
 

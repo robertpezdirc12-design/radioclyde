@@ -18,6 +18,7 @@ import { shuffle } from '../lib/format.js';
 import * as scheduleUtil from './scheduleUtil.js';
 import { annotateTrackEntry } from '../director/playlist.js';
 import { recentFillerPlays, rotationWindowHours, pruneLedger } from './fillerRotation.js';
+import { clockwheelConfig, runClockwheel } from './clockwheel.js';
 import {
   capPerArtist,
   capPerArtistAlbum,
@@ -66,23 +67,38 @@ export async function generateFillerPlaylist() {
   // itself off individually; missing block = working defaults.
   const rot = fillerRotationConfig();
   const playCounts = stationPlayCounts(rot.weightWindowDays);
-  let ordered = weightedRotationOrder(eligible, {
-    counts: playCounts,
-    weightWindowDays: rot.weightWindowDays,
-    noveltyDays: rot.noveltyDays,
-    noveltyBoost: rot.noveltyBoost,
-  });
-  const afterArtistCap = capPerArtist(ordered, rot.maxTracksPerArtist);
-  const afterAlbumCap = capPerArtistAlbum(afterArtistCap, rot.maxTracksPerArtistAlbum);
-  if (afterAlbumCap.length < eligible.length) {
-    log(
-      `filler: rotation caps trimmed the pool ${eligible.length} -> ${afterAlbumCap.length} ` +
-        `(artist cap ${rot.maxTracksPerArtist}: ${afterArtistCap.length}, album cap ${rot.maxTracksPerArtistAlbum}: ${afterAlbumCap.length}; ` +
-        `${playCounts.size} track(s) have play counts inside the ${rot.weightWindowDays}d window)`
-    );
+
+  // Format ura / clockwheel (P2 #10, AzuraCast PR #8433 design --
+  // scheduler/clockwheel.js): when config.filler.clockwheel defines a wheel,
+  // the pool becomes a NAMED-SHAPE sequence (steps -> pools, N per step,
+  // dayparts) instead of one flat weighted shuffle. The rotation rules above
+  // still apply -- per pool. No block (or a wheel that resolves to nothing)
+  // = exactly the plain path below.
+  const poolSize = config.filler.poolSize;
+  const wheel = clockwheelConfig();
+  let afterAlbumCap = null;
+  if (wheel) {
+    afterAlbumCap = runClockwheel({ eligible, wheel, rot, counts: playCounts, poolSize });
   }
 
-  const poolSize = config.filler.poolSize;
+  if (!afterAlbumCap) {
+    let ordered = weightedRotationOrder(eligible, {
+      counts: playCounts,
+      weightWindowDays: rot.weightWindowDays,
+      noveltyDays: rot.noveltyDays,
+      noveltyBoost: rot.noveltyBoost,
+    });
+    const afterArtistCap = capPerArtist(ordered, rot.maxTracksPerArtist);
+    afterAlbumCap = capPerArtistAlbum(afterArtistCap, rot.maxTracksPerArtistAlbum);
+    if (afterAlbumCap.length < eligible.length) {
+      log(
+        `filler: rotation caps trimmed the pool ${eligible.length} -> ${afterAlbumCap.length} ` +
+          `(artist cap ${rot.maxTracksPerArtist}: ${afterArtistCap.length}, album cap ${rot.maxTracksPerArtistAlbum}: ${afterAlbumCap.length}; ` +
+          `${playCounts.size} track(s) have play counts inside the ${rot.weightWindowDays}d window)`
+      );
+    }
+  }
+
   let pool = afterAlbumCap.slice(0, poolSize);
   if (pool.length < poolSize) {
     // Small library (or a wide rotation window): every track is either in the

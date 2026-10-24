@@ -89,6 +89,21 @@
       "weightWindowDays": 7,
       "noveltyDays": 7,
       "noveltyBoost": 3
+    },
+    "clockwheel": {
+      "pools": {
+        "chill": { "genres": ["chillout", "ambient"], "excludeKeywords": ["metal"] }
+      },
+      "steps": [
+        { "pool": "chill", "count": 1 },
+        { "pool": "rotation", "count": 4 }
+      ],
+      "dayparts": [
+        { "from": "22:00", "to": "24:00", "steps": [
+          { "pool": "chill", "count": 2 },
+          { "pool": "rotation", "count": 2 }
+        ] }
+      ]
     }
   },
   "shows": {

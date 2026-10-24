@@ -150,6 +150,14 @@ phases hand off through.
   from flooding the pool. Every knob lives in `filler.rotation` and zeroes
   itself off individually; a full pool always beats an enforced cap —
   [analysis §4.1](docs/ready-made-scripts-analysis.md).
+- **Format ura (clockwheel)**: the filler hour can follow a named, operator-
+  readable shape — steps pointing at pools ("1 chill, 4 from the general
+  rotation, repeat"), N tracks per step, optional dayparts (first matching
+  window wins). Pools are config-defined filters (artists, genres, keywords)
+  over the library; tracks claimed by a pool never leak back into the general
+  rotation. Borrowed from AzuraCast's Playlist Groups design — see
+  [analysis §4.5](docs/ready-made-scripts-analysis.md) for the one-word
+  `radio.liq` mode flip that puts the wheel on air.
 - **Listener requests reach the air**: the studio dashboard's Queue button
   pushes an approved request onto Liquidsoap's `request.queue` over telnet —
   it plays at the next track boundary with no competition from the playlist
