@@ -214,7 +214,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 5 | `source_tag` dispatch prehodov (glasba↔govor v enem mestu) | cookbook §2.5 | pol dneva | posploši naš annotate »0« model, brez crossfade tveganja | P2 |
 | 6 | Pametna pravila zaloge (30/izvajalec, 5/(izvajalec,album), 12 h izključitev, uteži vrtenc, boost novosti) | defenestratexp | 1 dan | boljša rotacija od naključja | P2 |
 | 7 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 |
-| 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 |
+| 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 ✓ |
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 |
 | 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2/P3 |
 | 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
@@ -222,6 +222,16 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 13 | sidechaincompress »postelje« (natančnejše od 12) | radio-dj | srednja | glasba pod govorom | P3 |
 | 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 |
 | 15 | prehod TTS na piper1-gpl (v1.8.0, aktivno) | §4.7 | pol dneva | vzdrževan runtime, nove glasove | P3 |
+
+**Status P2 #8 (2026-10-24): `request.queue` vstavljanje IMPLEMENTIRANO — odobren zahtevek pride do zraka.**
+Do zdaj je odobren zahtevek samo sedel v `requests.jsonl` — do zraka je prišel z ročnimi triki. Zapora zanke:
+
+- **LS polovica** (`radio.liq`): `requests_source = request.queue(id="requests")` + `fallback(track_sensitive=true, [requests_source, radio])` nad stinger slojem (zahtevek na isti meji prekaša imaging). Verificirano iz v2.2.4 vira, ne iz dokumentacije: `src/libs/request.liq` — `request.queue(interactive=true)` registrira telnet ukaza `<id>.push <uri>` (odgovor = ŠTEVILSKI request id!) in `<id>.queue`; razpoložljivost je `available={not list.is_empty(queue())}` — točno to išče track_sensitive fallback; `src/core/tools/server.ml exec` — ukaz/argument se razdelita na PRVEM presledku, zato poti s presledki preživijo celote; napake pridejo kot `ERROR: ...`.
+- **Node polovica** (`src/liquidsoap/requestQueue.js`): `pickBestMatch` (fold po diakritikah, izvajalec samo če posluševalec zapiše, izenačene zadetke rešuje ratingCount — kot `dedupeByTitle`; NIKOLI približek — tipkarska napaka ne sme predvajati napačne pesmi), `pushRequestTrack` (gola lokalna pot, brez annotate = trd rez kot stingerji; pred pushom vpiše pot→ratingKey v scrobble stranski indeks, sicer zahtevek zaigra, a ne scrobbla), `queueRequest` (celotna akcija gumba: samo odobren zahtevek, vsak izid — v vrsti / ni v knjižnici / LS ni dosegljiv — gre ISKRENO v zapiske, status ostane `approved`).
+- **Studio**: `POST /api/requests/:id/queue` + gumb *Queue* pri odobrenih zahtevkih; CLI za verifikacijo na boxu: `node src/liquidsoap/requestQueue.js queue <id> | push <file> | resolve "<izvajalec>" "<naslov>"`.
+- **Testi**: `test/requestQueue.test.mjs` (16) — struktura radio.liq, čista matematika zadetkov, lažni telnet strežnik z pravo žično obliko (odgovor+END), celoten tok lastniške akcije z realnimi WAV.
+
+Live verifikacija na boxu (pred zrakom, kot vedno): `liquidsoap --check radio.liq`, potem en pravi push prek CLI in poslušanje meje (zahtevek mora začeti na naslednji meji skladbe, program pa se vrniti po njegovem koncu).
 
 **Eksplicitna ne-priporočila (raziskana in zavržena):** `cross.smart` (odsvetovan tudi od avtorja autocue; 2.2); global `fade.out` na naši 2.2.4 (utrjen bug: utiša celo skladbo — ostaja prepoved do ponovne verifikacije); SUB/WAVE efekti pred nadgradnjo LS (2.4.5 odvrne delne okvirje po crossu); blankskip na TTS posnetkih (odreže konec sporočila); WRIT-FM/radio-dj LLM jedra in eternityready2 AI newscaster (proti arhitekturi brez AI); Rivendell/OpenBroadcaster/težke platforme (spreminjata infrastrukturo, ne dodajata funkcij); goli `switch({0m-5m})` za ID (prikaže lahko več jinglov — vzemimo `predicate.activates`); `medialib` predmeta (zahteva LS 2.5.x — zanimiv kasneje za kriterijske iskalne bloke).
 

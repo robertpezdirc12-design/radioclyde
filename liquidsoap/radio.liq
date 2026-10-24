@@ -134,6 +134,24 @@ emergency_source = playlist(id="imaging_emergency", reload_mode="watch", mode="n
   config.dataDir ^ "/imaging/emergency.m3u")
 
 radio = fallback(track_sensitive=false, [show_source, filler_source])
+# Listener requests (P2 #8, integration table row 8): the studio queues an
+# approved request with one telnet call (src/liquidsoap/requestQueue.js ->
+# "requests.push <local-path>"), and this fallback plays it at the NEXT track
+# boundary -- never mid-track, and with zero competition from the m3u reload
+# (that reload race is exactly what this layer removes). Semantics verified
+# against THIS build's source (v2.2.4 src/libs/request.liq): with
+# interactive=true (default) request.queue registers the telnet commands
+# requests.push/<id>.queue/skip under the source's id, replies to a push with
+# the new request's numeric id, and its availability is
+# available={not list.is_empty(queue())} -- i.e. available exactly while the
+# queue holds something, which is what the track_sensitive fallback needs.
+# Pushed URIs are BARE local paths (no annotate), so request tracks play with
+# the station's hard-cut default -- same treatment as stingers/IDs; no
+# liq_amplify metadata means amplify below stays a 1.0 pass-through for them.
+# Wrapped ABOVE the stinger layer on purpose: at a boundary where both are
+# ready, a listener's request outranks imaging.
+requests_source = request.queue(id="requests")
+radio = fallback(track_sensitive=true, [requests_source, radio])
 # Stingers slot in between show/filler tracks (their own fallback with
 # track_sensitive=true re-selects at track starts; after the stinger ends,
 # delay() blocks it again and the next boundary returns to the program).

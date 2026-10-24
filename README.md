@@ -150,6 +150,14 @@ phases hand off through.
   from flooding the pool. Every knob lives in `filler.rotation` and zeroes
   itself off individually; a full pool always beats an enforced cap —
   [analysis §4.1](docs/ready-made-scripts-analysis.md).
+- **Listener requests reach the air**: the studio dashboard's Queue button
+  pushes an approved request onto Liquidsoap's `request.queue` over telnet —
+  it plays at the next track boundary with no competition from the playlist
+  reload. Free-text (artist, title) is matched against the library
+  diacritics-insensitively and never approximated; every outcome (queued,
+  not in library, Liquidsoap unreachable) is written back into the request's
+  note so the dashboard always shows the truth —
+  [analysis §6](docs/ready-made-scripts-analysis.md).
 
 ## Meet the DJs
 

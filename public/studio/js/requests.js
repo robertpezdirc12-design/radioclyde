@@ -1,7 +1,10 @@
 // Requests & dedications moderation (issue #2 B.4). Approve/reject writes
 // through to requestsStore.js -- the listener's status endpoint then shows
 // exactly what was set here, so what the owner decides is what the listener
-// sees.
+// sees. The Queue button (P2 #8) pushes an approved request onto
+// Liquidsoap's request.queue (radio.liq id "requests"); the response mirrors
+// the note the backend writes, so an honest outcome is visible in both
+// places without a refresh round trip.
 import { api } from './api.js';
 
 const el = (id) => document.getElementById(id);
@@ -23,6 +26,20 @@ async function moderate(id, status) {
   if (note === null) return; // cancelled
   try {
     await api(`/api/requests/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status, note } });
+    load();
+  } catch (err) {
+    window.alert(err.message);
+  }
+}
+
+async function queue(id) {
+  try {
+    const outcome = await api(`/api/requests/${encodeURIComponent(id)}/queue`, { method: 'POST' });
+    window.alert(
+      outcome.ok
+        ? `V vrsti (Liquidsoap request #${outcome.requestId}) -- zaigra na naslednji meji skladbe: ${outcome.track.artist} - ${outcome.track.title}`
+        : outcome.error
+    );
     load();
   } catch (err) {
     window.alert(err.message);
@@ -76,6 +93,16 @@ function row(r) {
     reject.textContent = 'Reject';
     reject.addEventListener('click', () => moderate(r.id, 'rejected'));
     actions.appendChild(reject);
+  }
+  if (r.status === 'approved' && r.title) {
+    const queueBtn = document.createElement('button');
+    queueBtn.className = 'btn btn-small';
+    queueBtn.type = 'button';
+    queueBtn.style.marginLeft = '6px';
+    queueBtn.textContent = 'Queue';
+    queueBtn.title = 'Push onto Liquidsoap\'s request queue -- airs at the next track boundary';
+    queueBtn.addEventListener('click', () => queue(r.id));
+    actions.appendChild(queueBtn);
   }
 
   tr.append(when, type, track, message, from, ip, status, actions);
