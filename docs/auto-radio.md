@@ -185,6 +185,21 @@ da prewarm in ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje,
 polovice `zanimivosti`**, ki je lokalna datoteka in deluje brez omrežja (samo
 polovica za izvajalce se ob offline spusti).
 
+### Wikimedia iz podatkovnih središč (HTTP 403) — živo opaženo
+
+Wikimedia blokira celotne obsege IP-jev podatkovnih središč: iz oblaku
+`query.wikidata.org`, `www.wikidata.org` in vse wikipedije vračajo **HTTP 403
+v ~150 ms** (enako za brskalnik in prazen uporabniški agent, torej blokada
+obsega, ne uporabniškega agenta). V tem primeru se `obzorje`, `glasba` in
+wikipedijina rezerva `zanimivosti` vsako produkcijo pošteno spustijo — v
+`station.log` je to prepoznavno kot »`query failed (HTTP 403 from Wikidata)
+-- rubric skipped`« oziroma »`brez zanimivosti (HTTP 403 from sl.wikipedia)`«
+— oddaja pa teče naprej na ARSO, RTV, MusicBrainzu in korpusu. Domači in
+pisarniški IP-ji težave nimajo (WDQS ne potrebuje ključa, le uporabniški
+agent). Odpravljanje: poglej `station.log` na »403 from Wikidata«; rešitev je
+gostovanje na IP-ju, ki ga Wikimedia ne blokira, ali izhodni posrednik
+takšnega IP-ja. MusicBrainz, ARSO in RTV niso prizadeti.
+
 ### Kako se zanimivosti razporedijo po oddaji
 
 Zanimivosti so zavestno redkejše od ostalih rubrik: pridejo **pred uvod
