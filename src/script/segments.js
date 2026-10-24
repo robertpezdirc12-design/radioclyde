@@ -78,6 +78,9 @@ const SLOT_TYPES = {
   quizReveal: 'quiz',
   newsHeadlines: 'news_analysis',
   sportHeadlines: 'news_analysis',
+  newsOffline: 'news_analysis',   // P4 #30: honest offline news line
+  sportOffline: 'news_analysis',  // P4 #30: honest offline sport line
+  obzorjeOffline: 'news_analysis', // P4 #30: honest offline on-this-day line
   obzorje: 'news_analysis',
   obzorjeGlasba: 'news_analysis', // P4 #19: musician-filtered on-this-day
   triviaArtist: 'story',          // P4 #17: a fact about the playing artist

@@ -69,6 +69,20 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
         seed: seedFor({ showId, date, slot: 'newsHeadlines' }),
       }),
     });
+  } else if (news?.source === 'fallback') {
+    // P4 #30: RTV unreachable or empty -- the rubric airs an HONEST offline
+    // line instead of vanishing. No headlines exist to render, so the pool
+    // carries none; the honesty rules live in templates.newsOffline and
+    // their guards in test/honestOffline.test.mjs.
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'newsOffline',
+      body: renderSlot('newsOffline', {
+        values: commonValues(),
+        seed: seedFor({ showId, date, slot: 'newsOffline' }),
+      }),
+    });
   }
 
   const sport = rubricData.sport;
@@ -80,6 +94,17 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
       body: renderSlot('sportHeadlines', {
         values: { ...commonValues(), headlines: sport.headlines },
         seed: seedFor({ showId, date, slot: 'sportHeadlines' }),
+      }),
+    });
+  } else if (sport?.source === 'fallback') {
+    // P4 #30: same honest contract as novice -- see templates.sportOffline.
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'sportOffline',
+      body: renderSlot('sportOffline', {
+        values: commonValues(),
+        seed: seedFor({ showId, date, slot: 'sportOffline' }),
       }),
     });
   }
@@ -94,6 +119,20 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
       body: renderSlot('obzorje', {
         values: { ...commonValues(), year: event.year, name: event.name, kindKey },
         seed: seedFor({ showId, date, slot: `obzorje:${index}` }),
+      }),
+    });
+  }
+  // P4 #30: Wikidata unreachable or a legitimately event-less answer -- ONE
+  // honest line keeps the rubric on air without inventing a single name or
+  // year. A healthy response with events keeps the per-event loop above.
+  if ((rubricData.onThisDay?.events ?? []).length === 0 && rubricData.onThisDay?.source === 'fallback') {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'obzorjeOffline',
+      body: renderSlot('obzorjeOffline', {
+        values: commonValues(),
+        seed: seedFor({ showId, date, slot: 'obzorjeOffline' }),
       }),
     });
   }

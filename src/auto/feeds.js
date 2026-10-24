@@ -144,7 +144,7 @@ export async function fetchArsoCurrentWeather({ station, timeoutMs = 10_000, ttl
     const items = rssItems(xml);
     const chosen = pickArsoItem(items, station ?? 'Ljubljana');
     if (!chosen) {
-      log(`feeds/arso: no station matching "${station}" in ${items.length} item(s) -- weather rubric skipped.`);
+      log(`feeds/arso: no station matching "${station}" in ${items.length} item(s) -- weather rubric airs its offline line.`);
       cacheSet(key, null);
       return null;
     }
@@ -153,7 +153,7 @@ export async function fetchArsoCurrentWeather({ station, timeoutMs = 10_000, ttl
     cacheSet(key, value);
     return value;
   } catch (err) {
-    log(`feeds/arso: fetch failed (${err.message}) -- weather rubric skipped.`);
+    log(`feeds/arso: fetch failed (${err.message}) -- weather rubric airs its offline line.`);
     return null;
   }
 }
@@ -176,7 +176,7 @@ export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs
     const xml = await fetchText(RTV_SPORT_RSS, timeoutMs);
     const titles = rssItems(xml).map((item) => item.title);
     if (titles.length === 0) {
-      log('feeds/rtv-sport: empty feed -- sport rubric skipped.');
+      log('feeds/rtv-sport: empty feed -- sport rubric airs its offline line.');
       cacheSet(key, null);
       return null;
     }
@@ -184,7 +184,7 @@ export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs
     cacheSet(key, value);
     return value;
   } catch (err) {
-    log(`feeds/rtv-sport: fetch failed (${err.message}) -- sport rubric skipped.`);
+    log(`feeds/rtv-sport: fetch failed (${err.message}) -- sport rubric airs its offline line.`);
     return null;
   }
 }
@@ -201,7 +201,7 @@ export async function fetchNewsHeadlines({ limit = 3, timeoutMs = 10_000, ttlMs 
     const xml = await fetchText(RTV_NEWS_RSS, timeoutMs);
     const titles = rssItems(xml).map((item) => item.title);
     if (titles.length === 0) {
-      log('feeds/rtv-news: empty feed -- news rubric skipped.');
+      log('feeds/rtv-news: empty feed -- news rubric airs its offline line.');
       cacheSet(key, null);
       return null;
     }
@@ -209,7 +209,7 @@ export async function fetchNewsHeadlines({ limit = 3, timeoutMs = 10_000, ttlMs 
     cacheSet(key, value);
     return value;
   } catch (err) {
-    log(`feeds/rtv-news: fetch failed (${err.message}) -- news rubric skipped.`);
+    log(`feeds/rtv-news: fetch failed (${err.message}) -- news rubric airs its offline line.`);
     return null;
   }
 }
@@ -326,7 +326,7 @@ async function fetchOnThisDayBySparql({ sparql, month, day, limit, timeoutMs, ca
       .filter((row) => row.id && Number.isFinite(row.year))
       .sort((a, b) => (b.year - a.year) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (rows.length === 0) {
-      log(`feeds/wikidata: no events for this date -- ${label} rubric skipped.`);
+      log(`feeds/wikidata: no events for this date -- ${label} rubric falls back offline.`);
       cacheSet(cacheKey, null);
       return null;
     }
@@ -346,11 +346,11 @@ async function fetchOnThisDayBySparql({ sparql, month, day, limit, timeoutMs, ca
       if (events.length >= candidateCount) break;
     }
     const value = events.length === 0 ? null : { source: 'wikidata', date: `${month}/${day}`, events: interleaveOnThisDay(events, limit) };
-    if (!value) log(`feeds/wikidata: no Slovenian-labelled events for this date -- ${label} rubric skipped.`);
+    if (!value) log(`feeds/wikidata: no Slovenian-labelled events for this date -- ${label} rubric falls back offline.`);
     cacheSet(cacheKey, value);
     return value;
   } catch (err) {
-    log(`feeds/wikidata: query failed (${err.message}) -- ${label} rubric skipped.`);
+    log(`feeds/wikidata: query failed (${err.message}) -- ${label} rubric falls back offline.`);
     return null;
   }
 }
@@ -496,6 +496,14 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // weatherOffline slot). Respecting `names` keeps the rubric opt-in.
   const weatherFallback = () =>
     names.includes('weather') ? { source: 'fallback', station: settings.station } : null;
+  // P4 #30 "po\u0161tene offline vrstice": novice, \u0161port and obzorje get the
+  // same contract as vreme -- the rubric promised by the brief always airs,
+  // but a dead/empty source can only ever produce an honest line ({ source:
+  // 'fallback' }), never invented headlines. The shape stays deliberately
+  // bare: any real content would have to come from the source itself.
+  const newsFallback = () => (names.includes('news') ? { source: 'fallback' } : null);
+  const sportFallback = () => (names.includes('sport') ? { source: 'fallback' } : null);
+  const onThisDayFallback = () => (names.includes('onthisday') ? { source: 'fallback' } : null);
   const quiz = names.includes('quiz') && settings.quizCount > 0
     ? { questions: pickQuizQuestions(settings.quizCount, quizSeed) }
     : null;
@@ -506,8 +514,8 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // P4 #26 "poslusalci": freshly approved requests/dedications, local file.
   const listeners = names.includes('listeners') ? collectListenerShout() : null;
   if (offline) {
-    log('feeds: rubrics skipped (offline mode); obzorjeGlasba falls back to the local corpus (P4 #28), vreme to its offline lines (P4 #29).');
-    return { weather: weatherFallback(), news: null, sport: null, onThisDay: null, onThisDayMusic: localMusic(), quiz, poll, listeners, offline: true };
+    log('feeds: rubrics skipped (offline mode); glasba fills from its local corpus (P4 #28), vreme/novice/\u0161port/obzorje air their honest offline lines (P4 #29/#30).');
+    return { weather: weatherFallback(), news: newsFallback(), sport: sportFallback(), onThisDay: onThisDayFallback(), onThisDayMusic: localMusic(), quiz, poll, listeners, offline: true };
   }
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
@@ -528,5 +536,13 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // honest offline line covers a dead/empty answer (fetch failure, station
   // miss, cached null) so the rubric promised in the brief always airs.
   const weatherWithFallback = weather ?? weatherFallback();
-  return { weather: weatherWithFallback, news, sport, onThisDay, onThisDayMusic: musicWithFallback, quiz, poll, listeners, offline: false };
+  // P4 #30: the same contract for novice/\u0161port -- RTV wins whenever it
+  // answers, the honest offline line covers a dead/empty answer. For
+  // obzorje the line also covers a legitimately event-less answer (an empty
+  // archive is honest too: there was simply nothing we could read on air),
+  // while a healthy Wikidata response with events keeps winning.
+  const newsWithFallback = news ?? newsFallback();
+  const sportWithFallback = sport ?? sportFallback();
+  const onThisDayWithFallback = onThisDay?.events?.length ? onThisDay : onThisDayFallback();
+  return { weather: weatherWithFallback, news: newsWithFallback, sport: sportWithFallback, onThisDay: onThisDayWithFallback, onThisDayMusic: musicWithFallback, quiz, poll, listeners, offline: false };
 }

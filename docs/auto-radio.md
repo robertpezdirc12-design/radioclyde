@@ -197,9 +197,9 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | Rubrika | Vir | Slot | Predloga |
 |---|---|---|---|
 | `vreme` | **ARSO** — uradna meteorološka služba RSS (opazovanja, ~20 slovenskih postaj, slovenski opisi). Od P4 #29 ima **pošteno offline vrstico** (`weatherOffline` — brez izmišljenih podatkov), ko je ARSO nedosegljiv | `weatherNow` / `weatherOffline` (rezerva) | `weatherNow.withTemp` / `.tempOnly` / `.generic`; rezerva `weatherOffline` |
-| `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
-| `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta | `newsHeadlines` | `newsHeadlines` |
-| `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
+| `šport` | **RTV Slovenija** športni RSS — sveže naslovnice. Od P4 #30 ima **pošteno offline vrstico** (`sportOffline` — brez izmišljenih rezultatov), ko je vir nedosegljiv ali prazen | `sportHeadlines` / `sportOffline` (rezerva) | `sportHeadlines`; rezerva `sportOffline` |
+| `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta. Od P4 #30 ima **pošteno offline vrstico** (`newsOffline` — brez izmišljenih naslovnic), ko je vir nedosegljiv ali prazen | `newsHeadlines` / `newsOffline` (rezerva) | `newsHeadlines`; rezerva `newsOffline` |
+| `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla). Od P4 #30 ima **pošteno offline vrstico** (`obzorjeOffline` — brez izmišljenih imen in let), ko je arhiv nedosegljiv ali za ta dan ne vrne nič | `obzorje` / `obzorjeOffline` (rezerva) | `obzorje.birth`/`.birthF`/`.death`/`.deathF`; rezerva `obzorjeOffline` |
 | `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi". Od P4 #28 ima **lokalni korpus** (`src/auto/onThisDayFacts.js`, deluje brez omrežja) kot rezervo, ko Wikidata ni dosegljiva ali za ta dan nič vrne | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
 | `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 40 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
@@ -220,17 +220,19 @@ Nastavitve v `config.autoRadio.rubrics`:
 - `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
 
 Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
-čas poteče → segment spusti, oddaja teče dalje.** Od P4 #28/#29 velja
-dopolnitev: korpusne rubrike in vreme imajo **lokalno rezervo**, zato ob
-mrtem usmerjevalniku ne izginejo — `vreme` na zrak gre s pošteno offline
-vrstico (brez izmišljenih podatkov), `glasba` z lokalnim korpusom. Odgovori
-so v procesu predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h,
+čas poteče → segment spusti, oddaja teče dalje.** Od P4 #28/#29/#30 velja
+dopolnitev: vse rubrike imajo lokalno pokritost, zato ob mrtem
+usmerjevalniku NE izginejo — `vreme` na zrak gre s pošteno offline vrstico
+(brez izmišljenih podatkov), `glasba` z lokalnim korpusom, `novice`, `šport`
+in `obzorje` s poštenimi offline vrsticami (brez izmišljenih naslovnic).
+Odgovori so v procesu predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h,
 izvajalec 24 h), tako da prewarm in ponovni zagoni ne obremenjujejo virov.
 Rubrika ni del oddaje, če je ni v briefu; `--offline` (predogled) omrežne
 vire spusti — ostanejo: `kviz` (cela), `anketa`, `poslušalci`, korpusna
-polovica `zanimivosti`, korpus `glasbe` in poštena vrstica `vremena`; spustijo
-se `novice`, `šport`, net-korpusna polovica obzorja in polovica zanimivosti za
-izvajalce.
+polovica `zanimivosti`, korpus `glasbe` in poštene vrstice `vremena`,
+`novic`, `športa` in `obzorja`; spusti se le še net-polovica `zanimivosti`
+za izvajalce (MusicBrainz/sl.wikipedia — podatka o izvajalcu ne moremo
+izmisliti, korpusna polovica pa seveda ostane).
 
 ### Kviz — resnična vprašanja na obstoječem mestu (P4 #22)
 
@@ -472,7 +474,7 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 
 | Funkcija | Markec |
 |---|---|
-| Lokalne rubrike iz resničnih virov | ARSO vreme (+ poštena offline vrstica, P4 #29), RTV novice + šport, Wikidata obzorje/glasba (+ lokalni korpus, P4 #28), MusicBrainz zanimivosti |
+| Lokalne rubrike iz resničnih virov | ARSO vreme (+ poštena offline vrstica, P4 #29), RTV novice + šport (+ poštene offline vrstice, P4 #30), Wikidata obzorje (+ poštena offline vrstica, P4 #30)/glasba (+ lokalni korpus, P4 #28), MusicBrainz zanimivosti |
 | Resnični kviz | korpus 40 vprašanj, hecavne predloge (P4 #22/#24) |
 | Zanimivosti | korpus + MusicBrainz/sl.wikipedia, skip-not-fail |
 | DJ osebnosti + najave | personas, predloge open/intro/recap/close, variantna rotacija |
@@ -486,10 +488,10 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
 teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
 licenčna skladnost (izvajalno poročilo) -- ostal je le smart-speaker
-spretnost, ki potrebuje zunanjega ponudnika. P4 #28/#29 poleg tega zapirata
-zadnjo luknjo odpornosti: radio preživi mrtev usmerjevalnik s CELOM
-programom — rubrika vreme na zraku ostane s pošteno vrstico, živi segment pa
-ne podrže več režije.
+spretnost, ki potrebuje zunanjega ponudnika. P4 #28/#29/#30 poleg tega
+zapirajo zadnjo luknjo odpornosti: radio preživi mrtev usmerjevalnik s
+CELOM programom — vse rubrike ostanejo na zraku (korpusi ali poštene
+offline vrstice), živi vremenski segment pa ne podrže več režije.
 
 ### P4 #25: raziskava v kodo -- teases, ankete, podcast, social
 
@@ -613,6 +615,43 @@ reproducirljivi in zvok predpomnljiv. Testi: 415 → 435
 (`test/weatherOffline.test.mjs`, 20 — vključno z varovalkami poštenosti, ki
 prepovedujejo številke in vremenske besede v vseh variantah obeh bazenov,
 ter živim testom, ki dokazuje, da mrtev Open-Meteo NE vrže več napake).
+
+### P4 #30: novice, šport in obzorje — poštene offline vrstice
+
+Po #29 je ostala zadnja trojka rubrik, ki je ob mrtem usmerjevalniku
+preprosto izginila: `novice` in `šport` (RTV RSS) ter net-polovica
+`obzorja` (Wikidata). P4 #30 zapre tudi to trojko, po istem dogovoru kot
+vreme — z enim pomembnim zaostrenim: **izmišljanje naslovnic je
+NEETIČNO**, zato nadomestna vrstica ne more vsebovati niti približka
+novičarske vsebine. Pravila poštenosti (varujejo testi v
+`test/honestOffline.test.mjs`) so STROŽJA kot pri vremenu:
+
+- **nič izmišljenih vsebin:** brez številk (naslovni servis brez številk ne
+  more pretvarjati, da ima naslovnice), brez imen ljudi, ekip, rezultatov
+  in datumov, brez obtoževanja virov na zraku (nobenega "RTV"/"Wikidata" —
+  bazeni so viru-generični),
+- **oblika rubrike se ohranja:** vsaka varianta `newsOffline` se odpira z
+  "Novice:", `sportOffline` s "Športne novice:", `obzorjeOffline` s "Na
+  današnji dan" — enako kot podatkovne predloge, tako da seštevek zveni
+  kot rubrika, ne kot napaka,
+- **šala JE iskrenost:** vrstica glasno pove, da danes naslovnic ni, in
+  odda mikrofon glasbi ("edini zanesljiv rezultat današnjega dne je, da
+  glasba vodi z ena nič").
+
+Zdravi viri še vedno zmagujejo (RTV naslovnice → `newsHeadlines`/
+`sportHeadlines`, Wikidata dogodki → `obzorje`); pri `obzorju` vrstica
+pokrije tudi pošteno PRAZEN odgovor (datum brez slovensko označenih oseb —
+arhiv ni povedal ničesar, kar bi lahko brali na zraku, in to tudi ne
+pretvarjamo). Rubrika ostane opt-in prek briefa: brez `novice`/
+`šport`/`obzorje` v briefu tudi poštena vrstica ne zazveni.
+
+- **Izvozi:** podcast show-notes (poglavja "Novice -- poštena vrstica" …) in
+  social izvoz poznajo nove slote, tako da poštene vrstice pridejo v oba
+  izvoda. V clips načinu so novi sloti skladno z dogovorom preskočeni,
+  dokler operator ne posname svojega klipa z istim imenom.
+- **Deterministika:** isti dan + isto seme = ista vrstica (FNV-1a kot
+  povsod). Testi: 435 → 454 (`test/honestOffline.test.mjs`, 19 — varovalke
+  poštenosti, obe zbirateljski veji, izris, scriptBuilder in taksonomija).
 
 ## Zapisi, ki ostajajo odprti (PoC)
 

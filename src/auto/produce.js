@@ -144,9 +144,9 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
     requested: rubricNames,
     resolved: {
       weather: rubricData.weather ? rubricData.weather.station : null,
-      news: rubricData.news?.count ?? null,
-      sport: rubricData.sport?.count ?? null,
-      onThisDay: rubricData.onThisDay?.events.length ?? 0,
+      news: rubricData.news ? (rubricData.news.count ?? 'po\u0161tena vrstica') : null,
+      sport: rubricData.sport ? (rubricData.sport.count ?? 'po\u0161tena vrstica') : null,
+      onThisDay: rubricData.onThisDay ? (rubricData.onThisDay.events?.length ?? 'po\u0161tena vrstica') : 0,
       onThisDayMusic: rubricData.onThisDayMusic?.events.length ?? 0,
       quiz: rubricData.quiz?.questions.length ?? null,
       poll: rubricData.poll?.question ?? null,

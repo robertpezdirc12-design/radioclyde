@@ -53,9 +53,13 @@ export function chapterList(segments) {
     tease: 'Naznanilo: sledi kasneje',
     teaseQuiz: 'Naznanilo: sledi kasneje + kviz',
     weatherNow: 'Vreme',
+    weatherOffline: 'Vreme -- poštena vrstica',
     newsHeadlines: 'Novice',
+    newsOffline: 'Novice -- poštena vrstica',
     sportHeadlines: 'Šport',
+    sportOffline: 'Šport -- poštena vrstica',
     obzorje: 'Na današnji dan',
+    obzorjeOffline: 'Na današnji dan -- poštena vrstica',
     obzorjeGlasba: 'Na današnji dan v glasbi',
     triviaArtist: 'Zanimivost o izvajalcu',
     triviaGeneral: 'Zanimivost iz zgodovine rocka',
@@ -194,7 +198,7 @@ export function runPodcastExport({ dir, audio, title, date, link, out, station =
     chapters: chapterList(segments),
     tracks,
     rubricLines: segments
-      .filter((s) => s.type === 'dj' && ['weatherNow', 'weatherOffline', 'newsHeadlines', 'sportHeadlines', 'obzorje', 'obzorjeGlasba', 'triviaArtist', 'triviaGeneral', 'quizIntro'].includes(s.slot))
+      .filter((s) => s.type === 'dj' && ['weatherNow', 'weatherOffline', 'newsHeadlines', 'newsOffline', 'sportHeadlines', 'sportOffline', 'obzorje', 'obzorjeOffline', 'obzorjeGlasba', 'triviaArtist', 'triviaGeneral', 'quizIntro'].includes(s.slot))
       .map((s) => s.body),
   });
   const notesPath = path.join(outDir, 'show-notes.md');

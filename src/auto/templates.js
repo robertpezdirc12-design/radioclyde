@@ -155,6 +155,41 @@ const DEFAULT_TEMPLATES = {
     'Novice: {headlines}',
     'Iz Slovenije in sveta: {headlines}',
   ],
+  // P4 #30 "po\u0161tene offline vrstice" for the three remaining network
+  // rubrics: novice (RTV news RSS), \u0161port (RTV sport RSS) and obzorje
+  // (Wikidata on-this-day). When the source is dead or empty the rubric no
+  // longer vanishes -- it airs an HONEST line instead, under STRICTER
+  // honesty rules than the weather offline pool (enforced by
+  // test/honestOffline.test.mjs):
+  //   - zero fabricated content: no digits (a headline service without
+  //     numbers cannot pretend to have headlines), no named people, teams,
+  //     dates or results, and no source blame on air (no "RTV"/"Wikidata" --
+  //     the pools stay source-generic),
+  //   - every variant keeps the rubric's shape marker, mirroring the data
+  //     templates above: newsOffline opens "Novice:", sportOffline
+  //     "\u0160portne novice:", obzorjeOffline "Na dana\u0161nji dan",
+  //   - the joke is the honesty: the line says out loud that today there
+  //     are no headlines and hands the microphone to the music.
+  newsOffline: [
+    'Novice: novi\u010darski vir se je danes odpravil na po\u010ditnice -- novic ni, glasba pa poro\u010da namesto njih.',
+    'Novice: vir trenutno mol\u010di, mi pa ne -- dana\u0161nja posebna novica je, da jih ni. Namesto naslovov torej le pesmi, ki naslove imajo.',
+    'Novice: povezava z novi\u010darskim virom je na dopustu -- svet se je nekako kar vrtel naprej, mi pa po\u010dakamo, da nam ga jutri povedo.',
+    'Novice: danes brez sve\u017eih naslovov -- vir mol\u010di, glasba pa zanesljivo ne. Poslu\u0161ajte torej edino rubriko, ki nikoli ne gre na dopust.',
+    'Novice: ni jih -- vir novic je danes za vodo, mikrofon pa zato v slu\u017ebi glasbe. Naslovi pridejo jutri, pesmi pa takoj.',
+  ],
+  sportOffline: [
+    '\u0160portne novice: vir rezultatov je danes na ogrevanju -- uradnih izidov ni, glasba pa ima svoj tempo tudi brez \u0161toparice.',
+    '\u0160portne novice: povezava je padla v prvem pol\u010dasu -- izidi ostajajo uradno neznani, muzika pa igra naprej, brez podalj\u0161kov.',
+    '\u0160portne novice: danes brez rezultatov -- \u0161portni vir se je poslal na dopust, tekmovanje, kdo bolj u\u017eiva v glasbi, pa se nadaljuje pri vas.',
+    '\u0160portne novice: vir trenutno mol\u010di -- edini zanesljiv rezultat dana\u0161njega dne je, da glasba vodi z ena ni\u010d.',
+    '\u0160portne novice: ni jih -- \u0161portni vir je danes za vodo, mesta naslovnic pa je zasedla glasba. Izidi se vra\u010dajo jutri.',
+  ],
+  obzorjeOffline: [
+    'Na dana\u0161nji dan: arhiv zgodovine je danes zaklenjen -- rojstnih danov in obletnic torej ne razgla\u0161amo, glasba pa se poslu\u0161a kot ob vsakem drugem dnevu.',
+    'Na dana\u0161nji dan: arhiv nam ni zaupal, kdo se je rodil in kdo se je poslovil -- tola\u017eimo se z glasbo, ki svojega letnika ne skriva.',
+    'Na dana\u0161nji dan: zgodovinski arhiv trenutno mol\u010di -- ime in leto ostajata uradno nepovedana, glasba pa govori sama zase.',
+    'Na dana\u0161nji dan: arhiv je danes za vodo -- kdo se je vse rodil, ostaja uradno neznan, pesem pa kljub temu navdu\u0161eno zapojemo.',
+  ],
   obzorje: {
     birth: [
       'Na današnji dan leta {year} se je rodil {name}.',
