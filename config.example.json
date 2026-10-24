@@ -82,7 +82,14 @@
   "filler": {
     "poolSize": 200,
     "regenerateIntervalMinutes": 360,
-    "maxTrackDurationSeconds": 600
+    "maxTrackDurationSeconds": 600,
+    "rotation": {
+      "maxTracksPerArtist": 30,
+      "maxTracksPerArtistAlbum": 5,
+      "weightWindowDays": 7,
+      "noveltyDays": 7,
+      "noveltyBoost": 3
+    }
   },
   "shows": {
     "repeatWindowDays": 30,

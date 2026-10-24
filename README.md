@@ -142,6 +142,14 @@ phases hand off through.
   (−16 LUFS, the LS 2.2.5 default), positive gain clamped (no limiter in the
   chain), speech/imaging untouched, and everything degrades to today's
   behavior for any track without an analysis — [design](docs/autocue-loudness.md).
+- **Smart rotation rules**: the off-air filler pool is no longer plain
+  shuffle — tracks aired more often in the last 7 days surface later
+  (weighted by a merged show+filler play counter), tracks added to the
+  library in the last 7 days get a novelty boost, and per-playlist caps
+  (30 tracks/artist, 5 per artist+album) keep a compilation-heavy library
+  from flooding the pool. Every knob lives in `filler.rotation` and zeroes
+  itself off individually; a full pool always beats an enforced cap —
+  [analysis §4.1](docs/ready-made-scripts-analysis.md).
 
 ## Meet the DJs
 

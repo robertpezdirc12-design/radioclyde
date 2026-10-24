@@ -131,6 +131,17 @@ async function scanLibrary() {
   log(`localLibrary: scanning ${files.length} audio file(s) under ${dirs.length} director(ies)...`);
   const tracks = [];
   for (const file of files) {
+    // Novelty signal for the rotation rules (scheduler/rotationRules.js):
+    // "added to the library" for a local file is when it landed on disk
+    // (mtime). No tags to read -- a stat per file is trivially cheap next
+    // to the metadata parse below. A file that vanishes between readdir and
+    // stat simply reads as "no signal"; readTrackMeta's parse will skip it.
+    let addedAtMs = null;
+    try {
+      addedAtMs = fs.statSync(file).mtimeMs;
+    } catch {
+      /* raced away -- the metadata parse below reports it */
+    }
     const meta = await readTrackMeta(file);
     if (!meta) continue;
     tracks.push({
@@ -147,6 +158,7 @@ async function scanLibrary() {
       localPath: file,
       ratingCount: null,
       art: null,
+      addedAtMs,
     });
   }
   log(`localLibrary: ${tracks.length} track(s) with readable tags.`);

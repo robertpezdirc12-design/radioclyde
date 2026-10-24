@@ -37,6 +37,11 @@ export function trackFromMetadata(t) {
     // cut in the low hundreds) -- this is what trackFilters.js's popularity
     // weighting biases sampling by. Not present on every track.
     ratingCount: t.ratingCount ?? null,
+    // Epoch-seconds -> ms, so rotationRules.js's novelty boost can treat
+    // Plex and local-library tracks with one comparison (local carries
+    // addedAtMs from the file's mtime). Null when Plex omits it -- absence
+    // simply never boosts.
+    addedAt: t.addedAt != null ? t.addedAt * 1000 : null,
     // Plex's relative art path for this track -- parentThumb (album art) is
     // preferred over the track's own thumb since album art is what's
     // actually meaningful to show a listener; falls back to the track-level

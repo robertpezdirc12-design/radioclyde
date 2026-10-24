@@ -18,6 +18,13 @@ import { shuffle } from '../lib/format.js';
 import * as scheduleUtil from './scheduleUtil.js';
 import { annotateTrackEntry } from '../director/playlist.js';
 import { recentFillerPlays, rotationWindowHours, pruneLedger } from './fillerRotation.js';
+import {
+  capPerArtist,
+  capPerArtistAlbum,
+  fillerRotationConfig,
+  stationPlayCounts,
+  weightedRotationOrder,
+} from './rotationRules.js';
 
 const log = createLogger('station');
 
@@ -49,14 +56,44 @@ export async function generateFillerPlaylist() {
       (!maxTrackDurationMs || t.durationMs <= maxTrackDurationMs)
   );
 
+  // Smart rotation rules (P2 #6, defenestratexp -- scheduler/rotationRules.js):
+  // less-played-first weighting over the 7-day play counter (show history +
+  // filler ledger merged), novelty boost for freshly added tracks, then
+  // per-playlist flood caps (30/artist, 5/(artist,album) defaults). The
+  // ordering produced here is the CAPS' priority order -- capping keeps the
+  // first N per group, so a heavily played artist's overflow tracks are the
+  // ones that drop. Every knob lives in config.filler.rotation and zeroes
+  // itself off individually; missing block = working defaults.
+  const rot = fillerRotationConfig();
+  const playCounts = stationPlayCounts(rot.weightWindowDays);
+  let ordered = weightedRotationOrder(eligible, {
+    counts: playCounts,
+    weightWindowDays: rot.weightWindowDays,
+    noveltyDays: rot.noveltyDays,
+    noveltyBoost: rot.noveltyBoost,
+  });
+  const afterArtistCap = capPerArtist(ordered, rot.maxTracksPerArtist);
+  const afterAlbumCap = capPerArtistAlbum(afterArtistCap, rot.maxTracksPerArtistAlbum);
+  if (afterAlbumCap.length < eligible.length) {
+    log(
+      `filler: rotation caps trimmed the pool ${eligible.length} -> ${afterAlbumCap.length} ` +
+        `(artist cap ${rot.maxTracksPerArtist}: ${afterArtistCap.length}, album cap ${rot.maxTracksPerArtistAlbum}: ${afterAlbumCap.length}; ` +
+        `${playCounts.size} track(s) have play counts inside the ${rot.weightWindowDays}d window)`
+    );
+  }
+
   const poolSize = config.filler.poolSize;
-  let pool = shuffle(eligible).slice(0, poolSize);
+  let pool = afterAlbumCap.slice(0, poolSize);
   if (pool.length < poolSize) {
     // Small library (or a wide rotation window): every track is either in the
     // rotation ledger or filtered out. Backfill from the ledger entries that
     // have been off-air the LONGEST, so the pool stays full but still rotates
     // -- the alternative (leaving a short pool) would make Liquidsoap loop a
-    // tiny playlist faster and repeat MORE audibly.
+    // tiny playlist faster and repeat MORE audibly. The backfill deliberately
+    // ignores the rotation caps: a full pool beats an enforced cap once the
+    // capped pool can't fill it (same philosophy as buildTrackQueue's
+    // artist-cooldown bypass), and ledger-oldest-first is already the
+    // strongest anti-repeat ordering available here.
     const freshCount = pool.length;
     const backfillCandidates = all.filter(
       (t) =>
