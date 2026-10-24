@@ -213,7 +213,7 @@ output.icecast(
   port=8000,
   password="CHANGE_ME_SOURCE_PASSWORD",
   mount="/stream.mp3",
-  name="Radio Clyde",
+  name="Radio Markec",
   description="Slovenian AI DJ Radio",
   url="https://your-domain.com",
   genre="Various",
@@ -270,7 +270,7 @@ nginx -t && systemctl reload nginx
 log "Creating systemd services..."
 cat > /etc/systemd/system/radioclyde.service << 'SVC_EOF'
 [Unit]
-Description=Radio Clyde - Web Server + Scheduler
+Description=Radio Markec - Web Server + Scheduler
 After=network.target icecast2.service
 Wants=icecast2.service
 
@@ -295,7 +295,7 @@ SVC_EOF
 
 cat > /etc/systemd/system/liquidsoap-radioclyde.service << 'SVC_EOF'
 [Unit]
-Description=Liquidsoap - Radio Clyde Playout
+Description=Liquidsoap - Radio Markec Playout
 After=network.target icecast2.service
 Wants=icecast2.service
 
@@ -346,7 +346,7 @@ chmod 750 "$RADIO_HOME"
 
 echo ""
 echo "============================================="
-echo "  Radio Clyde Installation Complete!"
+echo "  Radio Markec Installation Complete!"
 echo "============================================="
 echo ""
 echo "Next steps:"

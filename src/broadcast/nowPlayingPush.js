@@ -55,7 +55,7 @@ export async function pushDiscord(track, { fetchImpl = fetch } = {}) {
   if (!url) return { channel: 'discord', skipped: 'disabled' };
   try {
     const body = {
-      username: config.autoRadio?.stationName ?? 'Radio Clyde',
+      username: config.autoRadio?.stationName ?? 'Radio Markec',
       embeds: [
         {
           title: track?.artist ? `${track.artist} — ${track.title}` : (track?.title ?? ''),

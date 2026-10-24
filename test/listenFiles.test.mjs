@@ -105,7 +105,7 @@ describe('PWA static surface', () => {
     assert.equal(res.statusCode, 200);
     assert.match(res.headers['content-type'], /application\/manifest\+json/);
     const manifest = JSON.parse(res.body);
-    assert.equal(manifest.name, 'Radio Clyde');
+    assert.equal(manifest.name, 'Radio Markec');
     assert.equal(manifest.lang, 'sl');
     assert.equal(manifest.display, 'standalone');
     assert.ok(manifest.icons.some((i) => i.src === '/logo.png'));

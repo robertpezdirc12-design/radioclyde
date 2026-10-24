@@ -1,4 +1,4 @@
-// Radio Clyde service worker -- PWA installability + instant app shell.
+// Radio Markec service worker -- PWA installability + instant app shell.
 //
 // Strategy, stated plainly so the next reader doesn't have to reverse it:
 //  - the app shell (page, css, js, logo, icons, manifest) is cached

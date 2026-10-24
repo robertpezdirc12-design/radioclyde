@@ -21,9 +21,9 @@ import { loadStation } from '../scheduler/scheduleUtil.js';
 
 function stationName() {
   try {
-    return loadStation().name ?? 'Radio Clyde';
+    return loadStation().name ?? 'Radio Markec';
   } catch {
-    return 'Radio Clyde';
+    return 'Radio Markec';
   }
 }
 

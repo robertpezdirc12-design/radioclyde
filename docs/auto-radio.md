@@ -1,6 +1,6 @@
 # Auto Radio (način `autoRadio`) — radio brez jezikovnega modela
 
-Ta dokument opisuje **avtomatski način** delovanja Radio Clyde: popolnoma
+Ta dokument opisuje **avtomatski način** delovanja Radio Markec: popolnoma
 deterministično radijsko postajo brez jezikovnega modela (LM Studio) in brez
 nevronskih TTS modelov (Chatterbox). Glasba se izbira po pravilih, govor se
 sestavlja iz predlog, zvok pa prihaja iz vnaprej posnetih posnetkov ali
@@ -41,7 +41,7 @@ Primer minimalnega bloka:
 ```json
 "autoRadio": {
   "enabled": true,
-  "stationName": "Radio Clyde",
+  "stationName": "Radio Markec",
   "music": { "source": "auto", "localDirs": ["/mnt/glasba"] },
   "rules": {
     "artistCooldownHours": 3,

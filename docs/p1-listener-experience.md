@@ -8,7 +8,7 @@ Ta paket pokriva vseh pet P1 točk iz SUB/WAVE analize: `.m3u`/`.pls` za strojno
 
 ## 1. `/listen.m3u` in `/listen.pls` — Sonos, VLC, avto, stari radio
 
-Dve statični enovrstični playlisti (`src/server/listenFiles.js`): m3u z `#EXTM3U` + `#EXTINF:-1,<ime postaje>` in PLS v2 (`[playlist]`, `NumberOfEntries=1`, `Length1=-1`). Ime postaje pride iz `station.json` (padanje na »Radio Clyde«, če ga ni).
+Dve statični enovrstični playlisti (`src/server/listenFiles.js`): m3u z `#EXTM3U` + `#EXTINF:-1,<ime postaje>` in PLS v2 (`[playlist]`, `NumberOfEntries=1`, `Length1=-1`). Ime postaje pride iz `station.json` (padanje na »Radio Markec«, če ga ni).
 
 **Kateri URL je v datoteki?** Pravilo enakosti z ostalimi površinami: če je nastavljen `broadcast.publicStreamUrl` (isti ključ, ki ga že uporablja TuneIn/Discord push), gre ta — sicer pa se URL sestavi iz `icecast.publicHost` + `web.port` + `icecast.mount`, točno enako kot `station.streamUrl` v `/api/now-playing`. Tako zadaj tunel/prepesničevalnik ni treba ugibati.
 

@@ -1,4 +1,4 @@
-# Radio Clyde
+# Radio Markec
 
 **A self-hosted internet radio station that runs itself** — a real, continuous
 Icecast stream on a schedule you define, with a weekly lineup of shows, each
@@ -22,7 +22,7 @@ and no neural TTS at all**.
 
 ## Two operating modes
 
-| | **AI mode** (classic Radio Clyde) | **Auto mode** (`autoRadio`) |
+| | **AI mode** (classic LLM mode) | **Auto mode** (`autoRadio`) |
 |---|---|---|
 | Track selection | Local LLM resolves the brief into a Plex query | Deterministic rule parser + rule-based queue |
 | DJ script | LLM writes every line against Wikipedia-researched facts | Fixed Slovenian templates filled from library metadata |
@@ -399,6 +399,10 @@ Full Slovenian reference with every config knob:
 - [docs/plex-library-notes.md](docs/plex-library-notes.md): empirical
   facts about Plex's API behavior, confirmed live rather than assumed from
   Plex's general docs.
+- [docs/show-generation-research.md](docs/show-generation-research.md):
+  research on auto-generating themed shows and inserting deterministic
+  artist trivia between tracks (GitHub survey + live-verified
+  Wikipedia/MusicBrainz/Wikidata sources + P4 proposal).
 - [docs/android-tv-app.md](docs/android-tv-app.md): architecture of the
   native Android TV/Google TV client. Package layout, the backend API it
   consumes, key design decisions.
@@ -409,7 +413,9 @@ Full Slovenian reference with every config knob:
 
 ## Credits & data sources
 
-- Radio Clyde was originally built by [a1anw2](https://github.com/a1anw2/radioclyde);
+- Radio Markec is named and operated by its own maintainer; the station was
+  originally built by [a1anw2](https://github.com/a1anw2/radioclyde)
+  (upstream project "Radio Clyde");
   this fork adds the deterministic auto-radio mode and Slovenian voice/content
   layer.
 - Weather data: [ARSO](https://meteo.arso.gov.si/) (Slovenian Environment

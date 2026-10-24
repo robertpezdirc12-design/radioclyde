@@ -2,7 +2,7 @@
   "dataDir": "/opt/radioclyde/data",
   "autoRadio": {
     "enabled": true,
-    "stationName": "Radio Clyde",
+    "stationName": "Radio Markec",
     "music": {
       "source": "local",
       "localDirs": [

@@ -1,6 +1,6 @@
 # Imaging sloj: ID ob polni uri, stingeri, emergency podlaga, postelje
 
-*Datum: 2026-10-24 · Radio Clyde main, Liquidsoap 2.2.4-1+dev · del P1/seznama izposojenih vzorcev (docs/ready-made-scripts-analysis.md, točke #1, #3, #9)*
+*Datum: 2026-10-24 · Radio Markec main, Liquidsoap 2.2.4-1+dev · del P1/seznama izposojenih vzorcev (docs/ready-made-scripts-analysis.md, točke #1, #3, #9)*
 
 Imaging sloj doda tri radijske sloje, ki jih je programu do zdaj manjkalo: **ID postaje ob polni uri**, **periodne stingerje** in **emergency podlago**. Vse tri izvaja `liquidsoap/radio.liq`, Node pa vzdržuje njihove plejliste z isto pogodbo, ki jo že uporablja `now_playing.m3u`/`filler.m3u` (Node piše, Liquidsoap opazuje z `reload_mode="watch"`). Klipi so kratki proizvedeni posnetki (TTS/ffmpeg), ki jih operater polni v tri direktorije pod `dataDir/imaging/`. Četrti, mehanizemsko drugačen sloj — **postelje** (P3 #12, od 2026-10-24 z duckerjem iz P3 #13) — ne živi v teh direktorijih: klip prileti po telnetu (`beds.push`), glasba pa utihne pod njim; razdelek pod tabelo.
 
@@ -66,8 +66,8 @@ Literáli v `liquidsoap/radio.liq` so namerno literáli (kot `{0m0s}`): `1800.` 
 
 Klipi so stvar produkcije, ne runtime — deterministično, brez LLM:
 
-- **ID postaje** (2–5 s, s podlago): TTS stavek (»Radio Clyde«) prek obstoječe Edge TTS poti (`src/auto/edgeTts.js`) ali `edge-tts --voice sl-SI-RokNeural`, nato zmešan s podlago in končan z vnaprej renderiranim fade-out (isti pristop kot jingle pri `lib/audio.js` — na runtime NI fade.out, znani bug 2.2.4). Glasnost poravnaj z glasbo (cilj okrog −16 do −18 LUFS), ker gre overlay čez program.
-- **Stingeri**: enak postopek, krajši stavki (»Sledi Radio Clyde«, »Ob polnih urah Radio Clyde« …). Brez podlage, če bodo rezani med skladbe.
+- **ID postaje** (2–5 s, s podlago): TTS stavek (»Radio Markec«) prek obstoječe Edge TTS poti (`src/auto/edgeTts.js`) ali `edge-tts --voice sl-SI-RokNeural`, nato zmešan s podlago in končan z vnaprej renderiranim fade-out (isti pristop kot jingle pri `lib/audio.js` — na runtime NI fade.out, znani bug 2.2.4). Glasnost poravnaj z glasbo (cilj okrog −16 do −18 LUFS), ker gre overlay čez program.
+- **Stingeri**: enak postopek, krajši stavki (»Sledi Radio Markec«, »Ob polnih urah Radio Markec« …). Brez podlage, če bodo rezani med skladbe.
 - **Emergency**: en klip, ki v zanki sporoči, da je postaja pokvarjena (TTS: »Trenutno imamo tehnične težave …«), ali 30 s rožnati šum:
   `ffmpeg -f lavfi -i anoisesrc=color=pink:amplitude=0.2:duration=30 -ar 44100 -ac 2 emergency.wav`
   Če je direktorij prazen, emergency sloj ne obstaja in mksafe-ova tišina ostane (obnašanje kot prej) — klip je izboljšava, ne pogoj.

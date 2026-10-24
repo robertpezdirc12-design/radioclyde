@@ -223,7 +223,7 @@ export function renderSlot(slot, { values, seed, block }) {
 // resolver -- one formatting for both, so script text and spoken text agree.
 
 export function stationName() {
-  return config.autoRadio?.stationName ?? 'Radio Clyde';
+  return config.autoRadio?.stationName ?? 'Radio Markec';
 }
 
 export function showName(showTitle) {

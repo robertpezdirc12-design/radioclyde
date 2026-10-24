@@ -204,10 +204,10 @@ describe('synthesizePiper (stubbed python, real contract)', () => {
     const runner = async (cmd, args) => {
       seenArgs = args;
       const text = fs.readFileSync(args[args.indexOf('--input-file') + 1], 'utf8');
-      assert.equal(text, 'Dober dan iz Radia Clyde.');
+      assert.equal(text, 'Dober dan iz Radia Markec.');
       writeWav(outPath, 1);
     };
-    await synthesizePiper('Dober dan iz Radia Clyde.', outPath, null, { runner });
+    await synthesizePiper('Dober dan iz Radia Markec.', outPath, null, { runner });
     assert.deepEqual(seenArgs, [
       '-m', 'piper', '-m', 'sl_SI-artur-medium', '--data-dir', PIPER_DIR,
       '-f', outPath, '--input-file', `${outPath}.piper-text.txt`,
@@ -327,7 +327,7 @@ describe('LIVE piper1-gpl synthesis (PIPER_LIVE=1; downloads ~63 MB on first run
     // without ever touching the stub world.
     config.autoRadio.voice.piperDataDir = path.join(TEST_DIR, 'piper-live');
     const outPath = path.join(TEST_DIR, 'live.wav');
-    await synthesizePiper('Dober dan iz Radia Clyde.', outPath, null);
+    await synthesizePiper('Dober dan iz Radia Markec.', outPath, null);
     const h = readWavHeader(outPath);
     assert.equal(h.riff, 'RIFF');
     assert.equal(h.channels, 1);

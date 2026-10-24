@@ -1,6 +1,6 @@
 # Najboljše pripravljene skripte na GitHubu: samodejne oddaje, prehodi govor↔glasba, napovedovanje
 
-*Datum: 2026-10-24 · **v2 (druga iteracija: hipoteza → iskanje → verifikacija → matrika)** · Radio Clyde main `a1c1fee`, Liquidsoap 2.2.4-1+dev*
+*Datum: 2026-10-24 · **v2 (druga iteracija: hipoteza → iskanje → verifikacija → matrika)** · Radio Markec main `a1c1fee`, Liquidsoap 2.2.4-1+dev*
 
 Naloga: najti **že pripravljene** skripte z največ funkcijami za (1) samodejno generiranje oddaj, (2) prehode med govorom in glasbo, (3) napovedovanje (ID-ji, časniki, vreme/novice). Vsak nosilec je ocenjen po: dokaz v produkciji, determinističnost, prileganje naši arhitekturi (Node piše m3u + annotate → Liquidsoap mixa), licenca, cena integracije. Na koncu sta urejena matrika primerjave in predlog integracije.
 

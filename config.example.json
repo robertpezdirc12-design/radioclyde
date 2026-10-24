@@ -165,7 +165,7 @@
   },
   "autoRadio": {
     "enabled": false,
-    "stationName": "Radio Clyde",
+    "stationName": "Radio Markec",
     "music": {
       "source": "auto",
       "localDirs": ["/mnt/plex-music"],

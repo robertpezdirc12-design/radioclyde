@@ -1,8 +1,8 @@
-# Radio Clyde — Ubuntu Server 24.04 Deployment Guide
+# Radio Markec — Ubuntu Server 24.04 Deployment Guide
 
 ## Pregled
 
-Namestitev Radio Clyde na brezplačnem Linuxovem strežniku (Ubuntu Server 24.04 ARM64). Radio oddaja 24/7 z naravnim slovenskim glasom (Piper TTS, pred-generirani posnetki), glasbo in vremenskimi napovedmi.
+Namestitev Radio Markec na brezplačnem Linuxovem strežniku (Ubuntu Server 24.04 ARM64). Radio oddaja 24/7 z naravnim slovenskim glasom (Piper TTS, pred-generirani posnetki), glasbo in vremenskimi napovedmi.
 
 ## Arhitektura
 
@@ -46,7 +46,7 @@ Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ←
 5. SSH key: naloži svoj javni ključ
 6. Create
 
-**Opomba**: Oracle Cloud zahteva kreditno kartico za preverjanje identitete, vendar ne zaračunava za brezplačni tier (Always Free). Omejitve: 4 OCPU in 24 GB RAM skupaj, priporočamo 2 OCPU in 12 GB RAM za Radio Clyde.
+**Opomba**: Oracle Cloud zahteva kreditno kartico za preverjanje identitete, vendar ne zaračunava za brezplačni tier (Always Free). Omejitve: 4 OCPU in 24 GB RAM skupaj, priporočamo 2 OCPU in 12 GB RAM za Radio Markec.
 
 ### Alternative
 - Google Cloud: e2-micro (1 vCPU, 1 GB) — brezplačno 12 mesecev
@@ -58,7 +58,7 @@ Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ←
 ssh -i ~/.ssh/your_key ubuntu@YOUR_SERVER_IP
 ```
 
-## Korak 3: Namesti Radio Clyde
+## Korak 3: Namesti Radio Markec
 
 ### 3.1 Namestitveni skript
 ```bash

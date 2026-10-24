@@ -97,7 +97,7 @@ const schedule = {
 
 fs.writeFileSync(
   path.join(dataDir, 'station.json'),
-  JSON.stringify({ station: { name: 'Radio Clyde Demo', filler: { excludeKeywords: [] } }, schedule }, null, 2)
+  JSON.stringify({ station: { name: 'Radio Markec Demo', filler: { excludeKeywords: [] } }, schedule }, null, 2)
 );
 
 // --- now playing track (aired "just now") ---
@@ -182,7 +182,7 @@ const config = {
   dataDir,
   autoRadio: {
     enabled: false, // scheduler ticks but produces nothing in the demo
-    stationName: 'Radio Clyde Demo',
+    stationName: 'Radio Markec Demo',
     music: { source: 'local', localDirs: [musicDir] },
     voice: {
       mode: 'clips',

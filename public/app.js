@@ -1,4 +1,4 @@
-// Radio Clyde listener app -- Slovenian, deterministic-data only (issue #2).
+// Radio Markec listener app -- Slovenian, deterministic-data only (issue #2).
 // Every value shown comes from a real endpoint; every fetch failure or empty
 // result renders an explicit state instead of a fake one. Favourites are
 // localStorage-only and SAY so -- the backend has no listener accounts.
@@ -143,9 +143,9 @@ function updateMediaSession({ title, artist, album, artUrl }) {
   if (!('mediaSession' in navigator)) return;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: title || 'Radio Clyde',
+      title: title || 'Radio Markec',
       artist: artist || '',
-      album: album || 'Radio Clyde',
+      album: album || 'Radio Markec',
       artwork: [
         { src: new URL(artUrl || '/logo.png', location.href).href, sizes: '512x512', type: artUrl ? 'image/jpeg' : 'image/png' },
       ],
@@ -154,7 +154,7 @@ function updateMediaSession({ title, artist, album, artUrl }) {
 }
 
 function clearMediaSession() {
-  updateMediaSession({ title: 'Radio Clyde', artist: '', album: '', artUrl: null });
+  updateMediaSession({ title: 'Radio Markec', artist: '', album: '', artUrl: null });
   if ('mediaSession' in navigator) {
     try { navigator.mediaSession.playbackState = 'paused'; } catch { /* ignore */ }
   }

@@ -95,7 +95,7 @@ const generalClips = [
   // Show-agnostic wording -- these files air on EVERY show in pregenerated
   // mode, so they must not name a specific show (audit 2026-10-24: the old
   // text said "oddaji Test All Music" on every single opening).
-  { name: 'open', text: 'Dobrodošli na Radio Clyde. Uživajte v glasbi.' },
+  { name: 'open', text: 'Dobrodošli na Radio Markec. Uživajte v glasbi.' },
   { name: 'close', text: 'S tem je oddaja zaključena. Do naslednjega srečanja!' },
   { name: 'handoff_weather', text: 'Poglejmo še, kakšno vreme nas čaka.' },
 ];
