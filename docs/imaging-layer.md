@@ -13,10 +13,15 @@ filler_source (glasba)     ─┘
         │
         ├─ fallback(track_sensitive=true, [delay(1800., stingers), …])   ← stingeri
         ├─ add([…, switch([({0m0s}, id)])])                              ← ID overlay
+        ├─ blank.detect + blank.strip (max_blank=20.)                    ← dead-air stražar (P2 #9)
+        ├─ amplify(override="liq_amplify")
         └─ mksafe(fallback(track_sensitive=false, […, emergency]))       ← emergency
+             └─ blank.detect (track_sensitive=false)                     ← opazovalec ZRAKA
 ```
 
 Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se zmeša NAD mešanico, emergency leži pod vsem programom, šele pod njim je mksafe-ova tišina. Vsak vir je `playlist()` (fallible): **prazen ali manjkajoč .m3u pomeni, da sloj preprosto ni na voljo** — postaja z brez imaging sredstev se obnaša točno kot prej. Degradacijska lestvica je »izpusti sloj«, nikoli »izpusti program«.
+
+**Dead-air stražar (P2 #9, popolnitev te lestvice, 2026-10-24):** emergency podlaga lovi samo vire, ki so *nedosegljivi* (prazna m3u) — ne vira, ki igra digitalno tišino (pokvarjen/tih encode ostane "available"). To zapre `blank.strip()` (uradni cookbook recept (5), semantika verificirana iz tega builda `noblank.ml`): po 20 s neprekinjene tišine postane program nedosegljiv, emergency zasede, ob zvoku program vrne. Dva opazovalca `blank.detect` (isti akumulator, pasivna) pišeta vsak prehod v `dataDir/history/deadair.jsonl` (`src/deadair/recordEvent.js`), Diagnostics pa parira epizode (`src/deadair/ledger.js`): `program_*` = "stražar je deloval", `air_*` = "odpovedal je tudi nujni vir". Parametri so literali v radio.liq (json.parse tip nedotaknjen); reverzibilno = izbriši tri vrstice + štiri handlerje. Live verifikacija: `liquidsoap --check` + nameravno tih WAV v now_playing.m3u.
 
 | Sloj | Vir | Kdaj zazveni | Vedenje brez kliipov |
 |---|---|---|---|

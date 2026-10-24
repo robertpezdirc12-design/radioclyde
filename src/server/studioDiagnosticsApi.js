@@ -20,6 +20,7 @@ import {
 import { playlistStats, tailFile, repeatOffenders, probeIcecast } from './diagnosticsUtil.js';
 import { readAiredEntries } from './historyApi.js';
 import { inventoryThresholds, inventoryForOccurrence } from './inventoryUtil.js';
+import { deadAirSummary } from '../deadair/ledger.js';
 
 const LOG_FILES = ['web.log', 'station.log', 'scheduler.log'];
 
@@ -92,6 +93,12 @@ export function registerStudioDiagnosticsApi(fastify) {
         windowHours: config.filler?.rotationWindowHours ?? 24,
         offenders: repeatOffenders(readAiredEntries(), config.filler?.rotationWindowHours ?? 24),
       },
+      // Dead-air guard report card (P2 #9): what the blank.detect observers
+      // in radio.liq recorded. A closed program episode means the strip
+      // guard caught silent program audio and the emergency bed covered it;
+      // an air episode means even the emergency bed failed -- total dead
+      // air. ongoing is what is happening RIGHT NOW (null when nothing is).
+      deadAir: deadAirSummary(),
       errors: recentErrors(20),
       logs,
     };

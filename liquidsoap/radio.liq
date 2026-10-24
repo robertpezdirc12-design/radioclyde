@@ -147,6 +147,77 @@ id_source = playlist(id="imaging_id", reload_mode="watch", mode="randomize", loo
 emergency_source = playlist(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,
   config.dataDir ^ "/imaging/emergency.m3u")
 
+# --- Dead-air guard (P2 #9, docs/ready-made-scripts-analysis.md §3 recipe 5) --
+#
+# The emergency bed above catches sources that are UNAVAILABLE (empty m3u),
+# but not a source that is AVAILABLE yet streaming digital silence -- a
+# corrupt encode or a clipped-to-silence file decodes fine, keeps the playlist
+# "ready", and the fallback happily plays its silence for the file's full
+# duration. The official cookbook recipe closes exactly that gap with
+# blank.strip(): strip makes the source unavailable WHILE it is blank, so the
+# track_sensitive=false emergency fallback cuts in, and returns the air to the
+# program the moment real sound comes back.
+#
+# Semantics verified against THIS build's src/core/operators/noblank.ml
+# (2.2.4): silence is ACCUMULATED before the state flips -- max_blank=20.
+# (the default, made explicit here) means up to 20 s of silence is tolerated
+# before the source goes unavailable, so decode gaps at track boundaries and
+# produced pauses inside speech never trigger it; recovery needs only
+# min_noise=0. (default) of real sound; track_sensitive=true (the default)
+# resets the counter at every track boundary, giving each new file a fresh
+# chance. threshold=-40. dB is the default RMS silence threshold.
+#
+# The guard sits BEFORE amplify() on purpose: it judges the program as
+# produced, so a per-track liq_amplify correction (typically a few dB) can
+# never push a quiet master under the threshold; a master recorded quieter
+# than -40 dB RMS is a production defect to fix at production time, not to
+# paper over on air.
+#
+# Reporting: strip's reaction is silent (fallback just switches), so the same
+# state machine is ALSO run once as blank.detect (passive observer, same
+# verified params) at each layer, and the on_blank/on_noise edges are pinged
+# to Node's dead-air ledger (src/deadair/recordEvent.js ->
+# dataDir/history/deadair.jsonl, read by studio Diagnostics). blank.detect
+# fires only on STATE TRANSITIONS of that same accumulator -- i.e. only after
+# 20 s of continuous silence -- so the ledger records real dead-air episodes,
+# not boundary micro-gaps (no Node-side debouncing needed). The callbacks run
+# in the main streaming thread and must stay fast, so the actual work happens
+# in thread.run(fast=false, ...) and process.run's command is itself
+# backgrounded (trailing "&") -- the exact pattern of the scrobble handler
+# below.
+#
+# Two layers, reported separately:
+#   program_blank/program_sound -- the program chain (show+filler, requests,
+#     stingers, ID) went silent for >=20 s; the strip guard covered it with
+#     the emergency bed. This is "the guard worked" entries.
+#   air_blank/air_sound -- the FINAL air (post-mksafe, so including the
+#     emergency bed itself) is silent: mksafe's blank output is digital
+#     silence and this detector sees it. Fires only when the guard is also
+#     out of options (emergency playlist empty/dead too) -- the true total
+#     failure the whole ladder exists to avoid. track_sensitive=false here:
+#     mksafe's blank frames contain no track boundaries, so nothing would
+#     ever reset the counter; measure the air absolutely.
+#
+# Param values are literals here on purpose (same reasoning as the imaging
+# layers above): radio.liq's json.parse type stays untouched, so an older
+# config.json without any dead-air block still boots.
+def dead_air_program() =
+  thread.run(fast=false, fun () ->
+    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js program_blank > /dev/null 2>&1 &")))
+end
+def sound_program() =
+  thread.run(fast=false, fun () ->
+    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js program_sound > /dev/null 2>&1 &")))
+end
+def dead_air_total() =
+  thread.run(fast=false, fun () ->
+    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js air_blank > /dev/null 2>&1 &")))
+end
+def sound_total() =
+  thread.run(fast=false, fun () ->
+    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js air_sound > /dev/null 2>&1 &")))
+end
+
 radio = fallback(track_sensitive=false, [show_source, filler_source])
 # Listener requests (P2 #8, integration table row 8): the studio queues an
 # approved request with one telnet call (src/liquidsoap/requestQueue.js ->
@@ -172,6 +243,14 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
+# Dead-air guard, program layer: detect observes (first-positional handler is
+# blank.detect's unnamed first argument, on_noise named -- call shape matches
+# this build's src/libs/source.liq usage), strip reacts. strip wraps detect so
+# both see identical frames -- detect passes audio through untouched, and
+# strip's synthetic breaks stay invisible to the observer.
+radio = blank.detect(dead_air_program, on_noise=sound_program,
+  threshold=-40., max_blank=20., track_sensitive=true, radio)
+radio = blank.strip(threshold=-40., max_blank=20., track_sensitive=true, radio)
 # R128 loudness alignment (docs/autocue-loudness.md): entries carrying
 # liq_amplify (written into the m3u by Node from the offline ebur128 index)
 # get their measured correction applied; everything else -- unscanned
@@ -186,6 +265,12 @@ radio = amplify(override="liq_amplify", 1., radio)
 # are both unavailable -- track_sensitive=false), then mksafe's blank stays
 # as the final net if even the emergency playlist is empty.
 radio = mksafe(fallback(track_sensitive=false, [radio, emergency_source]))
+# Dead-air guard, air layer (see the block above): the FINAL chain including
+# the emergency bed. Only total failure (program silent AND emergency bed
+# dead) produces silence past mksafe, so these events mean "every layer of the
+# ladder just failed" -- the one thing the operator must know about.
+radio = blank.detect(dead_air_total, on_noise=sound_total,
+  threshold=-40., max_blank=20., track_sensitive=false, radio)
 
 # Plex scrobble: Plex never sees these plays otherwise -- playback here reads
 # straight off the filesystem, bypassing Plex entirely -- so this pings its

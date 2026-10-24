@@ -43,6 +43,10 @@ config.paths = {
   // per line, appended by the scheduler's listener_sample job, pruned to
   // config.analytics.maxEntries. Read by the studio Analytics endpoint.
   listenerSamplesFile: path.join(config.dataDir, 'history', 'listener-samples.jsonl'),
+  // Dead-air guard events (deadair/recordEvent.js, appended by radio.liq's
+  // blank.detect callbacks): one JSON object per line, raw guard events,
+  // paired into episodes by deadair/ledger.js for studio Diagnostics.
+  deadAirEventsFile: path.join(config.dataDir, 'history', 'deadair.jsonl'),
   // Listener song requests / dedications (server/requestsStore.js): one JSON
   // object per line, appended by POST /api/requests, rewritten atomically on
   // moderation (studioRequestsApi.js).

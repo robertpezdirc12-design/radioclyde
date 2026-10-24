@@ -174,6 +174,14 @@ phases hand off through.
   not in library, Liquidsoap unreachable) is written back into the request's
   note so the dashboard always shows the truth —
   [analysis §6](docs/ready-made-scripts-analysis.md).
+- **Dead-air guard**: a file that decodes to silence no longer plays silence
+  for its whole duration — `blank.strip()` (official cookbook recipe,
+  semantics verified against this build's `noblank.ml`) makes the program
+  unavailable after 20 s of continuous silence so the emergency bed covers
+  it, while two `blank.detect` observers log every episode to a ledger the
+  studio Diagnostics view reports ("the guard worked" vs "even the emergency
+  bed is dead"). Boundary micro-gaps and produced speech pauses never
+  trigger it — [analysis §3](docs/ready-made-scripts-analysis.md).
 
 ## Meet the DJs
 
