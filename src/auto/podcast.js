@@ -18,6 +18,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { parseScript } from '../script/format.js';
+import { renderSlot } from './templates.js';
+import { pickGeneralRockFacts } from './rockFacts.js';
 
 export function xmlEscape(s) {
   return String(s ?? '')
@@ -205,4 +207,203 @@ export function runPodcastExport({ dir, audio, title, date, link, out, station =
   fs.writeFileSync(notesPath, notes);
 
   return { feedPath, notesPath, chapters: chapterList(segments) };
+}
+
+// ===========================================================================
+// P5 #1: MARKEC PODKAST -- generator epizod (drugi sloj istega modula).
+// Deterministicna petminutna epizoda glasba-klepet-glasba-smeh: isti
+// renderSlot bazeni kot ziva oddaja, fakt iz offline korpusa, brez modelov.
+// Determinizem: epizoda za (datum, bazen, zrno) je bajtno enaka ob vsakem
+// zagonu (FNV-1a + stabilna sortiranja, isto kodo izvajajo showCatalog /
+// rockFacts). Razlicni datumi rotirajo skladbe in variante brez modela.
+// ===========================================================================
+
+export const PODCAST_ID = 'markec-podkast';
+export const PODCAST_TITLE = 'Markec Podkast';
+
+// Same FNV-1a as templates.js / rockFacts.js -- stable across runs, no
+// dependency. (Each module keeps its own copy on purpose: these are
+// self-contained leaf modules with no shared-runtime import requirements.)
+function hash(seed) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// Picks `count` tracks from the candidate pool deterministically. The pool
+// is whatever the caller fetched (Plex genre query, local library scan) --
+// this function NEVER contacts the network itself. Rules:
+//   - tracks longer than maxTrackDurationSeconds are dropped first (the
+//     5-minute budget is the whole point of the format; two ~4 min tracks
+//     plus talk land at ~5 min),
+//   - the pool is sorted by (artist, title) so the pick does not depend on
+//     the library's response order,
+//   - the seed offsets the walk start (FNV over `${seed}`), so different
+//     dates pick different songs while one date always picks the same ones,
+//   - an artist never repeats within one episode (a one-person-podcast
+//     sounds like a mistake),
+//   - fewer candidates than requested -> fewer tracks, honestly returned;
+//     an EMPTY pool -> empty list (the CLI turns that into a real error,
+//     this module stays pure).
+export function pickPodcastTracks(candidates, count, seed, { maxTrackDurationSeconds = 240 } = {}) {
+  if (!Array.isArray(candidates) || count <= 0) return [];
+  const usable = candidates
+    .filter((t) => t?.artist && t?.title && (t.durationMs == null || t.durationMs <= maxTrackDurationSeconds * 1000))
+    .sort(
+      (a, b) =>
+        a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title) || String(a.ratingKey ?? '').localeCompare(String(b.ratingKey ?? ''))
+    );
+  if (usable.length === 0) return [];
+  const picked = [];
+  const usedArtists = new Set();
+  const start = hash(String(seed)) % usable.length;
+  for (let offset = 0; offset < usable.length && picked.length < count; offset++) {
+    const track = usable[(start + offset) % usable.length];
+    const artistKey = track.artist.toLowerCase();
+    if (usedArtists.has(artistKey)) continue;
+    usedArtists.add(artistKey);
+    picked.push(track);
+  }
+  return picked;
+}
+
+// The 5-minute episode plan: pogovor -> glasba -> pogovor -> glasba -> pogovor.
+// Each spoken line is ONE renderSlot() call with its own seed, so the same
+// persona pools the live station speaks are the exact text the podcast
+// script carries (one source of truth, no script drift). `facts` is
+// injectable for tests and future rubrics; the default is one fact from the
+// offline rock-history corpus. skip-not-fail: no fact -> the mid talk
+// degrades to the laugh pool, an episode never fails for missing trivia.
+export function buildPodcastEpisode({
+  date,
+  tracks,
+  count = 2,
+  seed = `${PODCAST_ID}|${date}`,
+  station = 'Radio Markec',
+  facts,
+  maxTrackDurationSeconds = 240,
+}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date ?? ''))) {
+    throw new Error(`Datum podkasta mora biti YYYY-MM-DD, dobljeno: "${date}".`);
+  }
+  const picked = pickPodcastTracks(tracks, count, seed, { maxTrackDurationSeconds });
+  const factList = facts ?? pickGeneralRockFacts(1, seed, new Set());
+  const fact = factList.length > 0 ? factList[0].text : null;
+
+  const lines = [];
+  // open
+  lines.push({
+    kind: 'pogovor',
+    slot: 'podcastOpen',
+    text: renderSlot('podcastOpen', { values: { station }, seed: `${seed}|open` }),
+  });
+  // track 1 + its spoken lead-in
+  if (picked.length > 0) {
+    lines.push({
+      kind: 'glasba',
+      slot: 'intro',
+      trackIndex: 0,
+      text: renderSlot('intro', {
+        values: { artist: picked[0].artist, title: picked[0].title },
+        seed: `${seed}|t1`,
+      }),
+    });
+  }
+  // mid talk: fact when available, laugh when not
+  lines.push({
+    kind: 'pogovor',
+    slot: fact ? 'podcastChat' : 'podcastLaugh',
+    text: fact
+      ? renderSlot('podcastChat', { values: { fact }, seed: `${seed}|chat` })
+      : renderSlot('podcastLaugh', { values: { station }, seed: `${seed}|chat` }),
+  });
+  // track 2 + lead-in
+  if (picked.length > 1) {
+    lines.push({
+      kind: 'glasba',
+      slot: 'intro',
+      trackIndex: 1,
+      text: renderSlot('intro', {
+        values: { artist: picked[1].artist, title: picked[1].title },
+        seed: `${seed}|t2`,
+      }),
+    });
+  }
+  // outro
+  lines.push({
+    kind: 'pogovor',
+    slot: 'podcastOutro',
+    text: renderSlot('podcastOutro', { values: { station }, seed: `${seed}|outro` }),
+  });
+
+  // Honest duration estimate: Slovenian TTS sits around 2.6 words per
+  // second at the Artur voice's default rate -- close enough for a "~5 min"
+  // label, never presented as a measured value.
+  const talkWords = lines.reduce((acc, l) => acc + l.text.split(/\s+/).filter(Boolean).length, 0);
+  const musicSeconds = picked.reduce((acc, t) => acc + (t.durationMs ?? 210_000) / 1000, 0);
+  const estimatedSeconds = Math.round(talkWords / 2.6 + musicSeconds);
+
+  return {
+    id: PODCAST_ID,
+    title: PODCAST_TITLE,
+    date,
+    station,
+    seed,
+    structure: ['pogovor', 'glasba', 'pogovor', 'glasba', 'pogovor'],
+    tracks: picked,
+    fact,
+    lines,
+    estimatedSeconds,
+  };
+}
+
+// Readable script -- the operator-facing artifact (and the future TTS feed,
+// one line per renderSlot output). Byte-stable for a given episode.
+export function renderPodcastScript(episode) {
+  const head = [
+    `# ${episode.title} -- ${episode.date}`,
+    '',
+    `Postaja: ${episode.station}`,
+    `Format: ${episode.structure.join(' -> ')} (~${Math.round(episode.estimatedSeconds / 60)} min)`,
+    `Zrno: ${episode.seed}`,
+    '',
+    '## Skladbi',
+    '',
+  ];
+  const trackLines = episode.tracks.map(
+    (t, i) =>
+      `${i + 1}. ${t.artist} -- ${t.title}${t.album ? ` (${t.album}${t.year ? `, ${t.year}` : ''})` : ''} [${Math.round((t.durationMs ?? 0) / 1000)} s]`
+  );
+  const scriptHead = ['', '## Skripta', ''];
+  const scriptLines = episode.lines.map((l) => `[${l.kind}] ${l.text}`);
+  return [...head, ...trackLines, ...scriptHead, ...scriptLines, ''].join('\n');
+}
+
+// Writes the episode's .md + .json next to each other, idempotently: a file
+// is rewritten ONLY when its content differs (same rule as
+// ensureThemedBrief) so cron-driven reruns never touch mtimes. outDir is
+// created if missing. Returns the two absolute paths.
+export function writePodcastEpisode(episode, outDir) {
+  const base = `${episode.date}-${episode.id}`;
+  const mdPath = `${outDir}/${base}.md`;
+  const jsonPath = `${outDir}/${base}.json`;
+  const md = renderPodcastScript(episode);
+  const json = JSON.stringify(episode, null, 2) + '\n';
+  fs.mkdirSync(outDir, { recursive: true });
+  writeIfChanged(mdPath, md);
+  writeIfChanged(jsonPath, json);
+  return { mdPath, jsonPath };
+}
+
+// -- helper kept OUT of the exported surface: content-compare write
+function writeIfChanged(file, content) {
+  try {
+    if (fs.readFileSync(file, 'utf8') === content) return;
+  } catch {
+    // missing or unreadable -> write
+  }
+  fs.writeFileSync(file, content);
 }

@@ -322,6 +322,18 @@ prose for humans. The selection section supports:
   "Na današnji dan v glasbi" and the offline "Kviz" — a real rock question
   before the middle track, answer revealed right after it
   (see [docs/auto-radio.md](docs/auto-radio.md))
+- **Doctor + cron vzorec**: `npm run doctor` (P4 #31) je predvečerna
+  diagnostika; s `--cron` dodatno izpiše crontab vzorec, izpravljen iz
+  station.json — vsak DISTINCT začetek termina dobi en predhodni pregled
+  15 min pred začetkom (za polnočjo termini premaknejo dan-of-teden nazaj;
+  glej [docs/auto-radio.md](docs/auto-radio.md)).
+- **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
+  deterministic standalone five-minute episode — talk, music, talk, music,
+  talk — from the real library + the offline rock-facts corpus, in the
+  zajebant persona (rock attitude in the WORDS, never in the voice: Piper
+  flattens shouting). Writes `<dataDir>/podcasts/<date>-markec-podkast.md`
+  + `.json`; `npm run podcast-export` (P4 #25) turns a PRODUCED show into
+  the RSS feed + show notes.
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
   wave, whole-album night) renders real briefs on demand — no hand-writing.

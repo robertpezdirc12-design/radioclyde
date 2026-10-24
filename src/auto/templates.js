@@ -18,7 +18,10 @@ import { currentLocalTimeString, currentLocalDateString } from '../director/weat
 // defaults (Slovenian)
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TEMPLATES = {
+// Exported for tests that validate pool integrity (TTS-friendliness lints,
+// variant counts) against the DEFAULTS -- the config override path is
+// intentionally not visible here: these are the station's built-in pools.
+export const DEFAULT_TEMPLATES = {
   open: {
     default: [
       'Poslu\u0161ate {station}. Prihaja oddaja {show}.',
@@ -286,6 +289,36 @@ const DEFAULT_TEMPLATES = {
   dedicationShout: [
     'Posvetilo: {message}. Iz mikrofona gre nazaj en sam velik pozdrav.',
     'Sli\u0161ite posvetilo: {message}. Lepo od vas -- hvala, da pi\u0161ete.',
+  ],
+
+  // Markec Podkast (P5 #1): petminutna samostojna enota glasba-klepet-glasba.
+  // Persona je ZAJEBANT -- rokovska ironija in kratki stavki, ne kričanje:
+  // Piper TTS kričanje flattenira v umazan zvok, zato je vsa "agresija"
+  // v izbesci, glas pa ostane čist (glej docs/auto-radio.md, razdelek o
+  // personi). Pravila bazenov: brez oklepajev, brez okrajšav, brez glifov,
+  // le {fact} kot vsebinski placeholder (korpus pošilja poved BREZ končne
+  // pike -- piko doda predloga, enako kot pri trivia).
+  podcastOpen: [
+    'Živjo narod, tukaj Markec. Pet minut rocka, nič dolgčasanov, to obljubim in to držim.',
+    'Pozdravljeni, jaz sem Markec, voditelj, ki zna vse o rocku, razen kdaj naj utihne.',
+    'Dober dan, Markec pri mikrofonu, kitare so uglašene, pogovor pa napet. Gremo.',
+    'Živjo! Pri mikrofonu je Markec, po poklicu voditelj, po poklicanosti pa vajenec za vse ostalo.',
+  ],
+  podcastChat: [
+    'In zdaj kaj pametnega, da ne rečeš, da le vrtim plošče: {fact}. Se pravi, rock zgodovina je bolj norčava kot moj program.',
+    'Malo zgodovine med skladbama: {fact}. Hahaha, kdo si to izmisli. Resnica, pravijo.',
+    'Za pogovor pa tole: {fact}. To si zapomnite, bo prišlo prav na kvizu, ki ga ne bo.',
+    'Zdaj pa resna minutka, ki je spet ni: {fact}. Če ste to vedeli, si zaslužite kavo. Če ne, dobrodošli v klub.',
+  ],
+  podcastLaugh: [
+    'Hahaha, no ja, rock brez heca je samo hrup s fundamento.',
+    'Ha, tole sem si moral napisati sam, drugi nočejo. Nazaj k glasbi.',
+    'No ja, glede na to, koliko stojim pri mikrofonu, se čudim, da še vedno poslušate. Glasba naj gre naprej.',
+  ],
+  podcastOutro: [
+    'To je bilo vse od marca. Markeca se razume, glasba pa naj se nadaljuje. Se vidimo!',
+    'Pet minut je za nami, polnih rocka in heca. Hvala, ker ste bili tam, jaz pa smukam.',
+    'Konec podkasta, konec heca, glasba teče naprej. Jaz sem Markec, nasvidenje!',
   ],
 };
 

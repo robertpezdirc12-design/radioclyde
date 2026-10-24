@@ -8,6 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { XMLParser } from 'fast-xml-parser';
 
 import { setupTestConfig, repoRoot, writeWav } from './fixtures.mjs';
@@ -114,5 +115,221 @@ describe('podcast export end-to-end', () => {
 
   test('missing script.md fails loud with an operator-readable message', () => {
     assert.throws(() => podcast.runPodcastExport({ dir: path.join(repoRoot(), 'data', 'test-podcast', 'prazno') }), /No script\.md/);
+  });
+});
+
+// ===========================================================================
+// P5 #1: generator epizod (pick/build/render/write) + zajebant bazeni --
+// drugi sloj istega modula (src/auto/podcast.js zdaj nosi export P4 #25 IN
+// generator P5 #1). Isti config sandbox, ki ga postavi zgoraj.
+// ===========================================================================
+const { pickPodcastTracks, buildPodcastEpisode, renderPodcastScript, writePodcastEpisode, PODCAST_ID } = podcast;
+const { pickGeneralRockFacts, GENERAL_ROCK_FACTS } = await import('../src/auto/rockFacts.js');
+const { DEFAULT_TEMPLATES } = await import('../src/auto/templates.js');
+
+const POOL = [
+  { ratingKey: 'a1', artist: 'Queen', title: 'Bohemian Rhapsody', album: 'A Night at the Opera', year: 1975, durationMs: 354_000 },
+  { ratingKey: 'a2', artist: 'Queen', title: 'Another One Bites the Dust', album: 'The Game', year: 1980, durationMs: 215_000 },
+  { ratingKey: 'b1', artist: 'Pankrti', title: 'Lepi in be\u017eec', album: 'Pankrti', year: 1978, durationMs: 185_000 },
+  { ratingKey: 'c1', artist: 'AC/DC', title: 'Highway to Hell', album: 'Highway to Hell', year: 1979, durationMs: 207_000 },
+  { ratingKey: 'd1', artist: 'Nirvana', title: 'Smells Like Teen Spirit', album: 'Nevermind', year: 1991, durationMs: 301_000 },
+  { ratingKey: 'e1', artist: 'Pankrti', title: 'Za\u0161to so vrtinci', album: 'Drskej', year: 1982, durationMs: 190_000 },
+];
+
+function shuffled(pool) {
+  const copy = [...pool];
+  // fixed permutation, not Math.random -- tests stay deterministic
+  const order = [3, 0, 5, 2, 1, 4];
+  return order.map((i) => copy[i]);
+}
+
+describe('podcast template pools (zajebant persona)', () => {
+  const PODCAST_POOLS = ['podcastOpen', 'podcastChat', 'podcastLaugh', 'podcastOutro'];
+
+  test('vsi podkast bazeni obstajajo in niso prazni', () => {
+    for (const name of PODCAST_POOLS) {
+      assert.ok(Array.isArray(DEFAULT_TEMPLATES[name]) && DEFAULT_TEMPLATES[name].length >= 3, `${name} mora imeti vsaj 3 variante`);
+    }
+  });
+
+  test('chat bazen ima natanko en {fact} na varianto, ostali brez placeholderjev', () => {
+    for (const variant of DEFAULT_TEMPLATES.podcastChat) {
+      assert.equal(variant.match(/\{fact\}/g)?.length ?? 0, 1, 'podcastChat: natanko en {fact}');
+      assert.equal(variant.match(/\{(?!\{?fact\})[a-zA-Z]+\}/g)?.length ?? 0, 0, 'podcastChat: brez drugih placeholderjev');
+    }
+    for (const name of ['podcastOpen', 'podcastLaugh', 'podcastOutro']) {
+      for (const variant of DEFAULT_TEMPLATES[name]) {
+        assert.equal(variant.match(/\{[a-zA-Z]+\}/g)?.length ?? 0, 0, `${name}: brez placeholderjev`);
+      }
+    }
+  });
+
+  test('TTS-prijaznost: brez oklepajev (razen legitimnega {fact}), kon\u010dna lo\u010dila urejena', () => {
+    for (const name of PODCAST_POOLS) {
+      for (const variant of DEFAULT_TEMPLATES[name]) {
+        // {fact} je placeholder, ne oklepaj -- odstrani ga pred lintom
+        const tts = variant.replace('{fact}', '');
+        assert.ok(!/[(){}\[\]]/.test(tts), `${name} ne sme imeti oklepajev/oglatih: ${variant}`);
+        assert.match(variant.trim(), /[.!?]$/, `${name} se mora končati s piko, klicajem ali vprašajem: ${variant}`);
+      }
+    }
+  });
+
+  test('zajebant priporo\u010dilo v dokumentaciji: variante so kratke povedi (najve\u010d 3 stavki)', () => {
+    for (const name of PODCAST_POOLS) {
+      for (const variant of DEFAULT_TEMPLATES[name]) {
+        const sentences = variant.split(/[.!?]+/).filter((s) => s.trim()).length;
+        assert.ok(sentences <= 3, `${name}: najve\u010d 3 stavki na varianto (t\u0161. ${sentences}): ${variant}`);
+      }
+    }
+  });
+});
+
+describe('pickPodcastTracks', () => {
+  test('deterministi\u010den: isti seed -> enak izbor ne glede na vrstni red vhoda', () => {
+    const a = pickPodcastTracks(POOL, 2, 'markec-podkast|2026-10-25');
+    const b = pickPodcastTracks(shuffled(POOL), 2, 'markec-podkast|2026-10-25');
+    assert.deepEqual(a, b);
+    assert.equal(a.length, 2);
+  });
+
+  test('razli\u010den datum rotira izbor', () => {
+    const a = pickPodcastTracks(POOL, 2, 'markec-podkast|2026-10-25');
+    const b = pickPodcastTracks(POOL, 2, 'markec-podkast|2026-10-26');
+    assert.notDeepEqual(a.map((t) => t.ratingKey), b.map((t) => t.ratingKey));
+  });
+
+  test('izvajalec se znotraj epizode ne ponovi', () => {
+    for (const seed of ['a', 'b', 'markec-podkast|2026-10-25', 'markec-podkast|2027-01-01']) {
+      const picked = pickPodcastTracks(POOL, 3, seed);
+      const artists = picked.map((t) => t.artist.toLowerCase());
+      assert.equal(new Set(artists).size, artists.length, `seed ${seed}: podvojen izvajalec`);
+    }
+  });
+
+  test('dol\u017einski filter: skladbe nad 240 s so izpadle', () => {
+    const picked = pickPodcastTracks(POOL, 6, 'filter-test');
+    for (const t of picked) assert.ok(t.durationMs <= 240_000, `${t.title} je predolg za 5-minutni format`);
+    // Bohemian Rhapsody (354 s) in Nirvana (301 s) sta ven; uporabnih ostane 4,
+    // a izvajalcev samo 3 (dva Pankrti) -- dedup izvajalca omeji izbor na 3
+    assert.equal(picked.length, 3);
+  });
+
+  test('premalo kandidatov -> manj skladb, prazen bazen -> prazen seznam', () => {
+    // kratka Queen skladba (215 s) -- samostojno pod dolžinskim filtrom
+    const solo = POOL.filter((t) => t.ratingKey === 'a2');
+    assert.equal(pickPodcastTracks(solo, 2, 'solo').length, 1);
+    assert.deepEqual(pickPodcastTracks([], 2, 'prazno'), []);
+    assert.deepEqual(pickPodcastTracks(POOL, 0, 'nič'), []);
+  });
+});
+
+describe('buildPodcastEpisode', () => {
+  test('struktura: pogovor-glasba-pogovor-glasba-pogovor', () => {
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    assert.deepEqual(ep.structure, ['pogovor', 'glasba', 'pogovor', 'glasba', 'pogovor']);
+    assert.deepEqual(ep.lines.map((l) => l.kind), ['pogovor', 'glasba', 'pogovor', 'glasba', 'pogovor']);
+    assert.equal(ep.lines.find((l) => l.slot === 'intro' && l.trackIndex === 0).trackIndex, 0);
+    assert.equal(ep.lines.filter((l) => l.slot === 'intro').length, 2);
+  });
+
+  test('uvodne vrstice omenjata izvajalca in naslov', () => {
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    const [t1, t2] = ep.tracks;
+    const intro1 = ep.lines.find((l) => l.trackIndex === 0).text;
+    const intro2 = ep.lines.find((l) => l.trackIndex === 1).text;
+    assert.ok(intro1.includes(t1.artist) && intro1.includes(t1.title), intro1);
+    assert.ok(intro2.includes(t2.artist) && intro2.includes(t2.title), intro2);
+  });
+
+  test('klepet vsebuje korpusni fakt (brez kon\u010dne pike, predloga doda lo\u010dilo)', () => {
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    assert.ok(ep.fact, 'fakt iz korpusa je prisoten');
+    assert.ok(GENERAL_ROCK_FACTS.some((f) => f.text === ep.fact), 'fakt prihaja iz korpusa');
+    const chat = ep.lines.find((l) => l.slot === 'podcastChat');
+    assert.ok(chat.text.includes(ep.fact), chat.text);
+  });
+
+  test('brez fakta -> klepet degradira v smeh (skip-not-fail)', () => {
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL, facts: [] });
+    assert.equal(ep.fact, null);
+    assert.equal(ep.lines.find((l) => l.kind === 'pogovor' && ep.lines.indexOf(l) === 2).slot, 'podcastLaugh');
+  });
+
+  test('determinizem: isti datum -> bajtno enak skript', () => {
+    const a = buildPodcastEpisode({ date: '2026-10-25', tracks: shuffled(POOL) });
+    const b = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    assert.deepEqual(a, b);
+    assert.equal(renderPodcastScript(a), renderPodcastScript(b));
+  });
+
+  test('razli\u010dna datuma -> razli\u010dno zrno in druga\u010den skript', () => {
+    const a = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    const b = buildPodcastEpisode({ date: '2026-10-26', tracks: POOL });
+    assert.equal(a.seed, 'markec-podkast|2026-10-25');
+    assert.equal(b.seed, 'markec-podkast|2026-10-26');
+    assert.notEqual(renderPodcastScript(a), renderPodcastScript(b));
+  });
+
+  test('neveljaven datum -> slovenska napaka', () => {
+    try {
+      buildPodcastEpisode({ date: '25.10.2026', tracks: POOL });
+      assert.fail('moral bi vreti');
+    } catch (err) {
+      assert.match(err.message, /Datum podkasta mora biti YYYY-MM-DD/);
+    }
+  });
+
+  test('ocena trajanja je realna za 5-minutni format (3-8 min)', () => {
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    assert.ok(ep.estimatedSeconds >= 180 && ep.estimatedSeconds <= 480, `ocena ${ep.estimatedSeconds} s je izven okna`);
+  });
+});
+
+describe('writePodcastEpisode', () => {
+  test('zapi\u0161e .md + .json, vsebina ima glavo in skripto', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markec-podkast-'));
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    const { mdPath, jsonPath } = writePodcastEpisode(ep, dir);
+    const md = fs.readFileSync(mdPath, 'utf8');
+    assert.equal(path.basename(mdPath), `2026-10-25-${PODCAST_ID}.md`);
+    assert.match(md, /^# Markec Podkast -- 2026-10-25/m);
+    assert.match(md, /## Skladbi/);
+    assert.match(md, /## Skripta/);
+    const plan = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    assert.equal(plan.id, PODCAST_ID);
+    assert.equal(plan.lines.length, 5);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('idempotenca: ponovni zapis ne spremeni mtime (isti klic se ne prepi\u0161e)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markec-podkast-'));
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    const { mdPath } = writePodcastEpisode(ep, dir);
+    const before = fs.statSync(mdPath).mtimeMs;
+    await new Promise((r) => setTimeout(r, 30));
+    writePodcastEpisode(ep, dir);
+    assert.equal(fs.statSync(mdPath).mtimeMs, before, 'idempotenten zapis ne sme dotakniti mtime');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('kreira izhodno mapo, \u010de ne obstaja', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'markec-podkast-'));
+    const dir = path.join(root, 'podcasts', '2026', '10');
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL });
+    const { mdPath } = writePodcastEpisode(ep, dir);
+    assert.ok(fs.existsSync(mdPath));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe('fakti in predloge se dogovarjajo', () => {
+  test('korpusni fakt brez kon\u010dne pike se v klepetu gladi z lo\u010dilom predloge', () => {
+    const [fact] = pickGeneralRockFacts(1, 'markec-podkast|2026-10-25', new Set());
+    assert.ok(!fact.text.endsWith('.'), 'korpus po\u0161ilja poved brez pike');
+    const ep = buildPodcastEpisode({ date: '2026-10-25', tracks: POOL, facts: [fact] });
+    const chat = ep.lines.find((l) => l.slot === 'podcastChat');
+    assert.ok(!chat.text.includes('..'), 'brez podvojenih pik');
+    assert.match(chat.text, /[.!?]/, 'klepet ima kon\u010dno lo\u010dilo');
   });
 });

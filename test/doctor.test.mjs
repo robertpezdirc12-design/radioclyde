@@ -360,3 +360,139 @@ describe('P4 #31 doctor -- feeds probes (the P4 #28-#30 honesty contract)', () =
     assert.equal(report.results.find((r) => r.id === 'feeds').status, 'warn');
   });
 });
+
+// ---- P5-odpri: cron vzorec (src/lib/cronVzorec.js) -- čista matematika iz urnika ----
+import {
+  distinctScheduleStarts,
+  shiftedCronTime,
+  cronSlotsForSchedule,
+  cronVzorecText,
+} from '../src/lib/cronVzorec.js';
+
+describe('distinctScheduleStarts', () => {
+  test('zbira vsak DISTINCT začetek z množico dni (dow številke)', () => {
+    const starts = distinctScheduleStarts({
+      monday: [{ startTime: '20:00' }],
+      wednesday: [{ startTime: '20:00' }],
+      friday: [{ startTime: '07:30' }],
+    });
+    assert.deepEqual(starts, [
+      { startTime: '07:30', dows: [5] },
+      { startTime: '20:00', dows: [1, 3] },
+    ]);
+  });
+
+  test('razširi vejica-ključe ("monday,tuesday") kot loadSchedule()', () => {
+    const starts = distinctScheduleStarts({
+      'monday,tuesday,wednesday': [{ startTime: '08:00' }],
+    });
+    assert.deepEqual(starts, [{ startTime: '08:00', dows: [1, 2, 3] }]);
+  });
+
+  test('preskoči neznane dni in pokvarjene čase, ne pada', () => {
+    const starts = distinctScheduleStarts({
+      nedelja: [{ startTime: '09:00' }], // slovensko ime -- ni cron ključ
+      saturday: [{ startTime: 'brez-uri' }, {}], // pokvarjeni vnosi -- preskočeni
+      sunday: [{ startTime: '09:00' }],
+    });
+    assert.deepEqual(starts, [{ startTime: '09:00', dows: [0] }]);
+  });
+
+  test('prazen/nedefiniran urnik -> prazen seznam', () => {
+    assert.deepEqual(distinctScheduleStarts({}), []);
+    assert.deepEqual(distinctScheduleStarts(undefined), []);
+  });
+});
+
+describe('shiftedCronTime', () => {
+  test('odšteje minutesBefore znotraj istega dne', () => {
+    assert.deepEqual(shiftedCronTime('20:00', 15), { hour: 19, minute: 45, dayShift: 0 });
+  });
+
+  test('prečkaje polnoči pade na PREJŠNJI dan (dayShift -1)', () => {
+    // ponedeljkov termin 00:05 ima doctor že ob 23:50 v nedeljo
+    assert.deepEqual(shiftedCronTime('00:05', 15), { hour: 23, minute: 50, dayShift: -1 });
+    assert.deepEqual(shiftedCronTime('00:00', 15), { hour: 23, minute: 45, dayShift: -1 });
+  });
+
+  test('minutesBefore=0 ne premakne ničesar; privzeto je 15', () => {
+    assert.deepEqual(shiftedCronTime('10:00', 0), { hour: 10, minute: 0, dayShift: 0 });
+    assert.deepEqual(shiftedCronTime('10:15', undefined), { hour: 10, minute: 0, dayShift: 0 });
+  });
+
+  test('neveljaven čas vrže slovensko napako', () => {
+    assert.throws(() => shiftedCronTime('XX:YY', 15), /Neveljaven začetek termina/);
+  });
+});
+
+describe('cronSlotsForSchedule', () => {
+  test('združi iste ure v eno vrstico z združenim dayField', () => {
+    // distinctScheduleStarts deduplicira enako uro v EN vnos z dows [1,3] --
+    // zato je startTimes eno-, dayField pa dvodnišen
+    const slots = cronSlotsForSchedule({
+      monday: [{ startTime: '20:00' }],
+      wednesday: [{ startTime: '20:00' }],
+    });
+    assert.deepEqual(slots, [{ hour: 19, minute: 45, dayField: '1,3', startTimes: ['20:00'] }]);
+  });
+
+  test('različni začetki isti dan -> dve ločeni vrstici (vzorec je po urah)', () => {
+    const slots = cronSlotsForSchedule({
+      tuesday: [{ startTime: '20:00' }, { startTime: '19:50' }],
+    });
+    assert.deepEqual(slots, [
+      { hour: 19, minute: 35, dayField: '2', startTimes: ['19:50'] },
+      { hour: 19, minute: 45, dayField: '2', startTimes: ['20:00'] },
+    ]);
+  });
+
+  test('termini tik za polnočjo premaknejo dow za en dan nazaj', () => {
+    // ponedeljek 00:05 -> doctor v nedeljo 23:50 (dow 1 -> 0)
+    const slots = cronSlotsForSchedule({ monday: [{ startTime: '00:05' }] });
+    assert.deepEqual(slots, [{ hour: 23, minute: 50, dayField: '0', startTimes: ['00:05'] }]);
+  });
+
+  test('polni teden (vseh 7 dni) se strne v dayField "*"', () => {
+    const schedule = {};
+    for (const day of ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']) {
+      schedule[day] = [{ startTime: '09:00' }];
+    }
+    const slots = cronSlotsForSchedule(schedule);
+    assert.deepEqual(slots, [{ hour: 8, minute: 45, dayField: '*', startTimes: ['09:00'] }]);
+  });
+
+  test('izhod je deterministično sortiran (enak klic -> enake bajte)', () => {
+    const schedule = {
+      friday: [{ startTime: '22:00' }],
+      monday: [{ startTime: '07:00' }],
+      saturday: [{ startTime: '09:30' }],
+    };
+    const a = cronSlotsForSchedule(schedule);
+    const b = cronSlotsForSchedule(schedule);
+    assert.deepEqual(a, b);
+    assert.deepEqual(a.map((s) => `${s.hour}:${s.minute}`), ['6:45', '9:15', '21:45']);
+  });
+});
+
+describe('cronVzorecText', () => {
+  test('izpiše pripravljene crontab vrstice s slovenskimi komentarji', () => {
+    const text = cronVzorecText(
+      { monday: [{ startTime: '20:00' }] },
+      { minutesBefore: 15, repoRoot: '/repo', logFile: '/data/doctor-cron.log' }
+    );
+    assert.match(text, /# termin: 20:00/);
+    assert.match(text, /45 19 \* \* 1 \/bin\/bash -lc 'cd \/repo && node src\/cli\/doctor\.js >> \/data\/doctor-cron\.log 2>&1'/);
+    assert.match(text, /# Doctor pred vsako terminirano uro/);
+  });
+
+  test('prazen urnik -> poštena opomba, ne prazna črna vrstica', () => {
+    const text = cronVzorecText({}, {});
+    assert.match(text, /urnik je prazen/);
+  });
+
+  test('isti urnik -> bajtno identičen vzorec', () => {
+    const schedule = { monday: [{ startTime: '20:00' }], friday: [{ startTime: '08:00' }] };
+    assert.equal(cronVzorecText(schedule), cronVzorecText(schedule));
+  });
+});
+

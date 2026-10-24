@@ -422,8 +422,79 @@ nespremenjen.
   naslednji produkciji pa jih samodejno osveževanje prepiše s katalogom,
   če se vsebina razlikuje.
 
+## Doctor + cron vzorec pred vsako terminirano uro
+
+Predvečerna diagnostika (`npm run doctor`, P4 #31, `src/cli/doctorCli.js`) je
+EN ukaz, ki operaterju pred terminirano uro pove, ali bo oddaja preživela:
+konfiguracija, podatkovna mapa, govor, knjižnica, ledger, korpusi in (z
+`--net`) dostopnost virov — z istimi pogodbami kot oddaja sama (skip-not-fail;
+mrtvi vir je OPOZORILO, ne napaka; `--json` za strojni izpis). Ta razdelek
+pokriva dopolnilo **(c)**: dogovorjeni »cron vzorec« — doctor naj bi tekel
+**tik pred vsako terminirano uro**, cron pa ne zna brati station.json.
+
+Zato vzorec izpeljemo iz pravega urnika:
+
+```sh
+npm run doctor -- --cron [--minutes-before=15]
+```
+
+izpiše pripravljene crontab vrstice (za lepljenje v `crontab -e`):
+
+- **vsak DISTINCT začetek termina** dobi po en predhodni pregled — privzeto
+  15 min pred začetkom (`--minutes-before`),
+- termini tik za polnočjo premaknejo dan-of-teden **za en dan nazaj**
+  (ponedeljek 00:05 → nedelja 23:50; ponočni slot torej preveri prejšnji
+  večer),
+- polni teden (vseh 7 dni) se strne v `*`, enaki začetki v enem vnosu
+  dayFielda združijo (`1,3`),
+- izhod je sortiran in **bajtno determinističen** — isti urnik vedno isti
+  vzorec (čista matematika v `src/lib/cronVzorec.js`, preverjena s testi),
+- log priporočeno gre v `<dataDir>/doctor-cron.log`.
+
+Urnik spremeniš → poženi `--cron` → prilepi. Ni ročno vzdrževanih seznamov ur.
+
+## Markec Podkast: 5 minut glasba-klepet-glasba (P5 #1)
+
+`src/auto/podcast.js` zdaj nosi DVA sloja: RSS export produced oddaje (P4
+#25, `npm run podcast-export`) IN **generator samostojnih epizod** (P5 #1,
+`npm run podcast-gen`) — ta razdelek opisuje generator.
+
+`npm run podcast-gen [-- --date=YYYY-MM-DD --genre=rock --tracks=2 --out=dir]`
+zgradi **samostojno petminutno epizodo** — pogovor, glasba, pogovor, glasba,
+pogovor — iz realne glasbene knjižnice (plex/local/auto router, enak kot
+oddaje) in offline korpusa rock zanimivosti. Zapiše
+`<dataDir>/podcasts/<datum>-markec-podkast.md` + `.json` (idempotentno:
+isti klic ne dotakne datotek).
+
+**Persona: zajebant, ne kričeči rocker.** Piper TTS kričanje flattenira v
+umazan zvok, zato je vsa »rokovska agresija« v izbesci: kratki stavki,
+ironija, samokritika, catchphrases — vokalno pa čist glas. Bazeni so v
+`autoRadio.templates` (podcastOpen, podcastChat, podcastLaugh, podcastOutro),
+prek konfiguracije jih lahko zamenjaš brez kode. Pravila bazenov: brez
+oklepajev, brez okrajšav, največ trije stavki na varianto (lint v testih).
+
+- **Determinizem**: epizoda za (datum, bazen, zrno) je bajtno enaka ob vsakem
+  zagonu; različni datumi rotirajo skladbe (FNV + stabilna sortiranja),
+  variante pogovora in fakt iz korpusa.
+- **Skip-not-fail**: manjkajoč fakt → klepet degradira v smešno varianto
+  (`podcastLaugh`), epizoda nikoli ne pade zaradi zanimivosti. Prazen žanr v
+  knjižnici → poštena slovenska napaka z razpoložljivimi oznakami (exit 1).
+- **Petminutni proračun**: skladbe nad 240 s so izpadle, izvajalec se znotraj
+  epizode ne ponovi; ocena trajanja je izpisana in ničesar ne izmišljuje.
+- Fakt je istega korpusa, ki poganja rubriko »Zanimivosti«
+  (`src/auto/rockFacts.js`) — en vir resnice za oddajo in podkast.
+- Avdio sinteza za zdaj NE teče samodejno: skripta je pripravljena v
+  enakih `renderSlot` klicih kot živa oddaja, zato jo lahko v prihodnje
+  prevzame obstoječi prewarm/cevovod — brez spremembe besedil.
+
 ## Orodja
 
+- `npm run doctor [-- --cron] [--minutes-before=15]`
+  — zdravstveni pregled pred terminirano uro: sonde, izstopna koda in
+  (z `--cron`) cron vzorec izpravljen iz station.json. Glej razdelek zgoraj.
+- `npm run podcast-gen [-- --date --genre --tracks --out]`
+  — petminutni Markec Podkast: skripta + načrt epizode v
+  `<dataDir>/podcasts/`. Glej razdelek zgoraj.
 - `npm run themed-shows -- list | brief <tema> | ensure <tema> [minute] | resolve`
   — katalog tematskih oddaj: seznam, predogled izrisanega brifa, pisanje
   brifa na disk in »katera tema je ta teden na vrsti« za vsak special slot.

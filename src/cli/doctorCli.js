@@ -3,13 +3,18 @@
 // uro pove, ali bo oddaja preživela: konfiguracija, podatkovna mapa, govor,
 // knjižnica, ledger, korpusi in (z --net) dostopnost virov.
 //
-//   npm run doctor [-- --net] [-- --json]
+//   npm run doctor [-- --net] [-- --json] [-- --cron [--minutes-before=15]]
 //
 // --net   sproži omrežne preverjanje virov (ARSO, RTV x2, Wikidata, Open-Meteo)
 //         s kratkim časovnim zamikom; mrtvi vir je OPOZORILO, ne napaka --
 //         točno tako kot v programu (P4 #28–#30: rubrika poje pošteno vrstico,
 //         radio igra dalje). Brez --net je ta blok označen kot preskočen.
 // --json  strojni izpis (ena sam JSON objekt na stdout) za cron/monitoring.
+// --cron  ne sondira ničesar: iz station.json izračuna crontab vzorec -- vsak
+//         DISTINCT začetek termina dobi en predhodni pregled (privzeto
+//         --minutes-before=15). Čista matematika živi v src/lib/cronVzorec.js
+//         (prečkaje polnoči premakne dan-of-teden nazaj; polni teden se strne
+//         v *). Urnik spremeniš -> poženi --cron -> prilepi v crontab -e.
 //
 // Zakaj dinamičen import configa: zlomljen config.json je STANJE, ki ga
 // doctor mora sporočiti -- statičen import bi pomenil crash pred prvo
@@ -41,6 +46,37 @@ try {
   configOrError = (await import('../config/index.js')).config;
 } catch (err) {
   configOrError = err instanceof Error ? err : new Error(String(err));
+}
+
+// --cron mode: čista izpeljava iz urnika, brez sond, exit 0 ob uspehu.
+if (args.cron) {
+  if (configOrError instanceof Error) {
+    console.error(`[NAPAKA] config.json ni uporaben: ${configOrError.message}`);
+    process.exit(1);
+  }
+  const minutesBefore = Number.isFinite(parseInt(args['minutes-before'], 10))
+    ? parseInt(args['minutes-before'], 10)
+    : 15;
+  const { loadSchedule } = await import('../scheduler/scheduleUtil.js');
+  const { cronVzorecText } = await import('../lib/cronVzorec.js');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  let schedule = {};
+  try {
+    schedule = loadSchedule();
+  } catch (err) {
+    console.error(`[NAPAKA] station.json ni uporaben: ${err.message}`);
+    process.exit(1);
+  }
+  process.stdout.write(
+    cronVzorecText(schedule, {
+      minutesBefore,
+      repoRoot,
+      logFile: path.join(configOrError.dataDir, 'doctor-cron.log'),
+    })
+  );
+  process.exit(0);
 }
 
 const { runDoctor } = await import('../auto/doctor.js');
