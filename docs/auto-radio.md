@@ -430,6 +430,10 @@ nespremenjen.
   — P4 #25: pripravljene socialne objave iz rubrik oddaje (pod 280 znaki,
   z hashtagom).
 
+- `npm run asrun-export -- --from=2026-10-01 --to=2026-10-24 [--out=<mapa>]`
+  — P4 #27: izvajalno (as-run) poročilo za licenčno skladnost — CSV +
+  povzetek iz `history/aired.jsonl` (podrobno v razdelku o P4 #27).
+
 - `npm run preview-auto-show -- <ime-oddaje> [--duration=<minute>] [--offline]`
   — celoten suhi preizkus producenta: razčleni brief, zgradi vrsto skladb z
   vsemi pravili, izriše skripto, jo preveri in zapiše `script.md` +
@@ -471,10 +475,13 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 | Zahteve poslušalcev | requestQueue |
 | Analitika poslušanosti | listenerAnalytics |
 | Now-playing push | nowPlayingPush |
+| Licenčna skladnost (as-run logi) | izvajalno poročilo iz realnega
+  predvajalnega ledgerja (P4 #27) |
 | Predogled oddaj | imagingPlaylists, preview-auto-show |
 
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
-teases, podcast izvoz, ankete in social izvoz -- ostal je le smart-speaker
+teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
+licenčna skladnost (izvajalno poročilo) -- ostal je le smart-speaker
 spretnost, ki potrebuje zunanjega ponudnika.
 
 ### P4 #25: raziskava v kodo -- teases, ankete, podcast, social
@@ -508,6 +515,36 @@ brez modela, s testi):
 
 Obe orodji vrneta žive poti in poglavja; demo izpis je v dokumentaciji
 repozitorija.
+
+### P4 #27: izvajalno poročilo (as-run) — licenčna skladnost
+
+Zavodska telesa (SAZAS/ZKP-stil) od radiev zahtevajo poročilo, kaj je DEJANSKO
+vetrilo — izvajalec, naslov, začetek, trajanje. Radio Markec to odgovarja z
+enim ukazom iz realnega predvajalnega ledgerja `history/aired.jsonl`, ki ga
+piše `plex/scrobbleTrack.js` ob točnem startu vsake skladbe (za razliko od
+`history/played.jsonl`, ki nastane ob PRODUKCIJI, lahko tedne pred oddajo —
+za poročanje ni iskren vir):
+
+```
+npm run asrun-export -- --from=2026-10-01 --to=2026-10-24
+# -> <dataDir>/asrun/asrun-2026-10-01-2026-10-24.csv          (podroben dnevnik)
+# -> <dataDir>/asrun/asrun-2026-10-01-2026-10-24-povzetek.txt (skupaj + top izvajalci)
+```
+
+- **CSV** je podpičkast z RFC 4180 navedki (slovenski Excel ga odpre brez
+  nastavljanja): stolpci `datum;ura;izvajalec;naslov;album;trajanje_s;oddaja`.
+  Časovni žig je tisti, kateremu je ledger že veroval — prvi 10 znakov `playedAt`
+  je postajina lokalni datum, brez ponovne časovne cone.
+- **Povzetek** pove skupno število predvajanj, različnih del in izvajalcev ter
+  lestvico največ predvajanj (porazdelitev po izvajalcih — kar skladnostne
+  službe pravzaprav iščejo; pri neodločenih odloča abeceda, zato je isti
+  vhod vedno bajtno ista datoteka).
+- **Skip-not-fail**: manjkajoči ledger (sveža namestitev) pomeni veljavno
+  prazno poročilo, pokvarjena vrstica se preskoči in prešteje, manjkajoči
+  podatki ostanejo prazne celice — poročilo ne sme nikoli potrebovati
+  ročnega popravljanja, da sploh nastane.
+- Okno je inkluzivno na obeh koncih (`--from`/`--to` ali privzeto današnji
+  dan); izhodna mapa se preglasi z `--out`.
 
 ## Zapisi, ki ostajajo odprti (PoC)
 
