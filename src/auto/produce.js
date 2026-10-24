@@ -30,6 +30,7 @@ import { listGenreTagsAny, listAlbumGenreTagsAny } from './librarySource.js';
 import { artistCooldownFilter, popularityShare, timeBlockKey } from './rules.js';
 import { buildSegmentsAuto } from './scriptBuilder.js';
 import { collectRubricData } from './feeds.js';
+import { collectArtistTrivia } from './trivia.js';
 
 const log = createLogger('station');
 
@@ -126,13 +127,19 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   const block = timeBlockKey();
   debug.timeBlock = block;
 
-  // Phase B' -- rubrics (ARSO weather / RTV sport / Wikidata on-this-day),
-  // requested by the brief's "Rubrikes:" line. Every source nulls out on
-  // failure so the show degrades to fewer segments, never to no show.
+  // Phase B' -- rubrics (ARSO weather / RTV sport / Wikidata on-this-day /
+  // P4 #19 music on-this-day), requested by the brief's "Rubrikes:" line.
+  // Every source nulls out on failure so the show degrades to fewer segments,
+  // never to no show. "Zanimivosti" (P4 #17) is collected SEPARATELY below:
+  // its artist half needs the selected tracklist (a fact about whoever is
+  // about to play), while its corpus half works offline.
   const rubricNames = parseBriefRubrics(descriptionText);
   const rubricData = rubricNames.length > 0
     ? await collectRubricData({ names: rubricNames, date })
-    : { weather: null, news: null, sport: null, onThisDay: null };
+    : { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null };
+  if (rubricNames.includes('trivia')) {
+    rubricData.trivia = await collectArtistTrivia({ tracks, offline: rubricData.offline ?? false, seed: `${id}|${date}` });
+  }
   debug.rubrics = {
     requested: rubricNames,
     resolved: {
@@ -140,12 +147,19 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
       news: rubricData.news?.count ?? null,
       sport: rubricData.sport?.count ?? null,
       onThisDay: rubricData.onThisDay?.events.length ?? 0,
+      onThisDayMusic: rubricData.onThisDayMusic?.events.length ?? 0,
+      trivia: rubricData.trivia
+        ? { artists: rubricData.trivia.artistFacts.length, general: rubricData.trivia.generalFacts.length }
+        : null,
     },
     offline: rubricData.offline ?? false,
   };
   if (rubricNames.length > 0) {
+    const trivia = debug.rubrics.resolved.trivia;
     log(`[${id}] rubrics: ${rubricNames.join(', ')} -> weather=${debug.rubrics.resolved.weather ?? 'off'}, ` +
-      `news=${debug.rubrics.resolved.news ?? 'off'}, sport=${debug.rubrics.resolved.sport ?? 'off'}, obzorje=${debug.rubrics.resolved.onThisDay}`);
+      `news=${debug.rubrics.resolved.news ?? 'off'}, sport=${debug.rubrics.resolved.sport ?? 'off'}, obzorje=${debug.rubrics.resolved.onThisDay}, ` +
+      `obzorjeGlasba=${debug.rubrics.resolved.onThisDayMusic}` +
+      (trivia ? `, zanimivosti=${trivia.artists} artist + ${trivia.general} general` : ''));
   }
 
   const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData });

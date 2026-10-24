@@ -202,6 +202,9 @@
       "newsLimit": 3,
       "sportLimit": 4,
       "onThisDayLimit": 2,
+      "onThisDayMusicLimit": 2,
+      "triviaMaxArtists": 6,
+      "triviaGeneralCount": 3,
       "timeoutSeconds": 10
     }
   }

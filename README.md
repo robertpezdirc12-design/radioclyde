@@ -315,8 +315,11 @@ prose for humans. The selection section supports:
 - English or Slovenian rule sentences: *Don't repeat the same artist in a
   single show* (artist cooldown, 3 h station-wide by default), *No track
   longer than 5 minutes*, *Favor well-known tracks* (popularity mix)
-- `Rubrike: vreme, šport, obzorje` — opt the show into the live-data
-  service segments (see [docs/auto-radio.md](docs/auto-radio.md))
+- `Rubrike: vreme, šport, obzorje, zanimivosti, glasba` — opt the show into the
+  live-data service segments, deterministic per-artist + general rock trivia
+  ("Zanimivosti": MusicBrainz / sl.wikipedia fact before the artist's track,
+  plus an offline Slovenian rock-history corpus) and the musician-filtered
+  "Na današnji dan v glasbi" (see [docs/auto-radio.md](docs/auto-radio.md))
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
@@ -401,8 +404,10 @@ Full Slovenian reference with every config knob:
   Plex's general docs.
 - [docs/show-generation-research.md](docs/show-generation-research.md):
   research on auto-generating themed shows and inserting deterministic
-  artist trivia between tracks (GitHub survey + live-verified
-  Wikipedia/MusicBrainz/Wikidata sources + P4 proposal).
+  artist/general-rock trivia between tracks (GitHub survey + live-verified
+  Wikipedia/MusicBrainz/Wikidata sources + P4 proposal; trivia rubric #17
+  and music on-this-day #19 are implemented — #18 themed-show generator
+  still open).
 - [docs/android-tv-app.md](docs/android-tv-app.md): architecture of the
   native Android TV/Google TV client. Package layout, the backend API it
   consumes, key design decisions.
@@ -422,6 +427,10 @@ Full Slovenian reference with every config knob:
   Agency) and [Open-Meteo](https://open-models.open-meteo.com).
 - News and sport headlines: [RTV Slovenija](https://www.rtvslo.si).
 - "On this day" facts: [Wikidata](https://www.wikidata.org) (CC0).
+- Artist trivia: [MusicBrainz](https://musicbrainz.org) (search results,
+  CC0-licensed metadata) and [sl.wikipedia.org](https://sl.wikipedia.org)
+  page extracts (CC BY-SA) as the fallback; general rock-history trivia is
+  a locally curated corpus ([src/auto/rockFacts.js](src/auto/rockFacts.js)).
 - Neural Slovenian voices: Microsoft Edge read-aloud service (unofficial;
   no key required) — used via [msedge-tts](https://www.npmjs.com/package/msedge-tts).
 - Local neural Slovenian voice: [Piper](https://github.com/OHF-Voice/piper1-gpl)

@@ -405,9 +405,19 @@ const RUBRIC_KEYWORDS = {
   sport: 'sport',
   sportne: 'sport',
   obzorje: 'onthisday',
-  'na dana\u0161nji dan': 'onthisday',
+  // ASCII forms are PRIMARY in this table: parseBriefRubrics de-diacriticizes
+  // the keyword BEFORE lookup, so keys carrying real diacritics never match.
+  'na danasnji dan': 'onthisday',
   onthisday: 'onthisday',
   'on this day': 'onthisday',
+  // P4 #17 "Zanimivosti" (auto/trivia.js + auto/rockFacts.js) and P4 #19
+  // "Na današnji dan v glasbi" (feeds.js musician-filtered on-this-day).
+  zanimivosti: 'trivia',
+  trivia: 'trivia',
+  glasba: 'onthisdaymusic',
+  'na danasnji dan v glasbi': 'onthisdaymusic',
+  'obzorje glasbe': 'onthisdaymusic',
+  onthisdaymusic: 'onthisdaymusic',
 };
 
 export function parseBriefRubrics(descriptionText) {

@@ -7,6 +7,27 @@ med oddajo kaj reče — npr. »Queen, Freddie Mercury ... če niste vedeli: let
 tega in tega tam in tam« — in nadaljuje z glasbo.« Raziskovalni način: brez
 implementacije, izhod je dokument + predlog P4.
 
+> **STATUS — #17 in #19 IMPLEMENTIRANA (isti dan, po uporabnikovi odločitvi
+> »nadaljuj po svoji profesionalni logiki, zanimivosti pa splošno o rocku,
+> ne samo Freddie Mercury«):**
+>
+> - **#17 »Zanimivosti« je NARJENA GENERALIZIRANO** — točno po sklepu
+>   uporabnika: dejstvo se pove o KATERIKOLI izvajalcu (Queen je samo primer;
+>   MusicBrainz → sl.wikipedia rezerva, s zaščitami pred napačno entiteto),
+>   poleg njega pa lokalni korpus **splošnih** rock zanimivosti (kitare,
+>   albumi, nastopi, radio — tudi slovenski: Pankrti, Buldožer).
+> - **#19 »Na današnji dan v glasbi«** je narjena kot rubrika `glasba`
+>   (isti Wikidata cev, filter poklica P106/P279* na glasbenike).
+> - **Odločitev okusa (§5.3): zanimivost zazveni PRED skladbo** kot običajen
+>   govorni rez (deterministično, enako ostalim rubrikam); postelja čez
+>   začetek skladbe ostane odprta varianta prihodnosti.
+> - Implementacija: `src/auto/trivia.js`, `src/auto/rockFacts.js`,
+>   sloti `triviaArtist`/`triviaGeneral`/`obzorjeGlasba`, reference v
+>   [auto-radio.md](auto-radio.md) §Rubrike. npm test 301/301 (83 suitov,
+>   0 fail, 0 skip pod PIPER_LIVE=1).
+> - **#18 (generator tematskih oddaj) ostane ODPRTO** — naslednji logični
+>   korak, ko bo potrdil uporabnik.
+
 ## 1. Kaj stationa že zmore (zemljevid obstoječega stanja)
 
 Dve od treh zahtevanih zmožnosti sta že v repotu — pomembno je vedeti, kje
@@ -100,9 +121,9 @@ isti cache, ista skip-not-fail pogodba.
 | # | Predlog | Obseg | Vrednost |
 |---|---|---|---|
 | **16** | Preimenovanje prikaznega imena v **Radio Markec** (UI, konfiguracija, manifest, README, vzorčni podatki; inženirska imena radioclyde — paket, servisi, repo, android applicationId — ostanejo za zdaj nespremenjena) | naredil ta commit | identiteta postaje |
-| **17** | Rubrika **»Zanimivosti«** za auto način: `Rubrike: zanimivosti` → po izbiri skladb za vsakega nastopajočega izvajalca ena deterministična poved (MusicBrainz leto/nastanek/država + Wikidata rojstvo/smrt/kraj, rezerva Wikipedia sl extract), predloga v slogu »Če niste vedeli: ... In zdaj glasba.«; cache na izvajalca (`history/trivia.jsonl`), preizkusno brez mreže = rubrika tiho izpade | 1–2 dneva | točno zahtevani »Queen/Freddie Mercury« posnetek, brez LLM |
+| **17** | Rubrika **»Zanimivosti«** za auto način: `Rubrike: zanimivosti` → za izvajalce izbrane vrste ena deterministična poved (MusicBrainz leto/nastanek/država + rezerva Wikipedia sl extract, s zaščitami pred napačno entiteto: MB ime mora ujemati poizvedbo, wiki stran ne sme biti razločevalna in mora ujemati naslov), PLUS lokalni korpus splošnih rock zanimivosti (`src/auto/rockFacts.js`, 40 kuriranih fakty, deluje brez omrežja); vstavljanje pred uvod vsake tretje skladbe, izvajalčev fakt ima prednost; cache na izvajalca (24 h), MusicBrainz 1 zahteva/s; skip-not-fail | **NAREJENO** | točno zahtevani »Queen/Freddie Mercury« posnetek — in katerikoli drug izvajalec, plus splošne rock zanimivosti, brez LLM |
 | **18** | **Generator tematskih oddaj**: katalog predlog oddaj (»Zgodovina rocka«, »Zgodovina kitare«, »Veliki nastopi«, po Navidrome taksonomiji: desetletja/žanri/razpoloženja) → izpisuje prave `show-descriptions/*.md` brife (pravila + `Rubrike: zanimivosti`) → obstoječi pipeline jih izvede; tedenski »special« slot v station.json | 2–4 dneva | poljubne oddaje brez pisanja briefov ročno |
-| **19** | **»Na današnji dan v glasbi«**: filter poklica na obstoječi Wikidata poizvedbi obzorja | ure | glasbena rubrika skoraj zastonj |
+| **19** | **»Na današnji dan v glasbi«**: filter poklica (P106/P279* na Q639669) na obstoječi Wikidata poizvedbi obzorja, nova rubrika `glasba`, slot `obzorjeGlasba` | **NAREJENO** | glasbena rubrika skoraj zastonj |
 | 20 | (odsvetovano za zdaj) agentic DJ s lokalnim LLM po vzoru SUB/WAVE / savonet ai-radio v živo | velik | proti arhitekturi brez AI; GPU strošek; vseeno bi govor zasedal rezi, ki jih že imamo |
 
 Neodvisni viri se lahko kombinirajo: #17 je vsebina, #18 je oblika (razporeja

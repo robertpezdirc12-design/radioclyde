@@ -235,6 +235,31 @@ function onThisDaySparql(month, day) {
 LIMIT 600`;
 }
 
+// P4 #19 ("Na današnji dan v glasbi"): same shape as the general query, but
+// the person must hold an occupation that is (a subclass of) Q639669
+// "musician" -- singers, guitarists, drummers, composers, ... The path
+// wdt:P106/wdt:P279* keeps the query one template; everything else (LIMIT
+// 600, no ORDER BY, Node-side sort) follows the general query's live-verified
+// pattern, and both share the entity-labels + interleave pipeline below.
+function onThisDayMusicSparql(month, day) {
+  return `SELECT ?item ?year ?kind WHERE {
+  {
+    ?item wdt:P31 wd:Q5 ; wdt:P569 ?d ; wdt:P106 ?job .
+    ?job wdt:P279* wd:Q639669 .
+    BIND(YEAR(?d) AS ?year) BIND("birth" AS ?kind)
+    FILTER(MONTH(?d) = ${month} && DAY(?d) = ${day})
+  }
+  UNION
+  {
+    ?item wdt:P31 wd:Q5 ; wdt:P570 ?d ; wdt:P106 ?job .
+    ?job wdt:P279* wd:Q639669 .
+    BIND(YEAR(?d) AS ?year) BIND("death" AS ?kind)
+    FILTER(MONTH(?d) = ${month} && DAY(?d) = ${day})
+  }
+}
+LIMIT 600`;
+}
+
 const FEMALE_QID = 'Q6581072';
 const MALE_QID = 'Q6581097';
 
@@ -274,17 +299,14 @@ export function interleaveOnThisDay(rows, limit) {
   return out;
 }
 
-export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlMs = 6 * 60 * 60_000 } = {}) {
-  const [year, month, day] = String(date ?? '').split('-').map((part) => parseInt(part, 10));
-  const targetMonth = Number.isFinite(month) ? month : new Date().getMonth() + 1;
-  const targetDay = Number.isFinite(day) ? day : new Date().getDate();
-  const key = cacheKey(['onthisday', targetMonth, targetDay, limit]);
-  const hit = cacheGet(key, ttlMs);
+// Shared pipeline behind fetchOnThisDay + fetchOnThisDayMusic: phase 1 WDQS
+// (date-filtered item stream, sorted deterministically here -- newest first,
+// then by entity id), phase 2 entities API (Slovenian labels + gender).
+async function fetchOnThisDayBySparql({ sparql, month, day, limit, timeoutMs, cacheKey, ttlMs, label }) {
+  const hit = cacheGet(cacheKey, ttlMs);
   if (hit !== undefined) return hit;
   try {
-    // Phase 1 (WDQS): the date-filtered item stream. Deterministically
-    // sorted here -- newest first, then by entity id.
-    const url = `${WIKIDATA_SPARQL}?query=${encodeURIComponent(onThisDaySparql(targetMonth, targetDay))}&format=json`;
+    const url = `${WIKIDATA_SPARQL}?query=${encodeURIComponent(sparql)}&format=json`;
     const res = await fetch(url, {
       headers: { 'User-Agent': USER_AGENT, Accept: 'application/sparql-results+json' },
       signal: AbortSignal.timeout(timeoutMs),
@@ -300,8 +322,8 @@ export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlM
       .filter((row) => row.id && Number.isFinite(row.year))
       .sort((a, b) => (b.year - a.year) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (rows.length === 0) {
-      log('feeds/wikidata: no events for this date -- obzorje rubric skipped.');
-      cacheSet(key, null);
+      log(`feeds/wikidata: no events for this date -- ${label} rubric skipped.`);
+      cacheSet(cacheKey, null);
       return null;
     }
 
@@ -319,14 +341,54 @@ export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlM
       events.push({ ...row, name: entity.label, sex: entity.sex });
       if (events.length >= candidateCount) break;
     }
-    const value = events.length === 0 ? null : { source: 'wikidata', date: `${targetMonth}/${targetDay}`, events: interleaveOnThisDay(events, limit) };
-    if (!value) log('feeds/wikidata: no Slovenian-labelled births/deaths for this date -- obzorje rubric skipped.');
-    cacheSet(key, value);
+    const value = events.length === 0 ? null : { source: 'wikidata', date: `${month}/${day}`, events: interleaveOnThisDay(events, limit) };
+    if (!value) log(`feeds/wikidata: no Slovenian-labelled events for this date -- ${label} rubric skipped.`);
+    cacheSet(cacheKey, value);
     return value;
   } catch (err) {
-    log(`feeds/wikidata: query failed (${err.message}) -- obzorje rubric skipped.`);
+    log(`feeds/wikidata: query failed (${err.message}) -- ${label} rubric skipped.`);
     return null;
   }
+}
+
+// Resolves the "on this day" target date from the optional yyyy-mm-dd arg.
+function onThisDayTargetDate(date) {
+  const [year, month, day] = String(date ?? '').split('-').map((part) => parseInt(part, 10));
+  return {
+    month: Number.isFinite(month) ? month : new Date().getMonth() + 1,
+    day: Number.isFinite(day) ? day : new Date().getDate(),
+  };
+}
+
+export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlMs = 6 * 60 * 60_000 } = {}) {
+  const { month, day } = onThisDayTargetDate(date);
+  return fetchOnThisDayBySparql({
+    sparql: onThisDaySparql(month, day),
+    month,
+    day,
+    limit,
+    timeoutMs,
+    cacheKey: cacheKey(['onthisday', month, day, limit]),
+    ttlMs,
+    label: 'obzorje',
+  });
+}
+
+// P4 #19: "Na današnji dan v glasbi" -- same pipeline, musician-filtered
+// SPARQL, its own cache namespace. Nothing else changes (same skip-not-fail
+// contract, same Slovenian-labels-only rule).
+export async function fetchOnThisDayMusic({ date, limit = 2, timeoutMs = 15_000, ttlMs = 6 * 60 * 60_000 } = {}) {
+  const { month, day } = onThisDayTargetDate(date);
+  return fetchOnThisDayBySparql({
+    sparql: onThisDayMusicSparql(month, day),
+    month,
+    day,
+    limit,
+    timeoutMs,
+    cacheKey: cacheKey(['onthisdaymusic', month, day, limit]),
+    ttlMs,
+    label: 'obzorjeGlasba',
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +402,7 @@ export function rubricSettings() {
     newsLimit: cfg.newsLimit ?? 3,
     sportLimit: cfg.sportLimit ?? 4,
     onThisDayLimit: cfg.onThisDayLimit ?? 2,
+    onThisDayMusicLimit: cfg.onThisDayMusicLimit ?? 2,
     timeoutSeconds: cfg.timeoutSeconds ?? 10,
   };
 }
@@ -347,19 +410,23 @@ export function rubricSettings() {
 // Fetches every enabled rubric in parallel; returns a plain object the
 // script builder understands. A rubric that fails (or is disabled/offline)
 // simply comes back null and its segment is skipped -- music keeps playing.
+// (The "zanimivosti" rubric is NOT collected here: its artist half needs the
+// tracklist, so auto/produce.js calls collectArtistTrivia() itself and stores
+// the result as rubricData.trivia.)
 export async function collectRubricData({ names = [], offline = false, date } = {}) {
   if (offline) {
     log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, news: null, sport: null, onThisDay: null, offline: true };
+    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, offline: true };
   }
   const settings = rubricSettings();
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
-  const [weather, news, sport, onThisDay] = await Promise.all([
+  const [weather, news, sport, onThisDay, onThisDayMusic] = await Promise.all([
     wants('weather') ? fetchArsoCurrentWeather({ station: settings.station, timeoutMs }) : null,
     wants('news') ? fetchNewsHeadlines({ limit: settings.newsLimit, timeoutMs }) : null,
     wants('sport') ? fetchSportHeadlines({ limit: settings.sportLimit, timeoutMs }) : null,
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
+    wants('onthisdaymusic') ? fetchOnThisDayMusic({ date, limit: settings.onThisDayMusicLimit, timeoutMs }) : null,
   ]);
-  return { weather, news, sport, onThisDay, offline: false };
+  return { weather, news, sport, onThisDay, onThisDayMusic, offline: false };
 }

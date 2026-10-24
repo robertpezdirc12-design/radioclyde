@@ -4,7 +4,7 @@
 **Personas:** elena, ryan
 **Segments:** quiz, weather
 **Repeat window:** 7 days
-Rubrike: vreme, šport, obzorje
+Rubrike: vreme, šport, obzorje, zanimivosti, glasba
 
 ---
 

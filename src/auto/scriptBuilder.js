@@ -83,6 +83,70 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     });
   }
 
+  // P4 #19: "Na današnji dan v glasbi" -- musician-filtered variant of the
+  // obzorje loop, same data shape (year/name/sex/kind), its own slot so the
+  // two rubrics stay independently recordable in clips mode.
+  for (const [index, event] of (rubricData.onThisDayMusic?.events ?? []).entries()) {
+    const female = event.sex === 'female';
+    const kindKey = event.kind === 'death' ? (female ? 'deathF' : 'death') : female ? 'birthF' : 'birth';
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'obzorjeGlasba',
+      body: renderSlot('obzorjeGlasba', {
+        values: { ...commonValues(), year: event.year, name: event.name, kindKey },
+        seed: seedFor({ showId, date, slot: `obzorjeGlasba:${index}` }),
+      }),
+    });
+  }
+
+  return segments;
+}
+
+// P4 #17 helpers: trivia about the artist about to play (first occurrence
+// only) or a general rock-history fact, placed before every 3rd track's
+// intro (i % 3 === 1 -> tracks #2, #5, #8, ...) so the show stays music-
+// first. Artist facts outrank the general corpus at a sprinkle slot; the
+// corpus fills the rest (and covers shows whose artists carry no data).
+// Deterministic end to end: same tracklist + same facts -> same segments.
+function foldArtistKey(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function triviaSegments({ trivia, track, index, persona, commonValues, showId, date, trackSeed, state }) {
+  if (!trivia || index % 3 !== 1) return [];
+  const segments = [];
+  const key = foldArtistKey(track.artist);
+  const artistFact = state.artistFactsByFold.get(key);
+  if (artistFact && !state.usedArtistFolds.has(key)) {
+    state.usedArtistFolds.add(key);
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'triviaArtist',
+      body: renderSlot('triviaArtist', {
+        values: { ...commonValues(), fact: artistFact.text },
+        seed: `${trackSeed}|triviaArtist:${index}`,
+      }),
+    });
+    return segments;
+  }
+  const generalFact = state.generalFactQueue.shift();
+  if (generalFact) {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'triviaGeneral',
+      body: renderSlot('triviaGeneral', {
+        values: { ...commonValues(), fact: generalFact.text },
+        seed: `${trackSeed}|triviaGeneral:${index}`,
+      }),
+    });
+  }
   return segments;
 }
 
@@ -103,6 +167,16 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     show: showName(showTitle),
     to: weatherPersona,
   });
+
+  // P4 #17 trivia state: artist facts keyed by folded artist name, the
+  // general corpus facts as a queue (consumed only at sprinkle slots), and
+  // the set of artists already told (one fact per artist per show).
+  const trivia = rubricData?.trivia ?? null;
+  const triviaState = {
+    artistFactsByFold: new Map((trivia?.artistFacts ?? []).map((fact) => [foldArtistKey(fact.artist), fact])),
+    usedArtistFolds: new Set(),
+    generalFactQueue: [...(trivia?.generalFacts ?? [])],
+  };
 
   segments.push({
     type: 'dj',
@@ -126,6 +200,13 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
   for (let i = 0; i < n; i++) {
     const track = tracks[i];
     const trackSeed = seedFor({ showId, date, track, slot: 'x' });
+
+    // P4 #17: "Zanimivosti" land right before the intro of every 3rd track
+    // -- a fact about THAT track's artist, or a general rock fact when the
+    // artist has none.
+    segments.push(
+      ...triviaSegments({ trivia, track, index: i, persona: primaryPersona, commonValues, showId, date, trackSeed, state: triviaState })
+    );
 
     if (i === quizIndex) {
       segments.push({

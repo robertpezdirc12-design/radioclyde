@@ -106,6 +106,32 @@ const DEFAULT_TEMPLATES = {
     death: ['Na dana\u0161nji dan leta {year} je umrl {name}.'],
     deathF: ['Na dana\u0161nji dan leta {year} je umrla {name}.'],
   },
+
+  // P4 #19: "Na dana\u0161nji dan v glasbi" -- same data shape as obzorje
+  // (Wikidata births/deaths), but the people are musicians (P106/P279* ->
+  // Q639669), so the sentences name the rubric. Same kindKey pools.
+  obzorjeGlasba: {
+    birth: ['Na dana\u0161nji dan v glasbi se je leta {year} rodil {name}.'],
+    birthF: ['Na dana\u0161nji dan v glasbi se je leta {year} rodila {name}.'],
+    death: ['Na dana\u0161nji dan v glasbi je leta {year} umrl {name}.'],
+    deathF: ['Na dana\u0161nji dan v glasbi je leta {year} umrla {name}.'],
+  },
+
+  // P4 #17: "Zanimivosti" -- one deterministic fact before the track whose
+  // artist it describes (triviaArtist, from auto/trivia.js), or a general
+  // rock-history fact (triviaGeneral, from the local auto/rockFacts.js
+  // corpus). Facts arrive as FULL sentences WITHOUT the final punctuation;
+  // the template supplies it, so all three fact sources stay consistent.
+  triviaArtist: [
+    '\u010ce niste vedeli: {fact}. Zdaj pa nazaj k glasbi.',
+    'Malo zanimivosti: {fact}. In nadaljujemo z glasbo.',
+    'Malo zgodovine, preden sledi skladba: {fact}.',
+  ],
+  triviaGeneral: [
+    'Ste to vedeli? {fact}. Zdaj pa nadaljujemo z glasbo.',
+    'Zanimivost iz sveta rocka: {fact}. In nazaj k glasbi.',
+    'Medtem, ko gre glasba naprej -- {fact}.',
+  ],
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the
@@ -207,6 +233,9 @@ export function renderSlot(slot, { values, seed, block }) {
     pool = values.temp != null ? (values.condition ? pools.withTemp : pools.tempOnly) : pools.generic;
   } else if (slot === 'obzorje') {
     const pools = templates.obzorje;
+    pool = pools[values.kindKey] ?? pools.birth;
+  } else if (slot === 'obzorjeGlasba') {
+    const pools = templates.obzorjeGlasba;
     pool = pools[values.kindKey] ?? pools.birth;
   } else {
     pool = templates[slot]; // unknown slots resolve straight from config

@@ -153,7 +153,7 @@ vedno deterministično, brez jezikovnega modela. Oddaja jih zahteva z vrstico
 `Rubrike:` v briefu (šumniki so neobčutljivi):
 
 ```markdown
-Rubrike: vreme, novice, šport, obzorje
+Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 ```
 
 | Rubrika | Vir | Slot | Predloga |
@@ -162,6 +162,8 @@ Rubrike: vreme, novice, šport, obzorje
 | `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
 | `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta | `newsHeadlines` | `newsHeadlines` |
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
+| `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi" | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
+| `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
 
 Nastavitve v `config.autoRadio.rubrics`:
 
@@ -170,13 +172,39 @@ Nastavitve v `config.autoRadio.rubrics`:
 - `newsLimit` — koliko novičnih naslovnic (privzeto 3)
 - `sportLimit` — koliko športnih naslovnic (privzeto 4)
 - `onThisDayLimit` — koliko dogodkov "na današnji dan" (privzeto 2)
+- `onThisDayMusicLimit` — koliko glasbenih dogodkov "na današnji dan" (privzeto 2)
+- `triviaMaxArtists` — na koliko unikatnih izvajalcev na oddajo se sploh poizveduje (privzeto 6)
+- `triviaGeneralCount` — koliko splošnih rock zanimivosti na oddajo iz korpusa (privzeto 3)
 - `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
 
 Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
 čas poteče → segment spusti, oddaja teče dalje.** Odgovori so v procesu
-predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h), tako da prewarm in
-ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje, če je ni v
-briefu; `--offline` (preview) jih vedno spusti.
+predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h, izvajalec 24 h), tako
+da prewarm in ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje,
+če je ni v briefu; `--offline` (preview) jih vedno spusti — **razen korpusne
+polovice `zanimivosti`**, ki je lokalna datoteka in deluje brez omrežja (samo
+polovica za izvajalce se ob offline spusti).
+
+### Kako se zanimivosti razporedijo po oddaji
+
+Zanimivosti so zavestno redkejše od ostalih rubrik: pridejo **pred uvod
+vsake tretje skladbe** (druga, peta, osma, ... skladba v oddaji). Na tem
+mestu ima prednost **dejstvo o izvajalcu, ki sedaj igra** (samo prva
+pojavitev izvajalca v oddaji, ena poved na izvajalca); če za njega ni
+resničnega podatka, pade na vrsto **splošna rock zanimivost** iz korpusa
+(kitare, albumi, nastopi — vključno s slovenskimi, kot so Pankrti).
+
+Za izvajalce velja veriga brez ugibanj: MusicBrainz poveže samo **skupino**
+(type `Group`) z ujemajočim se imenom (šumniki in ločila brez pomena);
+za pevce in vse, česar MusicBrainz ne najde, poskusi povzetek s
+sl.wikipedia — ampak samo, če stran ni razločevalna in se naslov
+udeja s poizvedbo. MusicBrainz se poizveduje največ enkrat na sekundo
+(uradna omejitev) in z obveznim uporabniškim agentom; rezultati so
+predpomnjeni 24 h na izvajalca.
+
+V `clips` načinu so novi sloti posnetljivi posamezno: `triviaArtist`,
+`triviaGeneral` in `obzorjeGlasba` — manjkajoč posnetek spusti samo ta
+segment, kot za vse ostale.
 
 ## Predloge (`autoRadio.templates`)
 
@@ -192,6 +220,7 @@ izmenjujejo brez modela. Vrednosti, ki jih lahko uporabiš:
 | `{artist}` / `{title}` | izvajalec / naslov skladbe |
 | `{album}` / `{year}` / `{decade}` / `{genre}` | metapodatki skladbe |
 | `{to}` | oseba, ki prevzame vremensko napoved |
+| `{fact}` | zanimivost (polna poved brez končne pike — predloga jo dodaja) |
 | `{time}` / `{date}` | trenutni čas/datum v `weather.timezone` |
 | `{condition}` / `{temp}` / `{wind}` | vreme (slovensko, °C, km/h) |
 

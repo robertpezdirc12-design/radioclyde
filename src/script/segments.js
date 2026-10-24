@@ -79,6 +79,9 @@ const SLOT_TYPES = {
   newsHeadlines: 'news_analysis',
   sportHeadlines: 'news_analysis',
   obzorje: 'news_analysis',
+  obzorjeGlasba: 'news_analysis', // P4 #19: musician-filtered on-this-day
+  triviaArtist: 'story',          // P4 #17: a fact about the playing artist
+  triviaGeneral: 'music_essay',   // P4 #17: general rock-history fact
   weatherNow: 'weather_check',
   handoff: 'banter',
 };
