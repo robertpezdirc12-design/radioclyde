@@ -71,7 +71,7 @@ async function main() {
   // real audio runs out, Liquidsoap falls back to filler on its own, in real
   // time. If nothing swaps the next occurrence's playlist into
   // now_playing.m3u until scheduler.js's next nowPlayingCheckIntervalMinutes
-  // tick (currently 1min), a clean back-to-back handoff (no gap in
+  // tick (shipped configs run 0.1 min = 6 s), a clean back-to-back handoff (no gap in
   // station.json) still audibly plays filler-then-jingle-then-show instead
   // of cutting straight over. Calling this here means the very next segment
   // to start airing -- typically the first filler track, since fallback()

@@ -771,16 +771,18 @@ textarea {
 }
 
 /* ---- issue #2 additions: requests / library / voice / diagnostics views ---- */
-
+/* Colors resolve against the light :root tokens above -- this block
+   originally shipped with listener-dark-theme hexes pasted in (~1.7-1.9:1
+   on white) and fallback vars this sheet never defines. */
 .kv-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .kv-row { display: flex; gap: 12px; align-items: flex-start; }
-.kv-key { flex: none; width: 220px; color: var(--text-dim, #8b93a7); font-size: 0.85rem; overflow-wrap: anywhere; }
+.kv-key { flex: none; width: 220px; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
 .kv-value { flex: 1; min-width: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
 .kv-value.accent { color: var(--accent, #7c5cff); font-weight: 700; }
-.kv-value.ok { color: #34d399; }
-.kv-value.bad { color: #f87171; font-weight: 700; }
-.kv-value.warn { color: #fbbf24; }
-.kv-value.muted { color: #8b93a7; }
+.kv-value.ok { color: #15803d; }
+.kv-value.bad { color: var(--danger); font-weight: 700; }
+.kv-value.warn { color: var(--pending); }
+.kv-value.muted { color: var(--muted); }
 .kv-value.wrap { white-space: normal; }
 
 .status-pill {
@@ -792,43 +794,44 @@ textarea {
   padding: 2px 9px;
   border-radius: 999px;
 }
-.status-pill.pending { background: rgba(251, 191, 36, 0.16); color: #fbbf24; }
-.status-pill.approved { background: rgba(52, 211, 153, 0.16); color: #34d399; }
-.status-pill.rejected { background: rgba(248, 113, 113, 0.16); color: #f87171; }
+.status-pill.pending { background: rgba(217, 119, 6, 0.14); color: #b45309; }
+.status-pill.approved { background: rgba(22, 163, 74, 0.14); color: #15803d; }
+.status-pill.rejected { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
 
 .btn-small { padding: 4px 12px; font-size: 0.8rem; }
-.btn-danger { border-color: rgba(248, 113, 113, 0.4); color: #f87171; }
-.btn-danger:hover { background: rgba(248, 113, 113, 0.1); }
+/* No .btn-danger here: the light-theme definition with the other buttons
+   above (~line 323) is the only one -- a later dark duplicate used to
+   silently override it. */
 
 .input-inline {
   background: #fff;
   color: #1c2333;
-  border: 1px solid var(--card-edge, #232b3d);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 7px 12px;
   font: inherit;
   min-width: 200px;
 }
-.input-inline:focus { outline: none; border-color: var(--accent, #7c5cff); }
+.input-inline:focus { outline: none; border-color: var(--accent); }
 
-.muted { color: #8b93a7; }
+.muted { color: var(--muted); }
 .small { font-size: 0.78rem; }
-.empty-note { color: #8b93a7; font-size: 0.9rem; margin: 8px 0 0; }
+.empty-note { color: var(--muted); font-size: 0.9rem; margin: 8px 0 0; }
 
 .warn-block {
   margin-top: 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(248, 113, 113, 0.12);
-  color: #f87171;
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger);
   font-size: 0.86rem;
 }
 .ok-block {
   margin-top: 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(52, 211, 153, 0.10);
-  color: #34d399;
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
   font-size: 0.86rem;
 }
 
@@ -837,7 +840,7 @@ textarea {
   overflow: auto;
   color: #dfe4ee;
   background: #10141d;
-  border: 1px solid var(--card-edge, #232b3d);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 0.76rem;

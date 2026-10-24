@@ -116,8 +116,15 @@ export async function loadRequests() {
   el('requests-empty').hidden = requests.length > 0;
 }
 
+// app.js re-runs startRequestsView() on every visit to this tab -- bind the
+// DOM listeners once so N visits don't fire N identical requests per click.
+let bound = false;
+
 export function startRequestsView() {
-  el('requests-filter').addEventListener('change', loadRequests);
-  el('requests-refresh').addEventListener('click', loadRequests);
+  if (!bound) {
+    bound = true;
+    el('requests-filter').addEventListener('change', loadRequests);
+    el('requests-refresh').addEventListener('click', loadRequests);
+  }
   loadRequests();
 }

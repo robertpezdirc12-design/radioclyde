@@ -163,11 +163,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(file && (has('--set') || has('--clear') || has('--list')) ? 0 : 1);
   }
   const options = { only: value('--only') };
+  // "--set"/"--clear" as the LAST argv token (no value after it) used to read
+  // args[idx + 1] === undefined and die on .split(',') with a bare TypeError
+  // -- fail with the usage text instead, like every other bad invocation.
+  const listValue = (name) => {
+    const v = value(name);
+    if (v === undefined || v === '') {
+      printUsage();
+      process.exit(1);
+    }
+    return v.split(',');
+  };
   if (has('--set')) {
-    options.set = args[args.indexOf('--set') + 1].split(',');
+    options.set = listValue('--set');
     if (value('--delay') !== undefined) options.delay = value('--delay');
   }
-  if (has('--clear')) options.clear = args[args.indexOf('--clear') + 1].split(',');
+  if (has('--clear')) options.clear = listValue('--clear');
   if (has('--list')) {
     const lines = fs.readFileSync(path.resolve(file), 'utf8').split('\n');
     for (const [i, line] of lines.entries()) {

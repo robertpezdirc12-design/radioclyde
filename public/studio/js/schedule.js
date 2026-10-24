@@ -433,63 +433,70 @@ function wireResize(handle, el, weekday, occ) {
 
 async function render() {
   closePopover();
-  const [{ schedule }, , { readiness }] = await Promise.all([
-    api('/api/schedule'),
-    loadShowTitles(),
-    api('/api/schedule/readiness'),
-  ]);
-  currentSchedule = schedule;
-  currentReadiness = readiness;
-  gridEl.innerHTML = '';
-  gridEl.style.gridTemplateRows = `auto ${DAY_HEIGHT}px`;
+  try {
+    const [{ schedule }, , { readiness }] = await Promise.all([
+      api('/api/schedule'),
+      loadShowTitles(),
+      api('/api/schedule/readiness'),
+    ]);
+    currentSchedule = schedule;
+    currentReadiness = readiness;
+    gridEl.innerHTML = '';
+    gridEl.style.gridTemplateRows = `auto ${DAY_HEIGHT}px`;
 
-  const today = todayWeekday();
-  gridEl.appendChild(makeHeaderCell(''));
-  for (const day of WEEKDAYS) gridEl.appendChild(makeHeaderCell(DAY_LABELS[day], day === today));
+    const today = todayWeekday();
+    gridEl.appendChild(makeHeaderCell(''));
+    for (const day of WEEKDAYS) gridEl.appendChild(makeHeaderCell(DAY_LABELS[day], day === today));
 
-  const hourCol = document.createElement('div');
-  hourCol.style.position = 'relative';
-  hourCol.style.height = `${DAY_HEIGHT}px`;
-  hourCol.style.background = 'var(--surface)';
-  for (let h = 0; h < 24; h++) {
-    const label = document.createElement('div');
-    label.className = 'schedule-hour-label';
-    label.style.position = 'absolute';
-    label.style.top = `${h * 60 * PX_PER_MIN - 6}px`;
-    label.style.right = '0';
-    label.textContent = `${String(h).padStart(2, '0')}:00`;
-    hourCol.appendChild(label);
-  }
-  gridEl.appendChild(hourCol);
-
-  for (const day of WEEKDAYS) {
-    const col = document.createElement('div');
-    col.className = day === today ? 'schedule-day-column is-today' : 'schedule-day-column';
-    col.dataset.day = day;
-    col.style.height = `${DAY_HEIGHT}px`;
-    col.addEventListener('click', (event) => {
-      if (event.target !== col) return;
-      const rect = col.getBoundingClientRect();
-      const minutes = (event.clientY - rect.top) / PX_PER_MIN;
-      const startTime = minutesToTime(Math.round(minutes / DRAG_SNAP_MIN) * DRAG_SNAP_MIN);
-      openAddPopover(day, startTime, event.clientX, event.clientY);
-    });
-    for (const occ of currentSchedule[day] ?? []) {
-      col.appendChild(makeBlock(day, occ));
+    const hourCol = document.createElement('div');
+    hourCol.style.position = 'relative';
+    hourCol.style.height = `${DAY_HEIGHT}px`;
+    hourCol.style.background = 'var(--surface)';
+    for (let h = 0; h < 24; h++) {
+      const label = document.createElement('div');
+      label.className = 'schedule-hour-label';
+      label.style.position = 'absolute';
+      label.style.top = `${h * 60 * PX_PER_MIN - 6}px`;
+      label.style.right = '0';
+      label.textContent = `${String(h).padStart(2, '0')}:00`;
+      hourCol.appendChild(label);
     }
-    gridEl.appendChild(col);
-  }
+    gridEl.appendChild(hourCol);
 
-  updateNowLine();
+    for (const day of WEEKDAYS) {
+      const col = document.createElement('div');
+      col.className = day === today ? 'schedule-day-column is-today' : 'schedule-day-column';
+      col.dataset.day = day;
+      col.style.height = `${DAY_HEIGHT}px`;
+      col.addEventListener('click', (event) => {
+        if (event.target !== col) return;
+        const rect = col.getBoundingClientRect();
+        const minutes = (event.clientY - rect.top) / PX_PER_MIN;
+        const startTime = minutesToTime(Math.round(minutes / DRAG_SNAP_MIN) * DRAG_SNAP_MIN);
+        openAddPopover(day, startTime, event.clientX, event.clientY);
+      });
+      for (const occ of currentSchedule[day] ?? []) {
+        col.appendChild(makeBlock(day, occ));
+      }
+      gridEl.appendChild(col);
+    }
 
-  // Default the visible scroll position to just above "now" (with an hour
-  // of already-aired context still visible above it) rather than the top of
-  // the grid, so opening the page answers "what's on right now" without any
-  // scrolling -- only on the view's first render, so it doesn't fight a
-  // studio user who's scrolled elsewhere on a later refresh.
-  if (!hasScrolledToDay) {
-    hasScrolledToDay = true;
-    scrollEl.scrollTop = Math.max(0, (nowMinutes() - 60) * PX_PER_MIN);
+    updateNowLine();
+
+    // Default the visible scroll position to just above "now" (with an hour
+    // of already-aired context still visible above it) rather than the top of
+    // the grid, so opening the page answers "what's on right now" without any
+    // scrolling -- only on the view's first render, so it doesn't fight a
+    // studio user who's scrolled elsewhere on a later refresh.
+    if (!hasScrolledToDay) {
+      hasScrolledToDay = true;
+      scrollEl.scrollTop = Math.max(0, (nowMinutes() - 60) * PX_PER_MIN);
+    }
+  } catch (err) {
+    // A failed grid load surfaces as a toast, not a silently stale grid --
+    // same pattern as the drag/resize handlers above (render() is also
+    // awaited from those, so it must never reject).
+    showToast(err.message);
   }
 }
 

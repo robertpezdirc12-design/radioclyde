@@ -137,7 +137,12 @@ export async function generateFillerPlaylist() {
   await mergeTrackRatingKeys(pool.map((t, i) => [localPaths[i], t.ratingKey]));
 
   fs.mkdirSync(path.dirname(config.paths.fillerPath), { recursive: true });
-  fs.writeFileSync(config.paths.fillerPath, content);
+  // Atomic tmp+rename -- Liquidsoap watches filler.m3u (reload_mode="watch"),
+  // and a plain write could be caught half-written mid-swap (same discipline
+  // as updateNowPlaying.js's now_playing.m3u write).
+  const fillerTmp = `${config.paths.fillerPath}.tmp-${process.pid}`;
+  fs.writeFileSync(fillerTmp, content);
+  fs.renameSync(fillerTmp, config.paths.fillerPath);
   log(
     `Wrote filler playlist: ${pool.length} tracks -> ${config.paths.fillerPath} ` +
       `(excluded ${fillerRecentlyAired.size} filler-aired within ${rotationWindowHours()}h)`

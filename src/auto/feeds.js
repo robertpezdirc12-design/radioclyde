@@ -480,7 +480,7 @@ export async function collectRubricData({ names = [], offline = false, date, see
   const quizSeed = seed ?? date ?? 'quiz';
   // P4 #28: the local "na današnji dan v glasbi" corpus shares the Wikidata
   // rubric's date window, so resolve month/day once here for both paths.
-  const [obzorjeYear, obzorjeMonth, obzorjeDay] = String(date ?? '').split('-').map((part) => parseInt(part, 10));
+  const [, obzorjeMonth, obzorjeDay] = String(date ?? '').split('-').map((part) => parseInt(part, 10));
   const obzorjeTarget = {
     month: Number.isFinite(obzorjeMonth) ? obzorjeMonth : new Date().getMonth() + 1,
     day: Number.isFinite(obzorjeDay) ? obzorjeDay : new Date().getDate(),

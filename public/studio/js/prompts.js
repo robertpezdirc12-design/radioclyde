@@ -16,8 +16,12 @@ function setMessage(el, text, isError) {
 }
 
 async function loadScriptReview() {
-  const data = await api('/api/script-review');
-  scriptReviewEl.value = data.systemPrompt ?? '';
+  try {
+    const data = await api('/api/script-review');
+    scriptReviewEl.value = data.systemPrompt ?? '';
+  } catch (err) {
+    setMessage(scriptReviewMessageEl, err.message, true);
+  }
 }
 
 saveScriptReviewButton.addEventListener('click', async () => {
@@ -33,23 +37,36 @@ saveScriptReviewButton.addEventListener('click', async () => {
 function renderPersonas() {
   personasListEl.innerHTML = '';
   for (const [id, persona] of Object.entries(personas).sort(([a], [b]) => a.localeCompare(b))) {
+    // Built with textContent, not innerHTML: a system prompt containing
+    // "</textarea>" would otherwise break out of the editor, and an id with
+    // quotes could inject attributes.
     const row = document.createElement('div');
     row.className = 'persona-row';
-    row.innerHTML = `
-      <div class="persona-row-header">
-        <strong>${id}</strong>
-        <span class="voice-file">${persona.voiceFile ?? ''}</span>
-      </div>
-      <textarea rows="2" data-persona-id="${id}">${persona.systemPrompt ?? ''}</textarea>
-    `;
+    const header = document.createElement('div');
+    header.className = 'persona-row-header';
+    const name = document.createElement('strong');
+    name.textContent = id;
+    const voiceFile = document.createElement('span');
+    voiceFile.className = 'voice-file';
+    voiceFile.textContent = persona.voiceFile ?? '';
+    header.append(name, voiceFile);
+    const textarea = document.createElement('textarea');
+    textarea.rows = 2;
+    textarea.dataset.personaId = id;
+    textarea.value = persona.systemPrompt ?? '';
+    row.append(header, textarea);
     personasListEl.appendChild(row);
   }
 }
 
 async function loadPersonas() {
-  const data = await api('/api/personas');
-  personas = data.personas ?? {};
-  renderPersonas();
+  try {
+    const data = await api('/api/personas');
+    personas = data.personas ?? {};
+    renderPersonas();
+  } catch (err) {
+    setMessage(personasMessageEl, err.message, true);
+  }
 }
 
 savePersonasButton.addEventListener('click', async () => {

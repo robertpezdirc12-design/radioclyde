@@ -85,11 +85,18 @@ export async function loadRotation() {
   el('rotation-history').replaceChildren(...data.recentlyPlayed.slice(0, 15).map(historyRow));
 }
 
+// app.js re-runs startLibraryView() on every visit to this tab -- bind the
+// DOM listener once so N visits don't stack N debounced reloads per keystroke.
+let bound = false;
+
 export function startLibraryView() {
-  el('library-search').addEventListener('input', () => {
-    clearTimeout(startLibraryView._t);
-    startLibraryView._t = setTimeout(loadLibrary, 300);
-  });
+  if (!bound) {
+    bound = true;
+    el('library-search').addEventListener('input', () => {
+      clearTimeout(startLibraryView._t);
+      startLibraryView._t = setTimeout(loadLibrary, 300);
+    });
+  }
   loadLibrary();
   loadRotation();
 }

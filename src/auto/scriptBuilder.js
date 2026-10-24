@@ -14,6 +14,15 @@
 // plays -- the clip and the transcript line stay in sync by construction.
 import { renderSlot, trackValues, currentValues, showName } from './templates.js';
 
+// Every dj segment carries the EXACT seed its template variant was drawn
+// with (script/format.js persists it as a `seed:` field; director/index.js
+// threads it into the no-model voice layer). This is what makes the clips
+// mode's documented promise true: auto/voice.js picks numbered takes with
+// the same FNV-1a hash over this same string, so when a persona has one
+// recorded take per template variant, take index and variant index coincide
+// and "what the transcript says" is "what the clip says". Without it the
+// director passed a made-up `${title}|${i}` seed that had nothing to do with
+// the variant draw -- text and audio rotated independently.
 function seedFor({ showId, date, track, slot }) {
   return [showId, date, track?.ratingKey ?? 'none', slot].join('|');
 }
@@ -32,20 +41,24 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     // handoff at the two-thirds position would otherwise promise weather
     // and deliver silence). The station name is config and always truthful;
     // the pool itself carries no fabricated condition/temperature.
+    const seed = seedFor({ showId, date, slot: 'weatherOffline' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'weatherOffline',
+      seed,
       body: renderSlot('weatherOffline', {
         values: { ...commonValues(), station: weather.station },
-        seed: seedFor({ showId, date, slot: 'weatherOffline' }),
+        seed,
       }),
     });
   } else if (weather) {
+    const seed = seedFor({ showId, date, slot: 'weatherNow' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'weatherNow',
+      seed,
       body: renderSlot('weatherNow', {
         values: {
           ...commonValues(),
@@ -53,20 +66,22 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
           condition: weather.condition,
           temp: weather.temp,
         },
-        seed: seedFor({ showId, date, slot: 'weatherNow' }),
+        seed,
       }),
     });
   }
 
   const news = rubricData.news;
   if (news?.headlines) {
+    const seed = seedFor({ showId, date, slot: 'newsHeadlines' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'newsHeadlines',
+      seed,
       body: renderSlot('newsHeadlines', {
         values: { ...commonValues(), headlines: news.headlines },
-        seed: seedFor({ showId, date, slot: 'newsHeadlines' }),
+        seed,
       }),
     });
   } else if (news?.source === 'fallback') {
@@ -74,37 +89,43 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     // line instead of vanishing. No headlines exist to render, so the pool
     // carries none; the honesty rules live in templates.newsOffline and
     // their guards in test/honestOffline.test.mjs.
+    const seed = seedFor({ showId, date, slot: 'newsOffline' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'newsOffline',
+      seed,
       body: renderSlot('newsOffline', {
         values: commonValues(),
-        seed: seedFor({ showId, date, slot: 'newsOffline' }),
+        seed,
       }),
     });
   }
 
   const sport = rubricData.sport;
   if (sport?.headlines) {
+    const seed = seedFor({ showId, date, slot: 'sportHeadlines' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'sportHeadlines',
+      seed,
       body: renderSlot('sportHeadlines', {
         values: { ...commonValues(), headlines: sport.headlines },
-        seed: seedFor({ showId, date, slot: 'sportHeadlines' }),
+        seed,
       }),
     });
   } else if (sport?.source === 'fallback') {
     // P4 #30: same honest contract as novice -- see templates.sportOffline.
+    const seed = seedFor({ showId, date, slot: 'sportOffline' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'sportOffline',
+      seed,
       body: renderSlot('sportOffline', {
         values: commonValues(),
-        seed: seedFor({ showId, date, slot: 'sportOffline' }),
+        seed,
       }),
     });
   }
@@ -112,13 +133,15 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   for (const [index, event] of (rubricData.onThisDay?.events ?? []).entries()) {
     const female = event.sex === 'female';
     const kindKey = event.kind === 'death' ? (female ? 'deathF' : 'death') : female ? 'birthF' : 'birth';
+    const seed = seedFor({ showId, date, slot: `obzorje:${index}` });
     segments.push({
       type: 'dj',
       persona,
       slot: 'obzorje',
+      seed,
       body: renderSlot('obzorje', {
         values: { ...commonValues(), year: event.year, name: event.name, kindKey },
-        seed: seedFor({ showId, date, slot: `obzorje:${index}` }),
+        seed,
       }),
     });
   }
@@ -126,13 +149,15 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   // honest line keeps the rubric on air without inventing a single name or
   // year. A healthy response with events keeps the per-event loop above.
   if ((rubricData.onThisDay?.events ?? []).length === 0 && rubricData.onThisDay?.source === 'fallback') {
+    const seed = seedFor({ showId, date, slot: 'obzorjeOffline' });
     segments.push({
       type: 'dj',
       persona,
       slot: 'obzorjeOffline',
+      seed,
       body: renderSlot('obzorjeOffline', {
         values: commonValues(),
-        seed: seedFor({ showId, date, slot: 'obzorjeOffline' }),
+        seed,
       }),
     });
   }
@@ -143,13 +168,15 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   for (const [index, event] of (rubricData.onThisDayMusic?.events ?? []).entries()) {
     const female = event.sex === 'female';
     const kindKey = event.kind === 'death' ? (female ? 'deathF' : 'death') : female ? 'birthF' : 'birth';
+    const seed = seedFor({ showId, date, slot: `obzorjeGlasba:${index}` });
     segments.push({
       type: 'dj',
       persona,
       slot: 'obzorjeGlasba',
+      seed,
       body: renderSlot('obzorjeGlasba', {
         values: { ...commonValues(), year: event.year, name: event.name, kindKey },
-        seed: seedFor({ showId, date, slot: `obzorjeGlasba:${index}` }),
+        seed,
       }),
     });
   }
@@ -162,10 +189,12 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   const poll = rubricData.poll;
   if (poll?.question) {
     const hasVotes = (poll.total ?? 0) > 0 && poll.leader != null;
+    const seed = seedFor({ showId, date, slot: hasVotes ? 'pollResults' : 'pollRunning' });
     segments.push({
       type: 'dj',
       persona,
       slot: hasVotes ? 'pollResults' : 'pollRunning',
+      seed,
       body: hasVotes
         ? renderSlot('pollResults', {
             values: {
@@ -175,11 +204,11 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
               leaderVotes: poll.leaderVotes,
               total: poll.total,
             },
-            seed: seedFor({ showId, date, slot: 'pollResults' }),
+            seed,
           })
         : renderSlot('pollRunning', {
             values: { ...commonValues(), question: poll.question },
-            seed: seedFor({ showId, date, slot: 'pollRunning' }),
+            seed,
           }),
     });
   }
@@ -190,19 +219,22 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   // collector already windowed/truncated the data, the templates only
   // dress it. No fresh approvals -> no segments (skip-not-fail).
   for (const [index, shout] of (rubricData.listeners?.shouts ?? []).entries()) {
+    const slot = shout.kind === 'dedication' ? 'dedicationShout' : 'requestShout';
+    const seed = seedFor({ showId, date, slot: `${slot}:${index}` });
     segments.push({
       type: 'dj',
       persona,
-      slot: shout.kind === 'dedication' ? 'dedicationShout' : 'requestShout',
+      slot,
+      seed,
       body:
         shout.kind === 'dedication'
           ? renderSlot('dedicationShout', {
               values: { ...commonValues(), message: shout.message, from: shout.from },
-              seed: seedFor({ showId, date, slot: `dedicationShout:${index}` }),
+              seed,
             })
           : renderSlot('requestShout', {
               values: { ...commonValues(), artist: shout.artist, title: shout.title, from: shout.from },
-              seed: seedFor({ showId, date, slot: `requestShout:${index}` }),
+              seed,
             }),
     });
   }
@@ -231,26 +263,30 @@ function triviaSegments({ trivia, track, index, persona, commonValues, showId, d
   const artistFact = state.artistFactsByFold.get(key);
   if (artistFact && !state.usedArtistFolds.has(key)) {
     state.usedArtistFolds.add(key);
+    const seed = `${trackSeed}|triviaArtist:${index}`;
     segments.push({
       type: 'dj',
       persona,
       slot: 'triviaArtist',
+      seed,
       body: renderSlot('triviaArtist', {
         values: { ...commonValues(), fact: artistFact.text },
-        seed: `${trackSeed}|triviaArtist:${index}`,
+        seed,
       }),
     });
     return segments;
   }
   const generalFact = state.generalFactQueue.shift();
   if (generalFact) {
+    const seed = `${trackSeed}|triviaGeneral:${index}`;
     segments.push({
       type: 'dj',
       persona,
       slot: 'triviaGeneral',
+      seed,
       body: renderSlot('triviaGeneral', {
         values: { ...commonValues(), fact: generalFact.text },
-        seed: `${trackSeed}|triviaGeneral:${index}`,
+        seed,
       }),
     });
   }
@@ -291,14 +327,16 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
   // templates render instead -- same slots, no brief change needed.
   const quizQueue = [...(rubricData?.quiz?.questions ?? [])];
 
+  const openSeed = seedFor({ showId, date, slot: 'open' });
   segments.push({
     type: 'dj',
     persona: primaryPersona,
     slot: 'open',
+    seed: openSeed,
     body: renderSlot('open', {
       values: commonValues(),
       block: undefined, // resolved inside renderSlot from the wall clock
-      seed: seedFor({ showId, date, slot: 'open' }),
+      seed: openSeed,
     }),
   });
 
@@ -320,13 +358,15 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     const teaseArtist = tracks[n - 1]?.artist;
     if (teaseArtist) {
       const teaseSlot = brief.hasQuiz ? 'teaseQuiz' : 'tease';
+      const teaseSeed = seedFor({ showId, date, slot: 'tease' });
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: teaseSlot,
+        seed: teaseSeed,
         body: renderSlot(teaseSlot, {
           values: { ...commonValues(), artist: teaseArtist },
-          seed: seedFor({ showId, date, slot: 'tease' }),
+          seed: teaseSeed,
         }),
       });
     }
@@ -348,58 +388,68 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     const quizItem = i === quizIndex ? quizQueue.shift() ?? null : null;
 
     if (i === quizIndex) {
+      const quizIntroSeed = `${trackSeed}|quizIntro`;
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'quizIntro',
+        seed: quizIntroSeed,
         body: quizItem
           ? renderSlot('quizQuestion', {
               values: { ...commonValues(), question: quizItem.prompt },
-              seed: `${trackSeed}|quizIntro`,
+              seed: quizIntroSeed,
             })
-          : renderSlot('quizIntro', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizIntro` }),
+          : renderSlot('quizIntro', { values: { ...commonValues(), ...trackValues(track) }, seed: quizIntroSeed }),
       });
     } else {
+      const introSeed = `${trackSeed}|intro`;
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'intro',
-        body: renderSlot('intro', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|intro` }),
+        seed: introSeed,
+        body: renderSlot('intro', { values: { ...commonValues(), ...trackValues(track) }, seed: introSeed }),
       });
     }
 
     segments.push({ type: 'track', artist: track.artist, title: track.title, ratingKey: track.ratingKey });
 
     if (i === quizIndex) {
+      const quizRevealSeed = `${trackSeed}|quizReveal`;
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'quizReveal',
+        seed: quizRevealSeed,
         body: quizItem
           ? renderSlot('quizAnswer', {
               values: { ...commonValues(), answer: quizItem.answer },
-              seed: `${trackSeed}|quizReveal`,
+              seed: quizRevealSeed,
             })
-          : renderSlot('quizReveal', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizReveal` }),
+          : renderSlot('quizReveal', { values: { ...commonValues(), ...trackValues(track) }, seed: quizRevealSeed }),
       });
     } else {
+      const recapSeed = `${trackSeed}|recap`;
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'recap',
+        seed: recapSeed,
         body: renderSlot('recap', {
           values: { ...commonValues(), ...trackValues(track), track },
-          seed: `${trackSeed}|recap`,
+          seed: recapSeed,
         }),
       });
     }
 
     if (i === weatherAfterIndex && weatherAfterIndex !== n - 1) {
+      const handoffSeed = `${trackSeed}|handoff`;
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'handoff',
-        body: renderSlot('handoff', { values: commonValues(), seed: `${trackSeed}|handoff` }),
+        seed: handoffSeed,
+        body: renderSlot('handoff', { values: commonValues(), seed: handoffSeed }),
       });
       segments.push({
         type: 'live',
@@ -410,14 +460,16 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     }
   }
 
+  const closeSeed = seedFor({ showId, date, slot: 'close' });
   segments.push({
     type: 'dj',
     persona: primaryPersona,
     slot: 'close',
+    seed: closeSeed,
     body: renderSlot('close', {
       values: commonValues(),
       block: undefined,
-      seed: seedFor({ showId, date, slot: 'close' }),
+      seed: closeSeed,
     }),
   });
 

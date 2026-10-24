@@ -25,38 +25,42 @@ let scanPromise = null;
 
 async function librarySnapshot() {
   if (scanCache && Date.now() - scanCache.at < SCAN_CACHE_TTL_MS) return scanCache;
-  if (!scanPromise) {
-    scanPromise = (async () => {
-      const dirs = localMusicDirs();
-      const tracks = dirs.length ? await allLocalTracks() : [];
-      const genres = new Set();
-      for (const t of tracks) for (const g of t.genre ?? []) genres.add(g);
-      return {
-        at: Date.now(),
-        dirs,
-        total: tracks.length,
-        genres: [...genres].sort(),
-        // Sorted so the studio table is stable across polls; the full list is
-        // capped by the route below, sorted rows make the cap predictable.
-        tracks: tracks
-          .map((t) => ({
-            ratingKey: t.ratingKey,
-            artist: t.artist,
-            title: t.title,
-            album: t.album ?? '',
-            genres: t.genre ?? [],
-            durationSeconds: t.durationMs ? t.durationMs / 1000 : null,
-          }))
-          .sort((a, b) => (a.artist ?? '').localeCompare(b.artist ?? '') || (a.title ?? '').localeCompare(b.title ?? '')),
-      };
-    })();
-    try {
-      scanCache = await scanPromise;
-    } finally {
-      scanPromise = null;
-    }
+  if (scanPromise) return scanPromise; // someone is already scanning -- ride their result
+  scanPromise = (async () => {
+    const dirs = localMusicDirs();
+    const tracks = dirs.length ? await allLocalTracks() : [];
+    const genres = new Set();
+    for (const t of tracks) for (const g of t.genre ?? []) genres.add(g);
+    return {
+      at: Date.now(),
+      dirs,
+      total: tracks.length,
+      genres: [...genres].sort(),
+      // Sorted so the studio table is stable across polls; the full list is
+      // capped by the route below, sorted rows make the cap predictable.
+      tracks: tracks
+        .map((t) => ({
+          ratingKey: t.ratingKey,
+          artist: t.artist,
+          title: t.title,
+          album: t.album ?? '',
+          genres: t.genre ?? [],
+          durationSeconds: t.durationMs ? t.durationMs / 1000 : null,
+        }))
+        .sort((a, b) => (a.artist ?? '').localeCompare(b.artist ?? '') || (a.title ?? '').localeCompare(b.title ?? '')),
+    };
+  })();
+  try {
+    // The cache-FILLING caller must resolve to the snapshot itself: the old
+    // "finally { scanPromise = null } ... return scanPromise" shape returned
+    // null to exactly that caller (the finally nulled the variable before the
+    // trailing return read it) -- the first GET /api/library after boot or
+    // TTL expiry answered 500 with a TypeError on snap.tracks.
+    scanCache = await scanPromise;
+    return scanCache;
+  } finally {
+    scanPromise = null;
   }
-  return scanPromise;
 }
 
 export function registerStudioLibraryApi(fastify) {

@@ -91,6 +91,10 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
       if (!body) issues.push(`${label}: dj segment has no body text to speak.`);
       // slot is optional auto-radio metadata (open/intro/recap/...); plain
       // scripts have none and everything downstream treats it as "dj".
+      // seed is the optional auto-radio variant-draw seed (scriptBuilder.js
+      // stamps it so clips-mode takes stay aligned with the written text --
+      // see that file's header). Both ride through parse/render unchanged;
+      // absent = null, and AI-mode scripts simply never carry one.
       // segment is the optional WRIT-FM content-type tag (P2 #7) -- validated
       // against the closed set in script/segments.js; absent = the taxonomy
       // infers from slot/position, so existing scripts classify unchanged.
@@ -100,7 +104,7 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
           `${label}: unknown "segment:" tag "${segment}" -- must be one of the taxonomy in script/segments.js (show_intro, show_outro, listener_mailbag, deep_dive, story, music_essay, interview, panel, banter, ...).`
         );
       }
-      segments.push({ type, persona, body, slot: fields.slot ?? null, segment });
+      segments.push({ type, persona, body, slot: fields.slot ?? null, seed: fields.seed ?? null, segment });
     } else if (type === 'track') {
       const { artist, title: trackTitle, ratingKey } = fields;
       if (!artist) issues.push(`${label}: track segment missing "artist:".`);
@@ -188,6 +192,7 @@ export function renderScript({ title, durationMinutes, segments }) {
         'type: dj',
         `persona: ${seg.persona}`,
         ...(seg.slot ? [`slot: ${seg.slot}`] : []),
+        ...(seg.seed ? [`seed: ${seg.seed}`] : []),
         ...(seg.segment ? [`segment: ${seg.segment}`] : []),
         '',
         seg.body.trim(),

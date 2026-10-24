@@ -38,8 +38,13 @@ needed one config. A phone moves — so this app stores two named profiles
 (`com.radioclyde.mobile.settings.ServerProfile`/`ProfileRepository`) and
 picks whichever is actually reachable right now:
 
-- **Internal**: host + port only (e.g. `192.168.1.159:8000`), plain HTTP,
-  no credentials — the trusted-LAN path.
+- **Internal**: host + port only (e.g. `yourserver.lan:8000`), plain HTTP,
+  no credentials — the trusted-LAN path. Use a hostname (`.lan`/`.local`,
+  a Tailscale MagicDNS `.ts.net` name, or `.home.arpa`), never a bare IP:
+  the shared `res/xml/network_security_config.xml` permits cleartext only
+  for those domain suffixes, and Android's `<domain-config>` entries do
+  not match IP literals — an IP-literal host is silently blocked at
+  runtime.
 - **External**: host + username + password, HTTPS by default, **no port
   field** — always the scheme's standard port (443), since an
   internet-facing deployment realistically sits behind a reverse proxy/TLS

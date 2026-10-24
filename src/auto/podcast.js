@@ -239,6 +239,12 @@ export function runPodcastExport({ dir, audio, title, date, link, out, station =
 
   const episodeTitle = title ?? parsedTitle ?? path.basename(dir);
   const episodeDate = date ?? context.date ?? new Date().toISOString().slice(0, 10);
+  // Fail loud but USEFUL: a malformed --date used to surface as a bare
+  // RangeError out of Invalid Date .toISOString() with no hint of which
+  // input caused it. This is an operator CLI -- name the bad value.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(episodeDate)) || Number.isNaN(new Date(`${episodeDate}T12:00:00Z`).getTime())) {
+    throw new Error(`Invalid episode date "${episodeDate}" -- expected YYYY-MM-DD.`);
+  }
   const durationMinutes = context.durationMinutes ?? 30;
 
   const outDir = out ?? path.join(dir, 'podcast');

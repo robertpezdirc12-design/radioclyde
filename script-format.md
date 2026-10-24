@@ -58,6 +58,8 @@ outros, and handoffs between personas are all just this.
 ## DJ — Ryan
 type: dj
 persona: ryan
+slot: intro                      (optional — auto-radio metadata, never authored by hand)
+seed: myshow|2026-10-24|12345|intro   (optional — auto-radio only, see below)
 segment: listener_mailbag        (optional — see "Segment taxonomy" below)
 
 Alright everyone, kicking off Friday drivetime!
@@ -65,6 +67,14 @@ Alright everyone, kicking off Friday drivetime!
 
 The director does nothing but synthesize this text verbatim in `ryan`'s voice. Write it
 exactly as it should be spoken — no stage directions, no meta-commentary.
+
+`slot:` and `seed:` are auto-radio machinery, stamped by `src/auto/scriptBuilder.js`
+and never written by hand: `slot` names the broadcast moment (open/intro/recap/...) so
+clips-mode voice files can be keyed by it, and `seed` is the exact variant-draw seed
+the template render used — the no-model voice layer (`src/auto/voice.js`) hashes the
+same string to pick numbered takes, keeping the transcript line and the aired clip in
+sync. Both round-trip through parse/render untouched; LLM-produced scripts simply
+carry neither.
 
 Chatterbox-Turbo (the TTS engine this station runs) understands a handful of inline
 paralinguistic tags and renders them as the actual sound rather than speaking the word:

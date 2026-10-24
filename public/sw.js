@@ -54,7 +54,7 @@ self.addEventListener('fetch', (event) => {
   if (PRECACHE.includes(url.pathname)) {
     event.respondWith(
       caches.open(VERSION).then(async (cache) => {
-        const cached = await cache.match(url.pathname === '/' ? '/' : url.pathname);
+        const cached = await cache.match(url.pathname);
         const refresh = fetch(event.request)
           .then((res) => {
             if (res && res.ok) cache.put(url.pathname, res.clone());
@@ -65,8 +65,8 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
-  // Non-shell same-origin GETs (dj-photos, /api/art under its own routes,
-  // embed.html) pass through -- small, often uncacheable, not worth pinning.
+  // Non-shell same-origin GETs (dj-photos and other non-shell files) pass
+  // through -- small, often uncacheable, not worth pinning.
 });
 
 // ---------- P5 #4: push obvestila ob zaciku terminirane oddaje ----------

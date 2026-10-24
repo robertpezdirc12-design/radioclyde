@@ -72,7 +72,18 @@ async function main() {
   await fastify.listen({ port: config.web.port, host: '0.0.0.0' });
   log(`Listening on 0.0.0.0:${config.web.port}`);
 
-  startScheduler();
+  // Guarded like scheduler.js's own logStartupStatus(): a registration-time
+  // throw inside startScheduler() (the F2 class of defect -- a config block
+  // that doesn't exist at all) must not escape into main() here, because
+  // main() has ALREADY listened successfully at this point and its .catch()
+  // would set exitCode on a process whose stream proxy is live and serving.
+  // The station keeps streaming; the scheduler failure is loud in the log
+  // where the operator actually looks.
+  try {
+    startScheduler();
+  } catch (err) {
+    log(`startScheduler ERROR: ${err.stack || err.message}`);
+  }
 }
 
 main().catch((err) => {

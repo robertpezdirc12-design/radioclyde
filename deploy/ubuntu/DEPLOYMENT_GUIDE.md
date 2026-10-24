@@ -94,6 +94,8 @@ sudo nano /opt/radioclyde/config/radio.liq
 sudo cp /opt/radioclyde/.env.template /opt/radioclyde/.env
 ```
 
+**Opozorilo — pred prvim zagonom dodajte gesla:** izposojeni `config.linux.json` namerno ne vsebuje blokov `web.listeners` (gesla za dostop poslušalcev do web UI/API) in `studio.users` (gesla za dostop do studia). Po kopiranju v `/opt/radioclyde/app/config.json` dodajte oba bloka ročno — obliko glejte v `config.example.json`. Brez njih web UI in studio po prijavnem oknu nista dosegljiva (401 — ni enega veljavnega uporabnika), medtem ko nginx `/stream` že oddaja javno. Basic auth geslo potuje v vsaki zahtevi (Base64, ne zgoščeno), zato izberite močno geslo.
+
 ### 3.5 Namesti npm odvisnosti (že narejeno v install.sh)
 ```bash
 cd /opt/radioclyde/app

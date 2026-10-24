@@ -49,7 +49,7 @@ function every(minutes, label, fn) {
 function logStartupStatus() {
   const schedule = scheduleUtil.loadSchedule();
   const now = new Date();
-  const horizonMinutes = Math.max(config.schedule.scriptLeadTimeMinutes ?? 120, 24 * 60);
+  const horizonMinutes = Math.max(config.schedule?.scriptLeadTimeMinutes ?? 120, 24 * 60);
   const occurrences = scheduleUtil
     .upcomingOccurrences(schedule, now, horizonMinutes)
     .sort((a, b) => a.minutesUntil - b.minutesUntil);
@@ -68,14 +68,14 @@ function logStartupStatus() {
       status = 'directed -- ready to air';
     } else if (readiness === 'script') {
       status =
-        minutesUntil <= (config.schedule.directLeadTimeMinutes ?? 15)
+        minutesUntil <= (config.schedule?.directLeadTimeMinutes ?? 15)
           ? 'script ready -- direct/audio job should pick it up this tick'
-          : `script ready, awaiting audio creation (director triggers ${config.schedule.directLeadTimeMinutes}min before air)`;
+          : `script ready, awaiting audio creation (director triggers ${config.schedule?.directLeadTimeMinutes}min before air)`;
     } else {
       status =
-        minutesUntil <= (config.schedule.scriptLeadTimeMinutes ?? 120)
+        minutesUntil <= (config.schedule?.scriptLeadTimeMinutes ?? 120)
           ? 'no script yet -- producer should pick it up this tick'
-          : `not yet due (script production triggers ${config.schedule.scriptLeadTimeMinutes}min before air)`;
+          : `not yet due (script production triggers ${config.schedule?.scriptLeadTimeMinutes}min before air)`;
     }
     log(`  "${show.id}" airs ${weekday} ${date} ${show.startTime} (in ${minutesUntil}min): ${status}`);
   }
@@ -101,10 +101,19 @@ export function startScheduler() {
   // overlaps their TTS/LLM work), but startup itself doesn't block on it.
   rebuildIncompleteOccurrences().catch((err) => log(`Startup rebuild-check ERROR: ${err.stack || err.message}`));
 
-  every(config.schedule.scheduleWatchIntervalMinutes ?? 1, 'schedule_watch', checkScheduleChanged);
-  every(config.schedule.scriptCheckIntervalMinutes, 'schedule_scripts', checkAndTriggerScripts);
-  every(config.schedule.directCheckIntervalMinutes, 'schedule_direct', checkAndTriggerDirect);
-  every(config.schedule.prewarmCheckIntervalMinutes ?? config.schedule.scriptCheckIntervalMinutes, 'schedule_prewarm', checkAndTriggerPrewarmAudio);
+  every(config.schedule?.scheduleWatchIntervalMinutes ?? 1, 'schedule_watch', checkScheduleChanged);
+  // F2 class of defect, eliminated everywhere below: every cadence knob is
+  // optional-chained + defaulted. A hand-edited config missing one of these
+  // keys used to read as undefined -> undefined * 60000 = NaN, and
+  // setInterval(NaN) clamps to 1 ms -- a runaway tick storm. (A missing whole
+  // BLOCK, e.g. no "cleanup" key at all, was even worse: a TypeError at
+  // registration that silently killed every job registered after it, inside
+  // startScheduler() where every()'s per-tick try/catch can't help.) Defaults
+  // are the shipped config.example.json values, so a complete config boots
+  // byte-identically to before.
+  every(config.schedule?.scriptCheckIntervalMinutes ?? 15, 'schedule_scripts', checkAndTriggerScripts);
+  every(config.schedule?.directCheckIntervalMinutes ?? 2, 'schedule_direct', checkAndTriggerDirect);
+  every(config.schedule?.prewarmCheckIntervalMinutes ?? config.schedule?.scriptCheckIntervalMinutes ?? 15, 'schedule_prewarm', checkAndTriggerPrewarmAudio);
   // Kept far tighter than the other jobs' intervals -- this is the one that
   // gates on-air continuity: show_source's playlist (radio.liq) empties out
   // the instant a show's real audio ends, and fallback() drops to filler
@@ -112,10 +121,10 @@ export function startScheduler() {
   // noticing and rewriting now_playing.m3u is audible dead-air-filler on
   // every single transition (listener report, 2026-08-27). The job itself is
   // cheap (a couple of small local file reads), so polling this often is fine.
-  every(config.schedule.nowPlayingCheckIntervalMinutes, 'now_playing', updateNowPlaying);
-  every(config.filler.regenerateIntervalMinutes, 'filler', generateFillerPlaylist);
-  every(config.cleanup.intervalMinutes, 'cleanup', cleanupOldShows);
-  every(config.backup.intervalMinutes, 'backup', backupStation);
+  every(config.schedule?.nowPlayingCheckIntervalMinutes ?? 0.1, 'now_playing', updateNowPlaying);
+  every(config.filler?.regenerateIntervalMinutes ?? 360, 'filler', generateFillerPlaylist);
+  every(config.cleanup?.intervalMinutes ?? 360, 'cleanup', cleanupOldShows);
+  every(config.backup?.intervalMinutes ?? 1440, 'backup', backupStation);
   // ?. matters: config.linux.json ships WITHOUT a chatterbox block (auto-radio
   // installs have no Chatterbox to restart), and reading
   // config.chatterbox.restartIntervalMinutes unguarded threw TypeError at boot

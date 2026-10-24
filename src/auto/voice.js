@@ -85,9 +85,15 @@ function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Same FNV-1a as templates.js -- picking clip index N with the same seed that
-// picked template variant N keeps "what is written" and "what is played"
-// aligned when a user records several takes of a slot.
+// Same FNV-1a as templates.js -- and, crucially, over the SAME seed string:
+// scriptBuilder.js stamps the exact variant-draw seed onto each dj segment
+// (persisted as `seed:` in script.md, threaded through director/index.js and
+// prewarmAudio.js into synthesizeNoModelSpeech). Hashing that same string
+// here means: when a persona has one numbered take per template variant,
+// take index === variant index (same hash, same modulus) and the aired clip
+// matches the transcript line by construction. The old form hashed
+// "persona|slot|" + a director-invented seed over a DIFFERENT pool -- text
+// and takes rotated independently, and the header's sync promise was false.
 function hash(seed) {
   let h = 0x811c9dc5;
   for (let i = 0; i < seed.length; i++) {
@@ -99,13 +105,23 @@ function hash(seed) {
 
 // Resolves the clip file for a persona+slot. Returns null when nothing
 // exists (caller decides whether that's fatal -- for the director it isn't).
+// `seed` is the scriptBuilder variant-draw seed (may be '' for callers
+// without one -- e.g. pre-generate-clips.mjs previewing a slot; a single
+// candidate file never hashes at all, so those callers are unaffected).
 export function resolveClipPath(persona, slot, seed = '') {
   const clipsDirName = config.autoRadio?.voice?.clipsDir ?? 'voice-clips';
   const baseDir = path.isAbsolute(clipsDirName) ? clipsDirName : path.join(config.dataDir, clipsDirName);
   for (const dir of [path.join(baseDir, persona), path.join(baseDir, 'default')]) {
     const candidates = clipCandidates(dir, slot);
     if (candidates.length > 0) {
-      const chosen = candidates.length === 1 ? candidates[0] : candidates[hash(`${persona}|${slot}|${seed}`) % candidates.length];
+      // Numbered takes first, plain <slot>.<ext> last: with N numbered takes
+      // recorded for an N-variant template pool, candidates.length ===
+      // pool.length and hash(seed) % N picks the take that matches the
+      // variant the same hash drew in templates.js's variantFrom(). The
+      // plain fallback rides at the END of the pool, so a mixed
+      // takes-plus-plain setup stays deterministic too (just not exactly
+      // index-aligned -- plain is the catch-all by design).
+      const chosen = candidates.length === 1 ? candidates[0] : candidates[hash(seed) % candidates.length];
       log(`voice/clips: ${persona}/${slot} -> ${path.basename(chosen)}`);
       return chosen;
     }

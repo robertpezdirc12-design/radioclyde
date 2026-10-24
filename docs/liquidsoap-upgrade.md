@@ -100,6 +100,13 @@ pot) v rootfs. Podrobnosti v worklogu Task 26.
 
 ## Koraki na boxu
 
+**Namestitvena pot**: `radio.liq` vse pomožne procese (`deadair/recordEvent.js`,
+`plex/scrobbleTrack.js`) in branje `config.json` izpelje iz spremenljivke
+okolja `RADIOCLYDE_HOME` (ne nastavljena = izvirna pot `/home/ai/radioclyde`,
+torej referenčni box deluje nespremenjeno). Namestitev na drugi poti (npr.
+`/opt/radioclyde`) v systemd enoto doda `Environment=RADIOCLYDE_HOME=/opt/radioclyde`
+— brez ročnega prestavljanja poti po datoteki.
+
 1. **Varnostna kopija trenutnega stanja**: `liquidsoap --check radio.liq`
    (mora biti čisto), zapiši verzijo (`liquidsoap --version`), shrani
    delujočo binarno (npr. `which liquidsoap` + kopija) za povratni korak.

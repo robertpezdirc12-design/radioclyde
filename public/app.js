@@ -65,7 +65,7 @@ const SL_DAYS = { monday: 'Ponedeljek', tuesday: 'Torek', wednesday: 'Sreda', th
 let streamStarted = false;
 let trackIsPlaying = false;
 let currentTrackTiming = null; // { playedAt epoch ms, durationMs } -- ticked client-side between polls
-let currentTrackKey = null; // "artist\n=title" like-key of the airing track
+let currentTrackKey = null; // [artist, title] of the airing track -- spread into isFav()/toggleFav(); the localStorage key itself is built by trackKey()
 // Inputs for the deterministic request-form chips: the currently airing
 // track plus the unique artists of the last history fetch. Both come from
 // data the page already polls -- no extra requests, no randomness.
@@ -136,7 +136,12 @@ function toggleFav(artist, title) {
 }
 
 function syncLikeButtons() {
-  const liked = currentTrackKey ? isFav(...currentTrackKey.split(' — ')) : false;
+  // currentTrackKey is the [artist, title] array assigned in renderNowPlaying
+  // (line ~266) -- spread it straight through. The old .split(' — ') form
+  // assumed a string and threw on every playing track; the TypeError was
+  // swallowed by fetchNowPlaying's catch, silently skipping the like-button
+  // state and every later step of that poll tick.
+  const liked = currentTrackKey ? isFav(...currentTrackKey) : false;
   els.likeButton.setAttribute('aria-pressed', String(liked));
   els.likeButton.title = liked ? 'Odstrani iz priljubljenih (lokalno)' : 'Shrani skladbo med priljubljene (lokalno v brskalniku)';
 }
@@ -717,6 +722,14 @@ applyVolume();
 els.likeButton.addEventListener('click', () => {
   if (!currentTrackKey) return;
   toggleFav(...currentTrackKey);
+});
+
+// A 404 on the hero art (missing DJ photo or a track Plex has no cover for)
+// shows the fallback tile instead of a torn frame -- mirrors the history-row
+// handler's hide-on-error idea, attached once for this single hero element.
+els.art.addEventListener('error', () => {
+  els.art.hidden = true;
+  els.artFallback.hidden = false;
 });
 
 // ---------- tabs ----------

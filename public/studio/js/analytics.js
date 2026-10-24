@@ -196,8 +196,15 @@ async function loadAnalytics() {
   }
 }
 
+// app.js re-runs startAnalyticsView() on every visit to this tab -- bind the
+// DOM listeners once so N visits don't fire N identical requests per click.
+let bound = false;
+
 export function startAnalyticsView() {
-  el('analytics-refresh').addEventListener('click', () => loadAnalytics());
-  el('analytics-range').addEventListener('change', () => loadAnalytics());
+  if (!bound) {
+    bound = true;
+    el('analytics-refresh').addEventListener('click', () => loadAnalytics());
+    el('analytics-range').addEventListener('change', () => loadAnalytics());
+  }
   loadAnalytics();
 }

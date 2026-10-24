@@ -177,7 +177,12 @@ export async function directShow({ id, weekday, date, timeKey }) {
         // Track comes before this recap segment
         segTrack = currentTrack;
       }
-      const audioPath = await getDjAudio(i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`, segTrack);
+      // Seed threading (clips-mode text/take alignment): auto-mode scripts
+      // carry the scriptBuilder variant-draw seed on every dj segment
+      // (script.md `seed:` field); AI-mode scripts have none and fall back to
+      // the legacy positional seed. auto/voice.js hashes THIS string to pick
+      // numbered takes -- same hash templates.js used to pick the variant.
+      const audioPath = await getDjAudio(i, seg.persona, seg.body, seg.slot ?? 'dj', seg.seed ?? `${parsed.title}|${i}`, segTrack);
       if (!audioPath) {
         log(`[${id}] [${speechSegmentSeq}/${totalSpeechSegments}] dj (${seg.persona}): SKIPPED (no-model voice mode, no audio) -- "${preview(seg.body)}"`);
         continue;

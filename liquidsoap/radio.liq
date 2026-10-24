@@ -12,11 +12,20 @@
 # conversation with Alan, 2026-07-27 (reversing the prior "goes silent"
 # decision from 2026-07-26).
 
+# Install prefix: every spawned helper (deadair/recordEvent.js,
+# plex/scrobbleTrack.js) and the config.json read live under this root.
+# RADIOCLYDE_HOME lets a deploy point the engine at its own install (e.g.
+# /opt/radioclyde) WITHOUT editing this file; unset, it keeps the original
+# dev-box path so the reference install resolves the same paths as before.
+# getenv returns "" for an unset variable on Liquidsoap 2.x -- if a build ever
+# disagrees, the fix is one line here, not six scattered literals.
+let home = if getenv("RADIOCLYDE_HOME") == "" then "/home/ai/radioclyde" else getenv("RADIOCLYDE_HOME") end
+
 let json.parse (config : {
   dataDir: string,
   icecast: {sourceHost: string, port: int, mount: string, sourcePassword: string, bitrate: int},
   liquidsoap: {telnetHost: string, telnetPort: int}
-}) = file.contents("/home/ai/radioclyde/config.json")
+}) = file.contents(home ^ "/config.json")
 
 # Loopback-only, matching src/server/auth.js's trust model -- the studio
 # admin's Skip / Force Next controls (src/liquidsoap/telnetClient.js) are
@@ -215,19 +224,19 @@ emergency_source = playlist(id="imaging_emergency", reload_mode="watch", mode="n
 # config.json without any dead-air block still boots.
 def dead_air_program() =
   thread.run(fast=false, fun () ->
-    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js program_blank > /dev/null 2>&1 &")))
+    ignore(process.run("node " ^ home ^ "/src/deadair/recordEvent.js program_blank > /dev/null 2>&1 &")))
 end
 def sound_program() =
   thread.run(fast=false, fun () ->
-    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js program_sound > /dev/null 2>&1 &")))
+    ignore(process.run("node " ^ home ^ "/src/deadair/recordEvent.js program_sound > /dev/null 2>&1 &")))
 end
 def dead_air_total() =
   thread.run(fast=false, fun () ->
-    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js air_blank > /dev/null 2>&1 &")))
+    ignore(process.run("node " ^ home ^ "/src/deadair/recordEvent.js air_blank > /dev/null 2>&1 &")))
 end
 def sound_total() =
   thread.run(fast=false, fun () ->
-    ignore(process.run("node /home/ai/radioclyde/src/deadair/recordEvent.js air_sound > /dev/null 2>&1 &")))
+    ignore(process.run("node " ^ home ^ "/src/deadair/recordEvent.js air_sound > /dev/null 2>&1 &")))
 end
 
 radio = fallback(track_sensitive=false, [show_source, filler_source])
@@ -370,7 +379,7 @@ def scrobble_on_metadata(m) =
   dj = m["dj"]
   if p != "" then
     thread.run(fast=false, fun () ->
-      ignore(process.run("node /home/ai/radioclyde/src/plex/scrobbleTrack.js " ^ process.quote(p) ^ " " ^ process.quote(dj) ^
+      ignore(process.run("node " ^ home ^ "/src/plex/scrobbleTrack.js " ^ process.quote(p) ^ " " ^ process.quote(dj) ^
         " > /dev/null 2>&1 &"))
     )
   end

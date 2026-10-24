@@ -14,11 +14,21 @@ function ensureHistoryFile() {
 
 function readEntries() {
   ensureHistoryFile();
-  return fs
-    .readFileSync(config.paths.historyFile, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+  // Per-line guard, same contract as auto/rules.js's read of the very same
+  // file: a torn final line (crash mid-append) used to throw here and take
+  // down EVERY AI-mode producer run (recentlyPlayedRatingKeys is the first
+  // thing buildTrackQueue consults) -- auto mode already survived it, the
+  // twin pipelines now agree. Torn lines are skipped, never fatal.
+  const entries = [];
+  for (const line of fs.readFileSync(config.paths.historyFile, 'utf8').split('\n')) {
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      // skip torn line
+    }
+  }
+  return entries;
 }
 
 // Rolling window, not a permanent ban: a narrow theme (single artist, or a

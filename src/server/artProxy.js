@@ -6,6 +6,14 @@ import { getTrackByRatingKey } from '../plex/tracks.js';
 
 const log = createLogger('web');
 
+// Plex rating keys are digits (older Plex: numeric strings; some installs
+// prefix a music-"library" prefix, still alphanumeric) -- the same
+// reject-before-path.join discipline djPhotoProxy.js and showLogoProxy.js
+// already apply to their params. Fastify decodes %2F in route params, so an
+// unvalidated key here used to reach path.join as "../.." and let
+// /api/art/..%2F..%2Ffoo read arbitrary *.jpg files outside the art cache.
+const RATING_KEY_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 function cachePath(ratingKey) {
   return path.join(config.paths.artCacheDir, `${ratingKey}.jpg`);
 }
@@ -17,6 +25,9 @@ function cachePath(ratingKey) {
 export function registerArtRoute(fastify) {
   fastify.get('/api/art/:ratingKey', async (request, reply) => {
     const { ratingKey } = request.params;
+    if (typeof ratingKey !== 'string' || !RATING_KEY_PATTERN.test(ratingKey)) {
+      return reply.code(400).send();
+    }
     const cached = cachePath(ratingKey);
 
     if (fs.existsSync(cached)) {

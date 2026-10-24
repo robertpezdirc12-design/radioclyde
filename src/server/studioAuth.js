@@ -12,6 +12,7 @@
 // currently plain HTTP -- worth revisiting once the Cloudflare Tunnel
 // mentioned in auth.js's comments adds TLS.
 import { config } from '../config/index.js';
+import { credentialEqual } from '../lib/credentialEqual.js';
 import { registerStudioStaticRoutes } from './studioStatic.js';
 import { registerStudioShowsApi } from './studioShowsApi.js';
 import { registerStudioScheduleApi } from './studioScheduleApi.js';
@@ -27,25 +28,36 @@ import { registerStudioPushRoutes } from './studioPushApi.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+// Shared Basic-auth parsing + studio-credential check. Exported because the
+// public API surface has exactly two endpoints (POST /api/polls, POST
+// /api/polls/close -- see pollsApi.js) that are OWNER actions despite living
+// on the listener-authenticated surface; they gate on these same studio
+// credentials instead of getting their own realm. A listener credential must
+// not be able to open or close a poll.
+export function parseBasicAuth(header) {
+  if (!header || !header.startsWith('Basic ')) return null;
+  const decoded = Buffer.from(header.slice('Basic '.length), 'base64').toString('utf8');
+  const sepIndex = decoded.indexOf(':');
+  if (sepIndex === -1) return null;
+  return { username: decoded.slice(0, sepIndex), password: decoded.slice(sepIndex + 1) };
+}
+
+export function studioCredentialsValid(username, password) {
+  // credentialEqual: constant-time compare (see lib/credentialEqual.js).
+  return (config.studio.users ?? []).some(
+    (u) => credentialEqual(u.username, username) && credentialEqual(u.password, password)
+  );
+}
+
 function unauthorized(reply) {
   reply.header('WWW-Authenticate', 'Basic realm="radioclyde-studio"').code(401).send('Unauthorized');
 }
 
 export async function registerStudioRoutes(fastify) {
   fastify.addHook('onRequest', async (request, reply) => {
-    const header = request.headers.authorization;
-    if (!header || !header.startsWith('Basic ')) return unauthorized(reply);
-
-    const decoded = Buffer.from(header.slice('Basic '.length), 'base64').toString('utf8');
-    const sepIndex = decoded.indexOf(':');
-    if (sepIndex === -1) return unauthorized(reply);
-
-    const username = decoded.slice(0, sepIndex);
-    const password = decoded.slice(sepIndex + 1);
-    const authorized = (config.studio.users ?? []).some(
-      (u) => u.username === username && u.password === password
-    );
-    if (!authorized) return unauthorized(reply);
+    const creds = parseBasicAuth(request.headers.authorization);
+    if (!creds) return unauthorized(reply);
+    if (!studioCredentialsValid(creds.username, creds.password)) return unauthorized(reply);
   });
 
   // CSRF mitigation: a browser auto-replays cached Basic Auth credentials on

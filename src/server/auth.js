@@ -1,5 +1,6 @@
 import { config } from '../config/index.js';
 import { isTrustedIp } from '../lib/ipRange.js';
+import { credentialEqual } from '../lib/credentialEqual.js';
 
 // Single onRequest hook, registered before any routes in index.js, so it
 // gates the page, the API, and /stream uniformly -- no per-route auth code
@@ -26,8 +27,12 @@ import { isTrustedIp } from '../lib/ipRange.js';
 // ["/embed", "/embed.js", "/stream", "/api/now-playing", "/listen.m3u"]).
 // Prefix matching is deliberate: /embed also covers /embed's future query
 // strings; anything NOT listed still hits the credential check unchanged.
-// Stream paths here are read-only broadcast -- studio/* and the write APIs
-// must never appear in this list, and the embed page exposes nothing else.
+// Public paths are read-only broadcast -- studio/* and the write APIs must
+// never appear in this list, and the hook below ENFORCES that half of the
+// contract: only GET/HEAD may ride a public path anonymously. A too-broad
+// prefix like "/api" therefore exposes reads but never POST /api/requests
+// or the polls write endpoints -- the method gate turns a config mistake
+// into a smaller mistake instead of an anonymous write surface.
 export function publicPathsConfigured() {
   const paths = config.web.publicPaths;
   return Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.startsWith('/')) : [];
@@ -41,7 +46,8 @@ function isPublicPath(url) {
 export function registerAuthHook(fastify) {
   fastify.addHook('onRequest', async (request, reply) => {
     if (isTrustedIp(request.ip, config.web.trustedNetworks)) return;
-    if (isPublicPath(request.raw.url)) return;
+    const readOnly = request.method === 'GET' || request.method === 'HEAD';
+    if (readOnly && isPublicPath(request.raw.url)) return;
 
     const header = request.headers.authorization;
     if (!header || !header.startsWith('Basic ')) {
@@ -54,8 +60,10 @@ export function registerAuthHook(fastify) {
 
     const username = decoded.slice(0, sepIndex);
     const password = decoded.slice(sepIndex + 1);
+    // credentialEqual: constant-time compare, so a caller can't time-resonate
+    // the password byte by byte (plain === short-circuits on the first diff).
     const authorized = (config.web.listeners ?? []).some(
-      (l) => l.username === username && l.password === password
+      (l) => credentialEqual(l.username, username) && credentialEqual(l.password, password)
     );
     if (!authorized) return unauthorized(reply);
   });

@@ -28,23 +28,37 @@ function renderTable() {
   );
   tableBodyEl.innerHTML = '';
   for (const show of filtered) {
+    // Plain textContent cells -- titles/ids/personas come from
+    // user-editable files, so they must never round-trip through innerHTML.
     const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${show.title}</td>
-      <td class="mono">${show.id}</td>
-      <td>${show.personas.join(', ')}</td>
-      <td>${show.segments.join(', ')}</td>
-      <td class="mono">${show.durationMinutes ? `${show.durationMinutes}m` : '—'}</td>
-    `;
+    const title = document.createElement('td');
+    title.textContent = show.title;
+    const id = document.createElement('td');
+    id.className = 'mono';
+    id.textContent = show.id;
+    const personas = document.createElement('td');
+    personas.textContent = show.personas.join(', ');
+    const segments = document.createElement('td');
+    segments.textContent = show.segments.join(', ');
+    const duration = document.createElement('td');
+    duration.className = 'mono';
+    duration.textContent = show.durationMinutes ? `${show.durationMinutes}m` : '—';
+    tr.append(title, id, personas, segments, duration);
     tr.addEventListener('click', () => openEditor(show.id));
     tableBodyEl.appendChild(tr);
   }
 }
 
 async function loadShows() {
-  const { shows } = await api('/api/shows');
-  allShows = shows;
-  renderTable();
+  try {
+    const { shows } = await api('/api/shows');
+    allShows = shows;
+    renderTable();
+  } catch (err) {
+    // Same alert-on-error pattern as requests.js -- a failed load must not
+    // leave a silently stale table behind.
+    window.alert('Napaka pri nalaganju oddaj: ' + err.message);
+  }
 }
 
 function fillForm(fields) {
@@ -83,8 +97,15 @@ async function openEditor(id) {
   idField.disabled = Boolean(id);
   if (id) {
     editorTitleEl.textContent = `Edit "${id}"`;
-    const fields = await api(`/api/shows/${encodeURIComponent(id)}`);
-    fillForm(fields);
+    try {
+      const fields = await api(`/api/shows/${encodeURIComponent(id)}`);
+      fillForm(fields);
+    } catch (err) {
+      // Leave the editor rather than showing a half-filled form a save
+      // would then write back over the real show.
+      setMessage(err.message, true);
+      showList();
+    }
   } else {
     editorTitleEl.textContent = 'New show';
     fillForm({});

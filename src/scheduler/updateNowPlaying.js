@@ -46,6 +46,17 @@ function writeState(state) {
   fs.writeFileSync(config.paths.nowPlayingStatePath, JSON.stringify(state));
 }
 
+// now_playing.m3u is WATCHED by Liquidsoap (reload_mode="watch") -- a plain
+// writeFileSync lets a reader catch the file half-written. tmp+rename makes
+// the swap atomic, same discipline stationWriter.js/autocue.js already apply
+// to every other watched/read-shared file (the emergency bed covers a
+// mid-write tear, but never creating one is better than covering one).
+function writeNowPlayingPlaylist(content) {
+  const tmp = `${config.paths.nowPlayingPath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, config.paths.nowPlayingPath);
+}
+
 // estimatedEndAt is set below (in updateNowPlaying) as "now, at the tick that
 // decided to switch" + durationSeconds -- but Liquidsoap can't actually start
 // this occurrence's audio until whatever's still playing from the PREVIOUS
@@ -81,7 +92,17 @@ export function confirmOccurrenceStart(filePath) {
   const firstRealPath = firstLine.slice(firstLine.lastIndexOf(':') + 1);
   if (firstRealPath !== filePath) return; // some other (non-first) segment of this occurrence, or filler -- nothing to correct
 
-  const { durationSeconds } = JSON.parse(fs.readFileSync(path.join(occDir, 'context.json'), 'utf8'));
+  // Torn/corrupt context.json must not crash this DETACHED process before it
+  // gets to its ledger/now-playing work (this runs from radio.liq's
+  // on_metadata hook) -- a failed re-anchor just leaves the provisional
+  // estimatedEndAt in place, which the 6 s poll corrects on its next pass.
+  let durationSeconds;
+  try {
+    ({ durationSeconds } = JSON.parse(fs.readFileSync(path.join(occDir, 'context.json'), 'utf8')));
+  } catch {
+    return;
+  }
+  if (!Number.isFinite(durationSeconds)) return;
   writeState({ ...state, estimatedEndAt: Date.now() + durationSeconds * 1000, confirmed: true });
 }
 
@@ -115,8 +136,8 @@ function loadOccurrence({ show, weekday, date, timeKey }, now) {
   // now_playing.m3u carries the occurrence's actual segment list directly
   // (not a pointer to the other file) -- Liquidsoap's playlist parser treats
   // every line as a media request, so nesting an m3u reference wouldn't
-  // resolve.
-  fs.writeFileSync(config.paths.nowPlayingPath, fs.readFileSync(playlistPath, 'utf8'));
+  // resolve. Atomic tmp+rename: Liquidsoap watches this file.
+  writeNowPlayingPlaylist(fs.readFileSync(playlistPath, 'utf8'));
   writeState({
     weekday,
     id: show.id,

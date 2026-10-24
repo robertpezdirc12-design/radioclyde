@@ -44,7 +44,11 @@ export function readStore() {
 export function writeStore(store) {
   const file = pollsFilePath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
+  // pid-suffixed like requestsStore.js's tmp: a create/vote race between two
+  // processes (web server + a detached producer process reading the poll for
+  // the on-air rubric) would otherwise have both writers target the SAME tmp
+  // name and the second rename could carry the first's half-written bytes.
+  const tmp = `${file}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
   fs.renameSync(tmp, file);
 }

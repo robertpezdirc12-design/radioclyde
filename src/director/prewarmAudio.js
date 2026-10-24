@@ -23,12 +23,44 @@ export async function prewarmShowAudio({ id, weekday, date }) {
   const djSegments = parsed.segments.filter((s) => s.type === 'dj');
   let warmed = 0;
   let skipped = 0;
+  // Same track association directShow() uses for pre-generated clip lookup
+  // (director/index.js): intro/quizIntro look AHEAD to the next track segment,
+  // recap/quizReveal take the track that just passed. The script's own track
+  // segments carry artist/title, which is all resolvePreGeneratedClip needs
+  // -- no Plex round-trip, so prewarm stays a purely local pass. Without
+  // this, track-keyed intro/recap clips could never resolve during prewarm
+  // and synthesized at direct time instead -- defeating the whole point.
+  let currentTrack = null;
   for (const [i, seg] of parsed.segments.entries()) {
+    if (seg.type === 'track') {
+      currentTrack = { artist: seg.artist, title: seg.title, ratingKey: String(seg.ratingKey) };
+      continue;
+    }
     if (seg.type !== 'dj') continue;
-    // slot/seed must match directShow()'s own call exactly, so prewarm fills
-    // the exact cache entries directShow will hit (persona clip selection in
-    // autoRadio clips mode keys off both).
-    const { cached, skipped: segSkipped } = await getCachedDjAudio(djAudioDir, i, seg.persona, seg.body, seg.slot ?? 'dj', `${parsed.title}|${i}`);
+    // slot/seed/track must match directShow()'s own call exactly, so prewarm
+    // fills the exact cache entries directShow will hit (persona clip
+    // selection in autoRadio clips mode keys off slot+seed).
+    let segTrack = null;
+    if (seg.slot === 'intro' || seg.slot === 'quizIntro') {
+      for (let j = i + 1; j < parsed.segments.length; j++) {
+        if (parsed.segments[j].type === 'track') {
+          const t = parsed.segments[j];
+          segTrack = { artist: t.artist, title: t.title, ratingKey: String(t.ratingKey) };
+          break;
+        }
+      }
+    } else if (seg.slot === 'recap' || seg.slot === 'quizReveal') {
+      segTrack = currentTrack;
+    }
+    const { cached, skipped: segSkipped } = await getCachedDjAudio(
+      djAudioDir,
+      i,
+      seg.persona,
+      seg.body,
+      seg.slot ?? 'dj',
+      seg.seed ?? `${parsed.title}|${i}`,
+      segTrack
+    );
     if (segSkipped) skipped++;
     else if (!cached) warmed++;
   }
