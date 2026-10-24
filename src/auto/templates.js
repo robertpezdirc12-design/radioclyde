@@ -155,6 +155,32 @@ const DEFAULT_TEMPLATES = {
     'Zanimivost iz sveta rocka: {fact}. In nazaj k glasbi.',
     'Medtem, ko gre glasba naprej -- {fact}.',
   ],
+
+  // P4 #25: "Sledi kasneje" (tease) -- the professional radios' move of
+  // teasing what the show holds later. Rendered once, right after the
+  // rubrica block and before the first track; values carry the artist from
+  // the back half of the already-built queue, so the tease is true by
+  // construction (no promises about things the queue would not keep).
+  tease: [
+    'Kasneje v oddaji sli\u0161ite \u0161e {artist}. Ostajajte pri nas -- naprej pa samo glasba.',
+    '\u0160e sledi {artist}, med tem pa kviz, vreme in lepo dogajanje. Ni\u010d ne presko\u010dite.',
+  ],
+  teaseQuiz: [
+    'Kasneje tudi kviz z resni\u010dnim vpra\u0161anjem iz zgodovine rocka -- in sli\u0161ite \u0161e {artist}. Ne odhajajte pred\u010dasno.',
+    'V drugi polovici kviz: ugibajte z nami. Kasneje pa \u0161e {artist}.',
+  ],
+
+  // P4 #25: "Anketa" rubric -- the listener poll (server/pollsStore.js) read
+  // at air time. Two shapes: fresh poll (no votes yet) asks for votes, a
+  // running one reports the honest current tally, never a winner claim.
+  pollRunning: [
+    'Anketa te\u010de: {question}. Glasujte na strani postaje, rezultate pa razkrijemo \u0161e tokrat v oddaji.',
+    'Odprta anketa: {question}. Va\u0161 glas \u0161teje -- povejte, kaj menite, na strani postaje.',
+  ],
+  pollResults: [
+    'Anketa: {question}. Do zdaj {total} glasov, vodi {leader} z {leaderVotes}. Glasovanje \u0161e traja.',
+    'Medpostava iz ankete: {question}. Trenutno vodi {leader} z {leaderVotes} od {total} glasov. Hvala za glasove!',
+  ],
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the

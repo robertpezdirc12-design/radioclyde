@@ -3,6 +3,7 @@ import { getRecentHistory } from './historyApi.js';
 import { getUpcomingShows } from './upcoming.js';
 import { registerScheduleRoute } from './scheduleApi.js';
 import { registerRequestsRoutes } from './requestsApi.js';
+import { registerPollsRoutes } from './pollsApi.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { readSamples } from '../analytics/listenerSamples.js';
 import { peakListeners } from '../analytics/listenerImpact.js';
@@ -51,4 +52,7 @@ export function registerApiRoutes(fastify) {
 
   registerScheduleRoute(fastify);
   registerRequestsRoutes(fastify);
+  // P4 #25 listener polls -- open/vote/close, the "anketa" rubric reads the
+  // same store at air time (server/pollsStore.js).
+  registerPollsRoutes(fastify);
 }

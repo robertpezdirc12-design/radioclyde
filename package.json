@@ -18,6 +18,8 @@
     "preview-show-prep": "node src/cli/previewShowPrep.js",
     "preview-auto-show": "node src/cli/previewAutoShow.js",
     "themed-shows": "node src/cli/themedShows.js",
+    "podcast-export": "node src/cli/podcastExport.js",
+    "social-export": "node src/cli/socialExport.js",
     "update-now-playing": "node src/scheduler/updateNowPlaying.js",
     "generate-filler-playlist": "node src/scheduler/generateFillerPlaylist.js",
     "cleanup-shows": "node src/scheduler/cleanupOldShows.js",

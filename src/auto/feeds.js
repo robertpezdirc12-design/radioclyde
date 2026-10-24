@@ -24,6 +24,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { pickQuizQuestions } from './quizFacts.js';
+import { activePollSummary } from '../server/pollsStore.js';
 
 const log = createLogger('station');
 
@@ -427,9 +428,13 @@ export async function collectRubricData({ names = [], offline = false, date, see
   const quiz = names.includes('quiz') && settings.quizCount > 0
     ? { questions: pickQuizQuestions(settings.quizCount, quizSeed) }
     : null;
+  // P4 #25 "anketa": the active listener poll from the LOCAL polls store --
+  // zero network, so like the quiz it is collected in the offline branch
+  // too. No open poll simply yields null and the segment skips.
+  const poll = names.includes('poll') ? activePollSummary() : null;
   if (offline) {
     log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, offline: true };
+    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, poll, offline: true };
   }
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
@@ -440,5 +445,5 @@ export async function collectRubricData({ names = [], offline = false, date, see
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
     wants('onthisdaymusic') ? fetchOnThisDayMusic({ date, limit: settings.onThisDayMusicLimit, timeoutMs }) : null,
   ]);
-  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, offline: false };
+  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, poll, offline: false };
 }

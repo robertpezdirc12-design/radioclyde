@@ -423,6 +423,11 @@ const RUBRIC_KEYWORDS = {
   // a brief whose Segments line includes "quiz").
   kviz: 'quiz',
   quiz: 'quiz',
+  // P4 #25 "Anketa" (server/pollsStore.js): the active listener poll,
+  // read at air time from the local store (works offline, like the quiz).
+  anketa: 'poll',
+  poll: 'poll',
+  glasovi: 'poll',
 };
 
 export function parseBriefRubrics(descriptionText) {

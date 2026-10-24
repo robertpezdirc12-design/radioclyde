@@ -51,6 +51,7 @@ config.paths = {
   // object per line, appended by POST /api/requests, rewritten atomically on
   // moderation (studioRequestsApi.js).
   requestsFile: path.join(config.dataDir, 'requests.jsonl'),
+  pollsFile: path.join(config.dataDir, 'polls.json'),
   artCacheDir: path.join(config.dataDir, 'cache', 'art'),
   // Persona system prompts + the script-review system prompt, split out of
   // this boot-time-loaded config.json into their own file so studio admin

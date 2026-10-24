@@ -83,6 +83,10 @@ const SLOT_TYPES = {
   triviaArtist: 'story',          // P4 #17: a fact about the playing artist
   triviaGeneral: 'music_essay',   // P4 #17: general rock-history fact
   weatherNow: 'weather_check',
+  tease: 'banter',                // P4 #25: "sledi kasneje" tease (promo-flavored)
+  teaseQuiz: 'banter',            // P4 #25: same, quiz-flavored variant
+  pollRunning: 'listener_mailbag', // P4 #25: fresh poll, votes wanted
+  pollResults: 'listener_mailbag', // P4 #25: poll tally mid-show
   handoff: 'banter',
 };
 

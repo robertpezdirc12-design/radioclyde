@@ -100,6 +100,36 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     });
   }
 
+  // P4 #25: "Anketa" -- the active listener poll, read from the local polls
+  // store (server/pollsStore.js). Local file, so it works offline exactly
+  // like the quiz corpus; no active poll simply contributes no segment
+  // (skip-not-fail). Fresh polls (zero votes) ask for votes; running ones
+  // report the honest current tally, never a final winner claim.
+  const poll = rubricData.poll;
+  if (poll?.question) {
+    const hasVotes = (poll.total ?? 0) > 0 && poll.leader != null;
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: hasVotes ? 'pollResults' : 'pollRunning',
+      body: hasVotes
+        ? renderSlot('pollResults', {
+            values: {
+              ...commonValues(),
+              question: poll.question,
+              leader: poll.leader,
+              leaderVotes: poll.leaderVotes,
+              total: poll.total,
+            },
+            seed: seedFor({ showId, date, slot: 'pollResults' }),
+          })
+        : renderSlot('pollRunning', {
+            values: { ...commonValues(), question: poll.question },
+            seed: seedFor({ showId, date, slot: 'pollRunning' }),
+          }),
+    });
+  }
+
   return segments;
 }
 
@@ -202,6 +232,28 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
   segments.push(
     ...rubricSegments({ rubricData, persona: primaryPersona, commonValues, showId, date })
   );
+
+  // P4 #25: "Sledi kasneje" tease -- after the rubrics, before the first
+  // track. The professional-radios move of teasing what the show holds
+  // later. Names an artist from the resolved queue's back half (the LAST
+  // track, so the promise is true by construction) and, when the brief
+  // opens the quiz position, the quiz itself. Needs a real show length
+  // (>= 3 tracks) to promise anything; shorter shows skip it silently.
+  if (n >= 3) {
+    const teaseArtist = tracks[n - 1]?.artist;
+    if (teaseArtist) {
+      const teaseSlot = brief.hasQuiz ? 'teaseQuiz' : 'tease';
+      segments.push({
+        type: 'dj',
+        persona: primaryPersona,
+        slot: teaseSlot,
+        body: renderSlot(teaseSlot, {
+          values: { ...commonValues(), artist: teaseArtist },
+          seed: seedFor({ showId, date, slot: 'tease' }),
+        }),
+      });
+    }
+  }
 
   for (let i = 0; i < n; i++) {
     const track = tracks[i];

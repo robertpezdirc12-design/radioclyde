@@ -193,6 +193,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi" | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
 | `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 40 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
+| `anketa` | **lokalna datoteka ankete** (`dataDir/polls.json`, upravlja prek API `/api/polls` — brez omrežja, deluje tudi offline; brez aktivne ankete segment preprosto ni na sporedu) | `pollRunning` (brez glasov) / `pollResults` (pošteno trenutno stanje) | `pollRunning` / `pollResults` |
 
 Nastavitve v `config.autoRadio.rubrics`:
 
@@ -410,6 +411,14 @@ nespremenjen.
   — katalog tematskih oddaj: seznam, predogled izrisanega brifa, pisanje
   brifa na disk in »katera tema je ta teden na vrsti« za vsak special slot.
 
+- `npm run podcast-export -- --dir=<mapa-oddaje> [--audio=<datoteka>] [--title=<t>] [--date=<yyyy-mm-dd>] [--link=<url>] [--out=<mapa>]`
+  — P4 #25: RSS 2.0 + itunes feed in show-notes iz produkcirane oddaje
+  (podrobno v razdelku o P4 #25).
+
+- `npm run social-export -- --dir=<mapa-oddaje> [--out=<mapa>]`
+  — P4 #25: pripravljene socialne objave iz rubrik oddaje (pod 280 znaki,
+  z hashtagom).
+
 - `npm run preview-auto-show -- <ime-oddaje> [--duration=<minute>] [--offline]`
   — celoten suhi preizkus producenta: razčleni brief, zgradi vrsto skladb z
   vsemi pravili, izriše skripto, jo preveri in zapiše `script.md` +
@@ -453,17 +462,41 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 | Now-playing push | nowPlayingPush |
 | Predogled oddaj | imagingPlaylists, preview-auto-show |
 
-Kandidati za naslednje korake (razporejeno po najmanjšem uporu za
-brezmodelno arhitekturo, nič od tega še ni dogovorjeno):
+Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
+teases, podcast izvoz, ankete in social izvoz -- ostal je le smart-speaker
+spretnost, ki potrebuje zunanjega ponudnika.
 
-1. **Naznanila »sledi kasneje«:** deterministični tease iz obstoječe vrste
-   skladb -- čista predloga + metapodatki, nič novega omrežja.
-2. **Podcast iz oddaje:** oddaja že piše `script.md`, `transcript.json` in
-   normaliziran zvok; izrez »najlepših trenutkov« je povezljiv s ffmpeg.
-3. **Ankete:** korpus vprašanj že obstaja za kviz; anketa potrebuje le
-   kanal (studio API).
-4. **Social izvoz:** naslovnice rubrik so že slovenske enovrstice --
-   pretvorba v objavo je preslikava, ne model.
+### P4 #25: raziskava v kodo -- teases, ankete, podcast, social
+
+Štiri ugotovitve raziskave, pretvorjene v delujočo palačo (vse deterministično,
+brez modela, s testi):
+
+1. **Naznanila »sledi kasneje« (tease):** takoj po rubrikah, pred prvo
+   skladbo, oddaja naznani izvajalca iz zadnje četrtine vrste (obljuba je
+   torej resnična po konstrukciji) in -- ko brief odpre kviz položaj -- tudi
+   kviz. Slot `tease` / `teaseQuiz`, taksonomija banter. Oddaje s manj kot
+   tremi skladbami naznanilo tiho spustijo.
+2. **Ankete:** `POST /api/polls` odpre anketo (ena aktivna naenkrat,
+   prejšnja se zamrzne v zgodovino), `POST /api/polls/vote` sprejme glas
+   (anonimni števec + 30 s omejitev na IP, 429 presežkom),
+   `GET /api/polls/active` javno pokaže pošteno stanje,
+   `POST /api/polls/close` jo zapre. Rubrika `anketa` v briefu bere
+   isto lokalno datoteko: sveža anketa prosi za glasove (`pollRunning`),
+   tekoča poroča trenutno stanje brez zmagovalečih trditev (`pollResults`)
+   -- in deluje tudi offline, kot kviz.
+3. **Podcast izvoz:** `npm run podcast-export -- --dir=<mapa-oddaje>
+   [--audio=<datoteka>]` prebere `script.md`/`tracks.json`/`context.json` in
+   zapiše `podcast/podcast.xml` (RSS 2.0 + itunes, pravi enclosure z velikostjo
+   in MIME-om iz datoteke, ko obstaja) in `podcast/show-notes.md`
+   (karta, chapters rundown, rubrike, skladbe). Ista vhoda -> bajtno ista
+   izhoda (guid = SHA-1 naslova in datuma).
+4. **Social izvoz:** `npm run social-export -- --dir=<mapa-oddaje>`
+   pretvori rubrične vrstice oddaje v pripravljene objave
+   (`<mapa>/social/01-karta.txt`, vreme, novice, kviz, najave …) -- vsaka
+   pod 280 znaki, s `#RadioMarkec`, dolge pa se odrežejo na meji besede.
+
+Obe orodji vrneta žive poti in poglavja; demo izpis je v dokumentaciji
+repozitorija.
 
 ## Zapisi, ki ostajajo odprti (PoC)
 
