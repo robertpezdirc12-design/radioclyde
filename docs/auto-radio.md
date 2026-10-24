@@ -486,9 +486,30 @@ oklepajev, brez okrajšav, največ trije stavki na varianto (lint v testih).
   epizode ne ponovi; ocena trajanja je izpisana in ničesar ne izmišljuje.
 - Fakt je istega korpusa, ki poganja rubriko »Zanimivosti«
   (`src/auto/rockFacts.js`) — en vir resnice za oddajo in podkast.
-- Avdio sinteza za zdaj NE teče samodejno: skripta je pripravljena v
-  enakih `renderSlot` klicih kot živa oddaja, zato jo lahko v prihodnje
-  prevzame obstoječi prewarm/cevovod — brez spremembe besedil.
+### Zvok epizode: Piper sinteza skripte (P5 #2)
+
+`npm run podcast-audio [-- --date=YYYY-MM-DD --genre=rock --tracks=2
+--persona=markec --out=dir]` vzame ISTO epizodo kot `podcast-gen` in jo
+izriše v **zvočni MP3** (44.1 kHz stereo, 128 kbps, `libmp3lame`):
+
+- vsaka govorjena vrstica ([pogovor] in naznanila skladb) gre skozi
+  `src/auto/piperVoice.js` — isti glas, isti config in iste osebne
+  nastavitve kot živa oddaja (brez nove resnice o glasu),
+- glasbene vrstice vzame iz REALNIH datotek knjižnice (lokalni vir nosi
+  `localPath`; pri Plex viru brez datoteke se skladba pošteno preskoči),
+- vse sešije ffmpeg concat FILTER (mešani formati/sample ratei so dovoljeni
+  na vhodu), poglavja pa se vgradijo iz ffmetadata (ID3 CHAP) + ločena
+  `<datum>-markec-podkast-poglavja.txt` za operaterja,
+- zamiki poglavij so IZMERJENI s ffprobe, ne izmišljeni; načrt `.json`
+  dobi blok `audio` (datoteka, sekunde, dela, pošteni preskoki),
+- **skip-not-fail**: vrstica brez zvoka (piper napaka, skladba brez
+  datoteke) se belei in epizoda se sestavi iz preostanka — lahko tudi
+  samo-govorna; če ne pride skozi NIČ, je to poštena napaka (prazen MP3
+  je laž). Če vgradnja poglavij kdaj strmoglavi na eksotičnem ffmpegu,
+  sešava pade nazaj na brez-poglavij in vseeno dostavi MP3.
+
+Zahteve: piper1-gpl (`pip install piper-tts`) + glas (ključ ali pot) +
+ffmpeg z libmp3lame.
 
 ## Orodja
 
@@ -498,6 +519,9 @@ oklepajev, brez okrajšav, največ trije stavki na varianto (lint v testih).
 - `npm run podcast-gen [-- --date --genre --tracks --out]`
   — petminutni Markec Podkast: skripta + načrt epizode v
   `<dataDir>/podcasts/`. Glej razdelek zgoraj.
+- `npm run podcast-audio [-- --date --genre --tracks --persona --out]`
+  — ISTA epizoda, plus zvok: Piper govor + prave skladbe -> MP3 z
+  vgrajenimi poglavji. Glej razdelek zgoraj (P5 #2).
 - `npm run themed-shows -- list | brief <tema> | ensure <tema> [minute] | resolve`
   — katalog tematskih oddaj: seznam, predogled izrisanega brifa, pisanje
   brifa na disk in »katera tema je ta teden na vrsti« za vsak special slot.

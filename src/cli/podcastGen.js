@@ -11,66 +11,26 @@
 //       prepiše datotek).
 //
 //   npm run podcast-gen -- --date=2026-10-25 --genre=metal --tracks=3 --out=/tmp/x
+//   npm run podcast-audio   -- ISTA epizoda, plus Piper zvok (P5 #2)
 //
 // Skip-not-fail obrobje: prazen žanr = poštena slovenska napaka (exit 1),
-// manjkajoč fakt = epizoda s smešnim pogovorom namesto zgodovinskega.
+// manjkajoč fakt = epizoda s smešnim pogovorom namesto zgodovinske.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from '../lib/args.js';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const configPath = path.join(repoRoot, 'config.json');
-if (!fs.existsSync(configPath)) {
-  console.error(`config.json not found at ${configPath}. Copy config.example.json to config.json and fill in real values.`);
-  process.exit(1);
-}
+import { ensureConfig, gatherCandidates, podcastCount, podcastDate, podcastOutDir, parseArgs } from './podcastCommon.js';
 
 const argv = parseArgs(process.argv.slice(2));
+ensureConfig();
 const { config } = await import('../config/index.js');
-const { currentLocalDateString } = await import('../director/weather.js');
-const { fetchCandidateTracksAny, listGenreTagsAny } = await import('../auto/librarySource.js');
-const { PODCAST_ID, buildPodcastEpisode, writePodcastEpisode, renderPodcastScript } = await import('../auto/podcast.js');
+const { buildPodcastEpisode, writePodcastEpisode, renderPodcastScript } = await import('../auto/podcast.js');
 
 const timezone = config.weather?.timezone ?? 'UTC';
-const date = /^\d{4}-\d{2}-\d{2}$/.test(String(argv.date ?? ''))
-  ? argv.date
-  : currentLocalDateString(timezone);
+const date = await podcastDate(argv, timezone);
 const genre = String(argv.genre ?? 'rock');
-const count = Number.isFinite(parseInt(argv.tracks, 10)) ? Math.max(1, parseInt(argv.tracks, 10)) : 2;
-const outDir = argv.out
-  ? path.resolve(String(argv.out))
-  : path.join(config.dataDir, 'podcasts');
+const count = podcastCount(argv);
+const outDir = podcastOutDir(argv, config);
 
-let candidates = [];
-try {
-  candidates = await fetchCandidateTracksAny({ genre });
-} catch (err) {
-  // local library THROWS on a zero-match genre; Plex returns [] -- either
-  // way the operator gets the honest message plus what tags DO exist
-  let hint = '';
-  try {
-    const tags = await listGenreTagsAny();
-    hint = tags.length > 0 ? ` Razpoložljive oznake: ${tags.join(', ')}.` : '';
-  } catch {
-    // hint is optional
-  }
-  console.error(`Napaka pri poizvedbi po knjižnici: ${err.message.split('\n')[0]}${hint}`);
-  process.exit(1);
-}
-
-if (candidates.length === 0) {
-  let tags = [];
-  try {
-    tags = await listGenreTagsAny();
-  } catch {
-    // hint is optional -- fail without it rather than hiding the main error
-  }
-  console.error(
-    `V knjižnici ni skladb z žanrom "${genre}".` + (tags.length > 0 ? ` Razpoložljive oznake: ${tags.join(', ')}.` : '')
-  );
-  process.exit(1);
-}
+const candidates = await gatherCandidates(genre);
 
 const episode = buildPodcastEpisode({ date, tracks: candidates, count, station: config.autoRadio?.stationName ?? 'Radio Markec' });
 const { mdPath, jsonPath } = writePodcastEpisode(episode, outDir);

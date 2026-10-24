@@ -20,6 +20,7 @@
     "themed-shows": "node src/cli/themedShows.js",
     "podcast-export": "node src/cli/podcastExport.js",
     "podcast-gen": "node src/cli/podcastGen.js",
+    "podcast-audio": "node src/cli/podcastAudio.js",
     "social-export": "node src/cli/socialExport.js",
     "asrun-export": "node src/cli/asrunExport.js",
     "doctor": "node src/cli/doctorCli.js",

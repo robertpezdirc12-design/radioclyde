@@ -328,6 +328,10 @@ prose for humans. The selection section supports:
   15 min pred začetkom (za polnočjo termini premaknejo dan-of-teden nazaj;
   glej [docs/auto-radio.md](docs/auto-radio.md)).
 - **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
+- **Podcast audio (P5 #2)**: `npm run podcast-audio` turns the same episode
+  into a real MP3 -- Piper speaks every line (same voice as on-air), real
+  library files are the music, ffmpeg stitches + embeds measured chapters;
+  a line without audio skips honestly, the episode still assembles.
   deterministic standalone five-minute episode — talk, music, talk, music,
   talk — from the real library + the offline rock-facts corpus, in the
   zajebant persona (rock attitude in the WORDS, never in the voice: Piper
