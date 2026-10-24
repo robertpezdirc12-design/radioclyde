@@ -48,7 +48,7 @@ export const THEMED_SHOWS = [
       'ki so pisale zgodovino žanra. Med skladbami rubrika »zanimivosti« pove, ' +
       'kateri izvajalec je pred mikrofonom, »obzorje« in »glasba« pa dodata, kaj ' +
       'se je v glasbeni zgodovini godilo natanko na današnji dan.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- No track longer than 5 minutes.',
@@ -65,7 +65,7 @@ export const THEMED_SHOWS = [
       'riffovodje in zvoki, ki so definirali rock. Izbor je vezan na to, da so ' +
       'veliki kitaristi v knjižnici prisotni kot izvajalci -- kadar jih ni, ' +
       'tema ne zna sestaviti vrste in urnik pade na polnilo.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Jimi Hendrix, Eric Clapton, Jimmy Page, David Gilmour, Carlos Santana, Pete Townshend, Keith Richards, Jeff Beck, Brian May, Mark Knopfler',
       '- No track longer than 6 minutes.',
@@ -82,7 +82,7 @@ export const THEMED_SHOWS = [
       'katerih se je spremenilo, kako se rock posluša. Izbor črpa iz živih ' +
       'posnetkov -- albumov z albumskega žanra »Live«; knjižnica brez takšnih ' +
       'teme ne more izpolniti.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- album genre: Live',
       '- No track longer than 7 minutes.',
@@ -98,7 +98,7 @@ export const THEMED_SHOWS = [
       'Beatlemania, hipijevska kontrakultura in prvi veliki festivali: v ' +
       'šestdesetih je rock prenehal biti le glasba in postal mladinski gib. ' +
       'Izbor sestavi iz rockovskih snemalcev desetletja iz knjižnice.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- decade: 1960',
@@ -115,7 +115,7 @@ export const THEMED_SHOWS = [
       'Desetletje velikih albumov: progresivni rock in hard rock z ene strani, ' +
       'punk z druge -- med seboj tekmujejo za prostor na ozvočenjih po svetu. ' +
       'Izbor sestavi iz rockovskih snemalcev desetletja iz knjižnice.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- decade: 1970',
@@ -132,7 +132,7 @@ export const THEMED_SHOWS = [
       'Sintetizatorji, MTV in stadioni: rock osemdesetih je odkril videospot ' +
       'in z njim svetovno vrstnico ob televizorjih. Izbor sestavi iz ' +
       'rockovskih snemalcev desetletja iz knjižnice.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- decade: 1980',
@@ -149,7 +149,7 @@ export const THEMED_SHOWS = [
       'Grunge, britpop in alternativni val: devetdeseta so rock poslala nazaj ' +
       'iz stadionov v klube in hkrati prvič masovno na internet. Izbor sestavi ' +
       'iz rockovskih snemalcev desetletja iz knjižnice.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- decade: 1990',
@@ -167,7 +167,7 @@ export const THEMED_SHOWS = [
       'punk in novi val pometel po jugoslovanskem prostoru, v slovenščini in ' +
       'sosedskih jezikih. Korpus zanimivosti pozna tudi slovenske mejnike; ' +
       'izbor je vezan na to, da so ti izvajalci v knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Pankrti, Buldožer, Lačni Franz, Prizma, Parni valjak, Azra, Film, Haustor, Aerodrom',
       '- No track longer than 5 minutes.',
@@ -184,7 +184,7 @@ export const THEMED_SHOWS = [
       'Pankrtov -- kako je punk prestavil rock iz stadionov nazaj v klube in ' +
       'nadaljujem kot novi val. Izbor je vezan na to, da so ti izvajalci v ' +
       'knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Ramones, The Clash, Sex Pistols, Talking Heads, Blondie, The Cure, The Jam, Buzzcocks, Siouxsie and the Banshees, Pankrti',
       '- No track longer than 4 minutes.',
@@ -201,7 +201,7 @@ export const THEMED_SHOWS = [
       'izraščel -- od Muddyja Watersa in B.B. Kinga do Stevieja Raya Vaughana. ' +
       'Korpus zanimivosti pozna blues mejnike (Robert Johnson, Lucille, Sister ' +
       'Rosetta Tharpe); izbor je vezan na to, da so ti izvajalci v knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Muddy Waters, B.B. King, Howlin Wolf, Robert Johnson, John Lee Hooker, Buddy Guy, Eric Clapton, Stevie Ray Vaughan, John Mayall, Canned Heat',
       '- No track longer than 6 minutes.',
@@ -219,7 +219,7 @@ export const THEMED_SHOWS = [
       'metalcev. Korpus zanimivosti pozna metal mejnike (preimenovanje iz ' +
       'Earth, Album štirih simbolov, Master of Puppets); izbor je vezan na ' +
       'to, da so te skupine v knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Led Zeppelin, Deep Purple, Black Sabbath, AC/DC, Judas Priest, Iron Maiden, Motörhead, Metallica, Dio, Rainbow',
       '- No track longer than 7 minutes.',
@@ -236,7 +236,7 @@ export const THEMED_SHOWS = [
       'Pink Floyd raztegnili rock čez okvire radijskega singla. Korpus ' +
       'zanimivosti pozna prog mejnike (rojstvo žanra leta 1969, Tubular ' +
       'Bells); izbor je vezan na to, da so te skupine v knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Pink Floyd, King Crimson, Yes, Genesis, Rush, Emerson Lake & Palmer, Jethro Tull, Camel, Van der Graaf Generator, Mike Oldfield',
       '- No track longer than 9 minutes.',
@@ -253,7 +253,7 @@ export const THEMED_SHOWS = [
       'so rock pisale, igrale in prepevale vse od njegovih začetkov. Korpus ' +
       'zanimivosti pozna te mejnike (Kate Bush, The Runaways, Heart); izbor je ' +
       'vezan na to, da so ti izvajalci v knjižnici.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- artists: Heart, The Runaways, Hole, The Bangles, Sleater-Kinney, Joan Jett and the Blackhearts, The Pretenders, The Go-Gos',
       '- No track longer than 5 minutes.',
@@ -270,7 +270,7 @@ export const THEMED_SHOWS = [
       'ki so ga singli in kasneje seznami predvajanja izrinili iz navade. Vsak ' +
       'teden izbral drug naključni rockovski album iz knjižnice, rubrika ' +
       '»zanimivosti« pa ob skladbah pove, kdo za njimi stoji.',
-    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba', 'kviz'],
     trackSelection: [
       '- genre: Rock',
       '- Pick one whole random album.',
@@ -380,7 +380,7 @@ export function renderThemedBrief(theme, { durationMinutes = 60, personas = [] }
     '',
     `**Duration:** ${durationMinutes} min`,
     `**Personas:** ${people.join(', ')}`,
-    '**Segments:** weather',
+    '**Segments:** weather, quiz',
     '**Repeat window:** 7 days',
     `Rubrike: ${theme.rubrics.join(', ')}`,
     '',
@@ -408,8 +408,8 @@ export function renderThemedBrief(theme, { durationMinutes = 60, personas = [] }
     '## Track moves',
     '',
     'Vsaka skladba dobi `intro` (kratka najava pred skladbo) in `recap` (povzetek po njej).',
-    'Rubriki »obzorje« in »glasba« zazvenita po razporedu rubrik, kviza tematske oddaje ne',
-    'naredijo.',
+    'Rubriki »obzorje« in »glasba« zazvenita po razporedu rubrik; pred sredinsko skladbo',
+    'zazveni kviz vprašanje iz korpusa (rubrika »kviz«), odgovor pa razkrije takoj po njej.',
     '',
     '## Weather',
     '',

@@ -44,6 +44,16 @@ implementacije, izhod je dokument + predlog P4.
 >   nastavitev `rubrics.quizCount` (privzeto 1). Edina rubrika, ki v
 >   `--offline` načinu deluje CELA (korpus brez omrežja). Reference v
 >   [auto-radio.md](auto-radio.md) §Kviz.
+>
+> - **#23 (kviz v tematskih oddajah + korpus 25 -> 40) je IMPLEMENTIRAN**
+>   (po uporabnikovem »odlično, nadaljuj«): vsak tematski brif zdaj nosi
+>   `quiz` segment in `kviz` rubriko — pred sredinsko skladbo zazveni
+>   resnično vprašanje iz korpusa, odgovor takoj po njej; proza »kviza
+>   tematske oddaje ne naredijo« (pisan pred obstojem #22) je zamenjana.
+>   Stari materializirani brifi se osvežijo sami (idempotenca
+>   `ensureThemedBrief`). Korpus zanimivih vprašanj zrasel na 40 vnosov
+>   (1949-1991). Reference v [auto-radio.md](auto-radio.md) §Tematske
+>   oddaje.
 
 ## 1. Kaj stationa že zmore (zemljevid obstoječega stanja)
 

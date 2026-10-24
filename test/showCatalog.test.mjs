@@ -37,7 +37,7 @@ const {
   ensureThemedBrief,
 } = await import('../src/auto/showCatalog.js');
 const { parseShowBrief } = await import('../src/producer/showBrief.js');
-const { produceTrackQueryDeterministic } = await import('../src/auto/briefQuery.js');
+const { produceTrackQueryDeterministic, parseBriefRubrics } = await import('../src/auto/briefQuery.js');
 const { loadSchedule } = await import('../src/scheduler/scheduleUtil.js');
 const { config } = await import('../src/config/index.js');
 
@@ -74,6 +74,16 @@ describe('showCatalog: catalog integrity', () => {
       assert.ok(theme.tagline?.trim().length > 80, `${theme.id}: tagline too thin`);
       assert.ok(Array.isArray(theme.rubrics) && theme.rubrics.includes('zanimivosti'), `${theme.id}: zanimivosti rubric required`);
       assert.ok(Array.isArray(theme.trackSelection) && theme.trackSelection.length >= 2, `${theme.id}: trackSelection too thin`);
+    }
+  });
+
+  test('every themed brief opens the quiz position and opts into the kviz rubric (P4 #23)', () => {
+    for (const theme of THEMED_SHOWS) {
+      const markdown = renderThemedBrief(theme, { durationMinutes: 60, personas: ['testa'] });
+      const brief = parseShowBrief(markdown, { defaultRepeatWindowDays: 7 });
+      assert.equal(brief.hasQuiz, true, `${theme.id}: themed brief must carry the quiz segment`);
+      assert.ok(parseBriefRubrics(markdown).includes('quiz'), `${theme.id}: kviz rubric missing from the Rubrike line`);
+      assert.match(markdown, /odgovor pa razkrije takoj po njej/, `${theme.id}: brief prose must promise the answer reveal`);
     }
   });
 

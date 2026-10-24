@@ -329,7 +329,8 @@ prose for humans. The selection section supports:
   `{ "id": "special", "startTime": "20:00", "durationMinutes": 60,
   "special": { "themes": ["zgodovina-rocka", "zgodovina-kitare",
   "veliki-nastopi"] } }` — the theme rotates by ISO week, the brief is
-  generated into `show-descriptions/themed/`, and the standard pipeline
+  generated into `show-descriptions/themed/` (now with a real quiz question
+  before the middle track, P4 #23), and the standard pipeline
   (rules + rubrics + trivia) runs it unchanged
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 

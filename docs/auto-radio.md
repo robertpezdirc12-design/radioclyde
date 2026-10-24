@@ -164,7 +164,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
 | `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi" | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
-| `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 25 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
+| `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 40 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
 
 Nastavitve v `config.autoRadio.rubrics`:
 
@@ -200,7 +200,8 @@ Maiden?«), odgovor pa razkrije takoj po skladbi (»Pravilen odgovor: Steve
 Harris.«). Vprašanja se rotirajo po zgodovini rocka (kronološko) glede na
 seme `oddaja|datum`, zato vsak dan drugo vprašanje, isti dan pa vedno isto
 (reproducirljivi prepisi, predpomnljivi zvok). Vsebina je povsem lokalna —
-ta rubrika je edina, ki v `--offline` načinu deluje CELA.
+ta rubrika je edina, ki v `--offline` načinu deluje CELA. Od P4 #23 rubriko
+kviz uporabljajo tudi **vse tematske oddaje** (glej §Tematske oddaje).
 
 Predloge za vsebino so `quizQuestion` (vsebuje `{question}` in obljubo
 »odgovor takoj po skladbi«) in `quizAnswer` (vsebuje `{answer}`); stari
@@ -350,6 +351,11 @@ nespremenjen.
   torej ob posodobitvi kataloga).
 - **Personas**: `special.personas` ima prednost; privzeto prvi persona iz
   `prompts.json`.
+- **Kviz (P4 #23)**: vsak tematski brif odpira kviz položaj — pred sredinsko
+  skladbo zazveni vprašanje iz korpusa (`quizFacts.js`), odgovor pa takoj po
+  njej. Brifi, materializirani pred P4 #23, se ob naslednji produkciji sami
+  osvežijo (idempotenca `ensureThemedBrief`); z `rubrics.quizCount: 0` kviz
+  vsebine ni in na položaju zazveni staro ugibanje leta.
 - **Neuspeh je pošten**: tema, ki v knjižnici ne najde skladb (npr.
   »Zgodovina kitare« brez kitaristov v izvajalcih ali »Veliki nastopi« brez
   albumske oznake »Live«), konča z znanim »resolved zero tracks« in ura pade
