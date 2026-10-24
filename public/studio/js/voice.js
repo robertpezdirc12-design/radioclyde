@@ -36,10 +36,17 @@ export async function loadVoice() {
   );
 
   const piper = el('voice-piper');
+  // piper1-gpl voice keys live in v.piper.dataDir and may legitimately not
+  // be downloaded yet (one-time piper.download_voices fetch on first use) --
+  // that is a normal state, not a broken path, so it renders neutral.
+  const piperModelLabel = v.piper.isKey ? `${v.piper.defaultVoice} (piper1-gpl voice key)` : v.piper.defaultVoice;
+  const piperExistsValue = v.piper.modelExists ? '✓' : (v.piper.isKey ? '— (downloads on first use)' : '—');
+  const piperExistsCls = v.piper.modelExists ? 'ok' : (v.piper.isKey ? '' : 'bad');
   piper.replaceChildren(
     kv('Python path', v.piper.pythonPath),
-    kv('Default model', v.piper.defaultVoice),
-    kv('Model file exists', boolText(v.piper.modelExists), v.piper.modelExists ? 'ok' : 'bad'),
+    kv('Default model', piperModelLabel),
+    kv('Voice data dir', v.piper.dataDir ?? '—'),
+    kv('Model file exists', piperExistsValue, piperExistsCls),
     ...Object.entries(v.piper.personas ?? {}).map(([name, p]) =>
       kv(`Persona ${name}`, `${p.piperVoice ?? 'default'} (speaker ${p.piperSpeaker ?? 'n/a'}, file ${p.modelExists === null ? 'default' : boolText(p.modelExists)})`)
     )

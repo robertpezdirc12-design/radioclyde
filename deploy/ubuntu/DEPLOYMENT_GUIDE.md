@@ -15,7 +15,7 @@ Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ←
 - **Node.js**: web API + scheduler v enem procesu (port 3000, samo localhost)
 - **Icecast2**: zvočni tok (port 8000, samo localhost)
 - **Liquidsoap**: playout (glasba + govor)
-- **Piper TTS**: slovenski govor (pred-generirani posnetki, brez izvajanja med oddajanjem)
+- **Piper TTS**: slovenski govor (pred-generirani posnetki, brez izvajanja med oddajanjem) prek piper1-gpl runtime-a (`pip install piper-tts`; glas `sl_SI-artur-medium` se prenese med namestitvijo — `install.sh`, ~63 MB, enkrat)
 
 ## Komponente
 

@@ -213,6 +213,8 @@ Vir: `github.com/ebu/awesome-broadcasting` (kurira EBU, evropska zveza javnih ra
 
 Dejstva preverjena v tej iteraciji: `rhasspy/piper` je **6. 10. 2025 arhiviran** (read-only; 11,3k★, MIT). Aktivni naslednik je **`OHF-Voice/piper1-gpl`** (5,9k★, **GPL-3.0-or-later**, v1.8.0 z 4. 9. 2026, pod okriljem Open Home Foundation; `pip install piper-tts`; CLI/web/Python/C++ vmesniki; fonemizacija prek espeak-ng). Slovenščina obstaja kot glas v piper-samples katalogu (filter »Slovenščina«). Vpliv na nas: (a) če uporabljamo Piper binarne datoteke, so zamrznjene na stari verziji — pri naslednjem dotiku TTS načrtujemo prehod na piper1-gpl; (b) sprememba licence MIT→GPL **ne vpliva** na klic CLI-ja iz Node (proces), ampak samo na vdelavo/predelavo kode; (c) Edge TTS pot je neodvisna od tega. Vir: `github.com/OHF-voice/piper1-gpl`, promptquorum pregled (primerjava obeh repozitorijev), `rhasspy.github.io/piper-samples`.
 
+> **STATUS — IMPLEMENTIRANO (P3 #15, 2026-10-24).** Piper sloj prešel na **piper1-gpl** (`piper-tts` 1.8.0 s PyPI), en sam vir resnice za vse tri klicne točke: novi `src/auto/piperVoice.js` uporabljata `auto/voice.js` (zrak) IN `pre-generate-clips.mjs` (masovna predgeneracija), `server/voiceStatus.js` pa poroča prav skozi isti resolver (»readiness = sinteza, dobesedno ista koda«). Verifikacija iz PRIMARNEGA vira (v1.8.0 `src/piper/__main__.py` + `download_voices.py`) in ŽIVO v čistem kontejnerju: CLI flagi so **identični staremu piperu** (`-m/-f/--input-file/--speaker`), zato stara `.onnx`-pot konfiguracija deluje nespremenjena; `-m` sprejme tudi **glas-ključ** (npr. `sl_SI-artur-medium`), ki ga piper išče kot `<ključ>.onnx` v `--data-dir` (piperjev privzeti = cwd, mi vedno podamo svoj: `<dataDir>/piper/`, nastavljivo `voice.piperDataDir`); **avtomatskega prenosa NI** — manjkajoč ključ javi »Unable to find voice«, zato prenos (`.onnx` + `.onnx.json` s HF `rhasspy/piper-voices`, za slovenščino 63 MB) opravi `ensurePiperVoice()` ENKRAT prek `python3 -m piper.download_voices <ključ> --data-dir <mapa>` (izklop: `voice.piperAutoDownload: false`, napaka pove točen ročni ukaz). Slovenski glas preverjen z HEAD zahtevo: **`sl_SI-artur-medium`** obstaja (200 za `.onnx` in `.onnx.json`), `arturov` ne. ŽIVI preskus: namestitev `pip install piper-tts` (odvisnosti SAMO `onnxruntime`+`pathvalidate` — fonemizacija je v wheelu, **sistemski espeak-ng ni potreben**), prenos glasa 7,6 s, sinteza 3,4 s slovenščine v **2,0 s CPU** (Chatterbox: minute na vrstico), izhod pcm_s16le/22 050 Hz/mono → obstoječa ffmpeg normalizacija na 24 kHz kodeksni dogovor nespremenjena. Zgradba: glas-ključ ALI `.onnx` pot po osebi (`personas.<ime>.piperVoice` + `piperSpeaker`), timeouta `piperTimeoutMs`/`piperDownloadTimeoutMs` (120 s / 10 min), »honest« napake z ukazom za popravilo, temp-datoteke se čistijo tudi ob napaki (regresija audita 2026-10-24 pokrita s testi). Testi: `test/piperVoice.test.mjs` (22: resolucija ključ/pot, točen argv, dogovor prenosa, e2e z lut-pythonom + REAL ffmpeg, studio status; LIVE sinteza za `PIPER_LIVE=1` — izpuščena pošteno brez zastavice). npm test: **238/238** (68 suits; prej 216/61). Reverzibilno: stara pot-konfiguracija deluje naprej; `mode` ostane tak, kot je bil.
+
 ## 5. NOVO: matrika primerjave (kandidat × merila)
 
 Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši trenutni različici brez nadgradnje.
@@ -231,7 +233,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | `smooth_add` (gist) | ● (uradni operator) | ● | ○ (zahteva ločena vira) | — (dok) | ● | P3 postelje |
 | Rivendell / OpenBroadcaster / EBU ostalo | ● | ● | — (težke platforme) | razne | n/a | ne uvajamo |
 | WRIT-FM / radio-dj LLM jedra | ● | — (stohastično) | — (proti brez-AI arhitekturi) | MIT | n/a | zavrženo |
-| Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | ob naslednjem TTS dotiku |
+| Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | **izposojeno** (P3 #15 ✓) |
 
 ## 6. Končna razvrstitev in predlog integracije
 
@@ -251,7 +253,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 |
 | 13 | sidechaincompress »postelje« (natančnejše od 12) | radio-dj | srednja | glasba pod govorom | P3 |
 | 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 ✓ |
-| 15 | prehod TTS na piper1-gpl (v1.8.0, aktivno) | §4.7 | pol dneva | vzdrževan runtime, nove glasove | P3 |
+| 15 | prehod TTS na piper1-gpl (v1.8.0, aktivno) | §4.7 | pol dneva | vzdrževan runtime, nove glasove | P3 ✓ |
 
 **Status P2 #8 (2026-10-24): `request.queue` vstavljanje IMPLEMENTIRANO — odobren zahtevek pride do zraka.**
 Do zdaj je odobren zahtevek samo sedel v `requests.jsonl` — do zraka je prišel z ročnimi triki. Zapora zanke:

@@ -34,7 +34,9 @@
       "mode": "pregenerated",
       "clipsDir": "voice-clips",
       "defaultEspeakVoice": "sl",
-      "defaultPiperVoice": "/opt/radioclyde/voices/sl_SI-artur-medium.onnx",
+      "defaultPiperVoice": "sl_SI-artur-medium",
+      "piperDataDir": "piper",
+      "piperAutoDownload": true,
       "pythonPath": "python3",
       "personas": {}
     }

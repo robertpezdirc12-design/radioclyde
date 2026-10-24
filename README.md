@@ -380,3 +380,6 @@ Full Slovenian reference with every config knob:
 - "On this day" facts: [Wikidata](https://www.wikidata.org) (CC0).
 - Neural Slovenian voices: Microsoft Edge read-aloud service (unofficial;
   no key required) — used via [msedge-tts](https://www.npmjs.com/package/msedge-tts).
+- Local neural Slovenian voice: [Piper](https://github.com/OHF-Voice/piper1-gpl)
+  (piper1-gpl, GPL-3.0-or-later) — voice `sl_SI-artur-medium`
+  ([rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices)).

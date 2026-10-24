@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 // Pre-generate Slovenian speech clips for all tracks in the music collection.
-// Uses Piper TTS (free, local, natural Slovenian voice).
+// Uses Piper TTS via the piper1-gpl runtime (piper-tts 1.8.0 on PyPI, the
+// maintained successor of the archived rhasspy/piper) through the SHARED
+// auto/piperVoice.js resolver -- the same voice config the on-air piper
+// provider uses: autoRadio.voice.defaultPiperVoice (voice key like
+// "sl_SI-artur-medium" -- downloaded once on first use -- or an .onnx path)
+// with per-persona overrides. A missing voice fails with an actionable
+// error instead of silently falling back to another voice.
 // Output: data/pre-generated/<track_slug>_intro.wav and _recap.wav
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseFile } from 'music-metadata';
+import { config } from './src/config/index.js';
+import { synthesizePiper } from './src/auto/piperVoice.js';
 
 const execFileAsync = promisify(execFile);
-const PYTHON = process.platform === 'win32' ? 'C:/Program Files/Python311/python.exe' : 'python3';
-const PIPER_MODEL = path.resolve('voices/sl_SI-artur-medium.onnx');
-const OUT_DIR = path.resolve('data/pre-generated');
+const OUT_DIR = path.resolve(config.dataDir, 'pre-generated');
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -44,18 +50,13 @@ function slugify(text) {
 }
 
 async function synthesize(text, outFile) {
-  const textFile = outFile + '.txt';
-  fs.writeFileSync(textFile, text, 'utf8');
-  try {
-    await execFileAsync(PYTHON, ['-m', 'piper', '-m', PIPER_MODEL, '-f', outFile, '--input-file', textFile], { timeout: 120_000 });
-  } finally {
-    // Same cleanup guarantee as voice.js's piper provider (audit 2026-10-24):
-    // failed synthesis must not leak the temp text file.
-    fs.rmSync(textFile, { force: true });
-  }
+  const rawFile = `${outFile}.piper-src.wav`;
+  await synthesizePiper(text, rawFile, null);
   const tmp = outFile + '.norm.wav';
-  await execFileAsync('ffmpeg', ['-y', '-i', outFile, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', tmp], { timeout: 60_000 });
+  await execFileAsync('ffmpeg', ['-y', '-i', rawFile, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', tmp], { timeout: 60_000 });
   fs.renameSync(tmp, outFile);
+  // The raw piper output is an intermediate -- normalized copy replaced it.
+  fs.rmSync(rawFile, { force: true });
 }
 
 const audioFiles = [];
@@ -66,7 +67,7 @@ function walk(dir) {
     else if (/\.(mp3|ogg|wav|flac|m4a|opus)$/i.test(e.name)) audioFiles.push(f);
   }
 }
-walk('music');
+walk(config.autoRadio?.music?.localDirs?.[0] ?? 'music');
 
 let count = 0;
 for (const filePath of audioFiles) {

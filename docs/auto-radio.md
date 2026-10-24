@@ -100,7 +100,7 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 
 ## Govorjenje brez modelov (`autoRadio.voice`)
 
-`autoRadio.voice.mode` izbere enega izmed petih virov — nobeden ni lokalni AI model:
+`autoRadio.voice.mode` izbere enega izmed sedmih virov — nobeden ni lokalni AI model:
 
 - **`edge`** — Microsoft Edge nevronska sinteza (privzeti priporočeni način):
   pravi nevronski slovenski glasovi **`sl-SI-PetraNeural`** (ženski) in
@@ -111,6 +111,17 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
   (npr. HTTP 429) — takrat segment pade na `voice.edgeFallback`
   (`clips`/`sapi`/`espeak`/`none`, privzeto `none` = spusti segment), z
   enakim "spusti, ne mirovaj" dogovorom kot manjkajoči posnetek.
+- **`piper`** — lokalna nevronska sinteza prek **piper1-gpl** runtime-a
+  (`piper-tts` 1.8.0 s PyPI, aktivni naslednik arhiviranega rhasspy/piper —
+  P3 #15). Glas je bodisi glas-ključ `sl_SI-artur-medium` (prenaša se ENKRAT
+  ob prvi uporabi prek `piper.download_voices` s HuggingFace, ~63 MB; kasneje
+  brez omrežja) bodisi stara pot do `.onnx` datoteke (še vedno veljavna).
+  Glas po osebi: `voice.personas.<ime>.piperVoice` (+ neobvezno
+  `piperSpeaker` za večgovorniške modele), sicer `voice.defaultPiperVoice`;
+  predpomnilnik ključev: `voice.piperDataDir` (privzeto
+  `<dataDir>/piper/`); prenos ob prvi uporabi se izklopi z
+  `voice.piperAutoDownload: false` (napaka pove točen ročni ukaz).
+  Izhod 22 050 Hz mono — normalizacija na 24 kHz spodaj opravi preostanek.
 - **`clips`** — vnaprej posneti posnetki: `<dataDir>/<clipsDir>/<oseba>/<slot>.wav`
   (npr. `voice-clips/elena/intro.wav`), rezervna mapa `default/`. Številčne
   različice (`intro-1.wav`, `intro-2.wav` …) se izbirajo z istim zgoščevalnim
@@ -124,13 +135,16 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 - **`espeak`** — espeak-ng (Linux/brez namestitve modelov). Glas:
   `voice.personas.<ime>.espeakVoice` oz. `voice.defaultEspeakVoice`
   (privzeto `"sl"`), neobvezno `wordsPerMinute`.
+- **`pregenerated`** — track in splošni sloti iz `dataDir/pre-generated/`
+  (jih polni `pre-generate-clips.mjs` prek istega piper sloja); manjkajoči
+  slot spusti segment kot v `clips` načinu.
 - **`none`** — brez govora sploh: postaja predvaja glasbo (+ jingle), vsa
   besedila pa ostanejo v `script.md`/`transcript.json`.
 
 Vsi viri se ob prvi uporabi normalizirajo v pcm_s16le/24 kHz/mono (isti
 kodekski dogovor, ki ga je imel Chatterboxov izhod), zato spajanje sosednjih
-govornih odsekov ostane brez izgub. SAPI/espeak/edge izhod dobi še
-`djDrops.gain`; posnetki (clips) ostanejo netaknuti.
+govornih odsekov ostane brez izgub. SAPI/espeak/edge/piper izhod dobi še
+`djDrops.gain`; posnetki (clips, pregenerated) ostanejo netaknuti.
 
 ## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
 

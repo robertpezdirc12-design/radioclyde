@@ -56,6 +56,20 @@ sudo -u "$RADIO_USER" mkdir -p \
   "$MUSIC_DIR" "$VOICES_DIR" "$PREGEN_DIR" \
   "$RADIO_HOME"/{app,config}
 
+# Pre-download the Slovenian piper1-gpl voice (sl_SI-artur-medium, ~63 MB,
+# one-time) so the first pregeneration does not wait on a HuggingFace fetch.
+# Best effort: on an offline box the first synthesis downloads on demand
+# anyway (piperAutoDownload defaults to true in config.linux.json).
+PIPER_DATA_DIR="$DATA_DIR/piper"
+if ! sudo -u "$RADIO_USER" test -f "$PIPER_DATA_DIR/sl_SI-artur-medium.onnx" 2>/dev/null; then
+  sudo -u "$RADIO_USER" mkdir -p "$PIPER_DATA_DIR"
+  if sudo -u "$RADIO_USER" python3 -m piper.download_voices sl_SI-artur-medium --data-dir "$PIPER_DATA_DIR"; then
+    log "Piper voice sl_SI-artur-medium downloaded to $PIPER_DATA_DIR"
+  else
+    warn "Piper voice download skipped -- first synthesis will download it on demand"
+  fi
+fi
+
 if [ -d "/tmp/radioclyde-app" ]; then
   cp -r /tmp/radioclyde-app/* "$RADIO_HOME/app/"
   chown -R "$RADIO_USER:$RADIO_USER" "$RADIO_HOME/app"

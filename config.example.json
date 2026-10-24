@@ -188,6 +188,9 @@
       "edgeFallback": "espeak",
       "clipsDir": "voice-clips",
       "defaultEspeakVoice": "sl",
+      "defaultPiperVoice": "sl_SI-artur-medium",
+      "piperDataDir": "piper",
+      "piperAutoDownload": true,
       "personas": {
         "elena": {
           "edgeVoice": "sl-SI-PetraNeural"

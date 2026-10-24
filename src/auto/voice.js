@@ -16,6 +16,16 @@
 //               failure the segment either falls back per
 //               autoRadio.voice.edgeFallback (clips/sapi/espeak/none) or is
 //               skipped, exactly like a missing clip.
+//   "piper"  -- local Piper TTS via the piper1-gpl runtime (auto/
+//               piperVoice.js, single source of truth shared with
+//               pre-generate-clips.mjs and voiceStatus.js). piper-tts
+//               1.8.0 on PyPI, the maintained successor of the archived
+//               rhasspy/piper. Voice is either an .onnx path (old style,
+//               still valid) or a piper1-gpl voice key like
+//               "sl_SI-artur-medium" -- a missing key downloads ONCE from
+//               HuggingFace (piper.download_voices) before synthesis;
+//               no network is needed after that. Slovenian voice:
+//               sl_SI-artur-medium.
 //   "sapi"   -- Windows SAPI (System.Speech) speaks the rendered template
 //               text. Zero downloads, zero models: the voices Windows ships
 //               with. Voice name is per-persona config (e.g. "Microsoft
@@ -37,6 +47,7 @@ import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { applyGain } from '../lib/audio.js';
 import { synthesizeWithEdge } from './edgeTts.js';
+import { synthesizePiper } from './piperVoice.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('station');
@@ -145,25 +156,10 @@ function resolvePreGeneratedClip(slot, track) {
 // sapi + espeak providers
 // ---------------------------------------------------------------------------
 
-async function synthesizeWithPiper(text, outPath, persona) {
-  const { piperVoice, piperSpeaker } = personaVoiceSetting(persona);
-  const voiceModel = piperVoice ?? config.autoRadio?.voice?.defaultPiperVoice ?? 'voices/sl_SI-artur-medium.onnx';
-  const modelPath = path.isAbsolute(voiceModel) ? voiceModel : path.join(process.cwd(), voiceModel);
-  // Write text to a temp file to avoid shell escaping issues with Slovenian chars.
-  const textFile = `${outPath}.piper-text.txt`;
-  fs.writeFileSync(textFile, text, 'utf8');
-  const args = ['-m', 'piper', '-m', modelPath, '-f', outPath, '--input-file', textFile];
-  if (piperSpeaker != null) args.push('--speaker', String(piperSpeaker));
-  const pythonPath = config.autoRadio?.voice?.pythonPath ?? (process.platform === 'win32' ? 'C:/Program Files/Python311/python.exe' : 'python3');
-  try {
-    await execFileAsync(pythonPath, args, { timeout: 120_000 });
-  } finally {
-    // Audit 2026-10-24: this cleanup ran only on success -- every failed
-    // synthesis (missing piper module, bad model path, timeout) leaked a
-    // .piper-text.txt next to the output, one per retry per segment.
-    fs.rmSync(textFile, { force: true });
-  }
-}
+// piper synthesis moved to auto/piperVoice.js (P3 #15) so the on-air
+// provider, pre-generate-clips.mjs and voiceStatus.js all resolve voices
+// through the same code -- see that file for the piper1-gpl facts and the
+// key-vs-path model semantics.
 
 function personaVoiceSetting(persona) {
   return config.autoRadio?.voice?.personas?.[persona] ?? {};
@@ -197,9 +193,11 @@ async function synthesizeWithEspeak(text, outPath, persona) {
   );
 }
 
-// Resolves `mode` (clips/sapi/espeak) into a source file the normalizer can
-// read. Shared by the top-level dispatch and edge's fallback path.
-async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed }) {
+// Resolves `mode` (clips/piper/sapi/espeak) into a source file the normalizer can
+// read. Shared by the top-level dispatch and edge's fallback path. `runner`
+// is an optional test seam forwarded to the piper provider (injected
+// execFile -- the other providers ignore it).
+async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed, runner }) {
   if (mode === 'clips') {
     const sourcePath = resolveClipPath(persona, slot, seed);
     if (!sourcePath) {
@@ -220,7 +218,7 @@ async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed
   }
   if (mode === 'piper') {
     const sourcePath = `${outPath}.piper-src.wav`;
-    await synthesizeWithPiper(text, sourcePath, persona);
+    await synthesizePiper(text, sourcePath, persona, runner ? { runner } : {});
     return { sourcePath, fromClips: false };
   }
   throw new Error(`Unknown voice provider "${mode}" (expected clips, sapi, espeak, or piper).`);
@@ -235,7 +233,7 @@ async function synthesizeWithProvider(mode, { text, outPath, persona, slot, seed
 // mode, or mode "none"). `slot` is what clips mode keys the file by
 // (open/intro/recap/quizIntro/quizReveal/handoff/close or live:<kind>);
 // sapi/espeak speak `text` and only use the persona for voice selection.
-export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, seed = '', track = null }) {
+export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, seed = '', track = null, runner = null }) {
   const mode = voiceMode();
   if (mode === 'none') return false;
 
@@ -244,7 +242,7 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
   let fromClips = false;
 
   if (mode === 'clips' || mode === 'sapi' || mode === 'espeak' || mode === 'piper') {
-    ({ sourcePath, fromClips } = await synthesizeWithProvider(mode, { text, outPath, persona, slot, seed }));
+    ({ sourcePath, fromClips } = await synthesizeWithProvider(mode, { text, outPath, persona, slot, seed, runner }));
     if (!sourcePath) return false;
     wroteViaProvider = !fromClips;
   } else if (mode === 'edge') {
@@ -261,7 +259,7 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
         return false;
       }
       log(`voice/edge: falling back to "${fallback}" for this segment.`);
-      ({ sourcePath, fromClips } = await synthesizeWithProvider(fallback, { text, outPath, persona, slot, seed }));
+      ({ sourcePath, fromClips } = await synthesizeWithProvider(fallback, { text, outPath, persona, slot, seed, runner }));
       if (!sourcePath) return false;
       wroteViaProvider = !fromClips;
     }

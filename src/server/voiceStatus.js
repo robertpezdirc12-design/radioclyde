@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
+import { piperPythonPath, resolvePiperVoice } from '../auto/piperVoice.js';
 
 const KNOWN_MODES = ['clips', 'pregenerated', 'piper', 'edge', 'espeak', 'sapi', 'none'];
 
@@ -65,34 +66,44 @@ export function preGeneratedInventory() {
   };
 }
 
-// Piper provider readiness: the python entrypoint + default model path,
-// resolved EXACTLY the way voice.js's synthesizeWithPiper does (model path
-// relative to process.cwd()), plus per-persona overrides. We report whether
-// the files resolve -- actually invoking python to probe would cost seconds
-// per view and could hang on a broken interpreter; the on-air path logs its
-// own failures loudly to logs/station.log, which Diagnostics surfaces.
+// Piper provider readiness: the python entrypoint + default model, resolved
+// EXACTLY the way synthesis does -- literally: through the same
+// resolvePiperVoice() from auto/piperVoice.js that synthesizePiper() calls
+// (P3 #15). A piper1-gpl voice KEY resolves to <dataDir>/<key>.onnx and is
+// "missing" until its one-time piper.download_voices download runs; an
+// .onnx PATH resolves against process.cwd() like the old provider did. We
+// report whether the files resolve -- actually invoking python to probe
+// would cost seconds per view and could hang on a broken interpreter; the
+// on-air path logs its own failures loudly to logs/station.log, which
+// Diagnostics surfaces.
 export function piperStatus() {
   const voice = config.autoRadio?.voice ?? {};
-  const pythonPath = voice.pythonPath ?? (process.platform === 'win32' ? 'C:/Program Files/Python311/python.exe' : 'python3');
-  const configured = voice.defaultPiperVoice ?? 'voices/sl_SI-artur-medium.onnx';
-  const modelPath = path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
+  const describe = (persona) => {
+    const r = resolvePiperVoice(persona);
+    return { ...r, modelExists: fs.existsSync(r.modelPath) };
+  };
+  const def = describe(null);
   const personas = Object.fromEntries(
-    Object.entries(voice.personas ?? {}).map(([name, p]) => [
-      name,
-      {
-        piperVoice: p.piperVoice ?? null,
-        piperSpeaker: p.piperSpeaker ?? null,
-        modelExists: p.piperVoice
-          ? fs.existsSync(path.isAbsolute(p.piperVoice) ? p.piperVoice : path.join(process.cwd(), p.piperVoice))
-          : null,
-      },
-    ])
+    Object.entries(voice.personas ?? {}).map(([name, p]) => {
+      const r = describe(name);
+      return [
+        name,
+        {
+          piperVoice: p.piperVoice ?? null,
+          piperSpeaker: p.piperSpeaker ?? null,
+          modelExists: p.piperVoice ? r.modelExists : null,
+          isKey: p.piperVoice ? r.isKey : null,
+        },
+      ];
+    })
   );
   return {
-    pythonPath,
-    defaultVoice: configured,
-    modelExists: fs.existsSync(modelPath),
-    modelPath,
+    pythonPath: piperPythonPath(),
+    defaultVoice: def.model,
+    isKey: def.isKey,
+    dataDir: def.dataDir,
+    modelPath: def.modelPath,
+    modelExists: def.modelExists,
     personas,
   };
 }
