@@ -10,9 +10,16 @@ import { config } from '../config/index.js';
 import { recentErrors } from '../lib/errorRing.js';
 import { composeNowPlaying } from './nowPlaying.js';
 import { getUpcomingShows } from './upcoming.js';
-import { loadDowntime, loadSchedule, mostRecentOccurrence, weekdayKey } from '../scheduler/scheduleUtil.js';
+import {
+  loadDowntime,
+  loadSchedule,
+  mostRecentOccurrence,
+  nextOccurrences,
+  weekdayKey,
+} from '../scheduler/scheduleUtil.js';
 import { playlistStats, tailFile, repeatOffenders, probeIcecast } from './diagnosticsUtil.js';
 import { readAiredEntries } from './historyApi.js';
+import { inventoryThresholds, inventoryForOccurrence } from './inventoryUtil.js';
 
 const LOG_FILES = ['web.log', 'station.log', 'scheduler.log'];
 
@@ -62,6 +69,25 @@ export function registerStudioDiagnosticsApi(fastify) {
       },
       stream: { icecast, mount: config.icecast.mount, publicPort: config.web.port },
       scheduler: { upcoming: getUpcomingShows(5) },
+      // Min-inventory readiness for the upcoming slots (P2 #7, WRIT-FM's
+      // health metric): per occurrence -- script exists? parses? meets the
+      // speech/track minimums? "ready" is the operator's one-glance answer
+      // to "vsebina pripravljena za naslednji slot", every miss spelled out.
+      inventory: {
+        thresholds: inventoryThresholds(),
+        upcoming: nextOccurrences(loadSchedule(), now, 5).map((occ) => ({
+          id: occ.show.id,
+          weekday: occ.weekday,
+          date: occ.date,
+          startTime: occ.show.startTime,
+          ...inventoryForOccurrence({
+            id: occ.show.id,
+            weekday: occ.weekday,
+            date: occ.date,
+            durationMinutes: occ.show.durationMinutes,
+          }),
+        })),
+      },
       repeats: {
         windowHours: config.filler?.rotationWindowHours ?? 24,
         offenders: repeatOffenders(readAiredEntries(), config.filler?.rotationWindowHours ?? 24),

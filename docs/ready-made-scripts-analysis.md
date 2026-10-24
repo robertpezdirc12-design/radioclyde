@@ -163,6 +163,18 @@ Iskreni obseg: pravila veljajo za **rotacijsko plast** (filler), ne za kurirane 
 
 Repo: `github.com/keltokhy/writ-fm`. Vsebinski generator je LLM (Claude/Kodex) + Kokoro/Chatterbox/Voxtral; **struktura pa je vredna kopiranja tudi nam**: taksonomija segmentov (deep_dive, news_analysis iz RSS, interview, panel, story, **listener_mailbag**, music_essay + kratke: **station_id, show_intro, show_outro** kot prvovrstni vsebinski tipi), tedenski premik (nedeljski »Listener Hours«), **min-zaloga** (≥3 govorni prekini/slot, ≥20 skladb/oddaja — zdravstveno merilo), station-local topic bank + append-only **uredniški vodnik** (kontinuiteta med oddajami), več-stancijska izolacija (WRIT/KLOD/CDEX iz enega runtime). Za nas: tipi segmentov se 1:1 prevedejo v naše template vrste (liveLines + prewarmed slots), min-zaloga pa v Diagnostics »vsebina pripravljena za naslednji slot«.
 
+**Status: IMPLEMENTIRANA (P2 #7).** `src/script/segments.js` (taksonomija + merilo), `segment:` polje v `script/format.js`, `src/server/inventoryUtil.js` + blok `inventory` v `/api/diagnostics`. Preslikava:
+
+| WRIT-FM koncept | Naša implementacija |
+|---|---|
+| taksonomija tipov (prvorazredni show_intro/outro, mailbag, ...) | **zaprt niz 13 tipov** `SEGMENT_TYPES`: show_intro, show_outro, track_intro, quiz, news_analysis, weather_check, listener_mailbag, deep_dive, story, music_essay, interview, panel, banter; station_id NI tip skripte — lasti ga imaging sloj (imaging/id.m3u) |
+| tipi kot prvovrstni podatki | neobvezno `segment:` polje na dj/live segmentih v script.md (validacija proti zaprtemu nizu — neznana oznaka = napaka parse-a); renderScript ga zapiše nazaj (round-trip) |
+| (WRIT jih zapiše ročno) | **inferenca** iz slot/pozicije: open/close → show_intro/outro, intro/recap → track_intro, quiz* → quiz, rubrike (newsHeadlines/sportHeadlines/obzorje) → news_analysis, weatherNow + vse `type: live` → weather_check, handoff/neznano → banter; brez oznake se vsaka obstoječa skripta klasificira nespremenjena |
+| explicit-only tipi | listener_mailbag, deep_dive, story, music_essay, interview, panel — nič v današnji strukturi jih ne nakazuje, zato se NIKOLI ne uganejo; postanejo resnični z oznako |
+| min-zaloga: ≥3 govorni prekini/slot, ≥20 skladb/oddaja | `segmentInventory()`: ≥`shows.inventory.minSpeechSegments` (privzeto 3, ravno) govorih + ≥`minTracksPer30Minutes` (privzeto 6 — WRIT 20/uro skalirano na našo knjižnico 3.5–5 min) na 30 min trajanja (ceil); MERILO SAMO POROČA — nikoli ne blokira parse-a ali produkcije (blocking pogodba ostaja parseScript) |
+| Diagnostics »vsebina pripravljena za naslednji slot« | `/api/diagnostics` blok `inventory`: za vsako od 5 prihajajočih obratov — script.md obstaja? se parse-a? izpolnjuje minima? `ready` = en-gled-odgovor operatorja, vsak izpad z točnimi številami |
+| tedenski premik (Listener Hours), topic bank, uredniški vodnik, več-stancijska izolacija | NI v1 — spodaj P3, takrat ob dotiku arhitekture produkcije |
+
 ### 4.3 radio-dj (60★, MIT, Go 8,7 MB) — drobci
 
 Veščine kot **urejanje besedilnih datotek** (`~/.radio-dj/skills/`, brez prevajanja), `radio-dj install` (ustvari systemd/launchd/OpenRC enoto), ffmpeg **sidechaincompress** ducking (DJ govor čez glasbo — pri nas trenutno nič, ker naš govor nikoli ne teče čez glasbo; zanimivo za prihodnje »postelje«, poenostavljena uradna alternativa je 2.6 `smooth_add`), PWA UI z DJ dnevnikom. Jedro je LLM direktor — ostalo je mehanika.
@@ -227,7 +239,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 4 | PWA datoteke (manifest + SW) + MediaSession | defenestratexp vzorec | — (že opravljeno v a1c1fee) | namestljivost, zaklenjeni zaslon | P1 ✓ |
 | 5 | `source_tag` dispatch prehodov (glasba↔govor v enem mestu) | cookbook §2.5 | pol dneva | posploši naš annotate »0« model, brez crossfade tveganja | P2 |
 | 6 | Pametna pravila zaloge (30/izvajalec, 5/(izvajalec,album), 12 h izključitev, uteži vrtenc, boost novosti) | defenestratexp | 1 dan | boljša rotacija od naključja | P2 |
-| 7 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 |
+| 7 | Taksonomija segmentov + min-zaloga merilo | WRIT-FM | 2–3 dni | show_intro/outro, mailbag, zdravstveno merilo zaloge | P2 ✓ |
 | 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 ✓ |
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 |
 | 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2 ✓ |

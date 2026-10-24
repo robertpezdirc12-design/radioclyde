@@ -109,7 +109,11 @@
   "shows": {
     "repeatWindowDays": 30,
     "maxTrackDurationSeconds": 300,
-    "minTrackDurationSeconds": 120
+    "minTrackDurationSeconds": 120,
+    "inventory": {
+      "minSpeechSegments": 3,
+      "minTracksPer30Minutes": 6
+    }
   },
   "cleanup": {
     "retentionDays": 7,

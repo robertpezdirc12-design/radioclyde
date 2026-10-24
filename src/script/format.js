@@ -3,6 +3,7 @@
 // session's output before it's ever written to disk, and reused unchanged by
 // director/index.js to consume finished scripts.
 import { estimateSpeechMs } from '../lib/format.js';
+import { isSegmentType } from './segments.js';
 
 const VALID_TYPES = new Set(['dj', 'track', 'live']);
 const VALID_LIVE_KINDS = new Set(['time', 'weather', 'time-weather']);
@@ -90,7 +91,16 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
       if (!body) issues.push(`${label}: dj segment has no body text to speak.`);
       // slot is optional auto-radio metadata (open/intro/recap/...); plain
       // scripts have none and everything downstream treats it as "dj".
-      segments.push({ type, persona, body, slot: fields.slot ?? null });
+      // segment is the optional WRIT-FM content-type tag (P2 #7) -- validated
+      // against the closed set in script/segments.js; absent = the taxonomy
+      // infers from slot/position, so existing scripts classify unchanged.
+      const segment = fields.segment ?? null;
+      if (segment != null && !isSegmentType(segment)) {
+        issues.push(
+          `${label}: unknown "segment:" tag "${segment}" -- must be one of the taxonomy in script/segments.js (show_intro, show_outro, listener_mailbag, deep_dive, story, music_essay, interview, panel, banter, ...).`
+        );
+      }
+      segments.push({ type, persona, body, slot: fields.slot ?? null, segment });
     } else if (type === 'track') {
       const { artist, title: trackTitle, ratingKey } = fields;
       if (!artist) issues.push(`${label}: track segment missing "artist:".`);
@@ -115,7 +125,11 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
         issues.push(`${label}: live segment "kind:" must be one of time, weather, time-weather.`);
       }
       if (!brief) issues.push(`${label}: live segment missing "brief:".`);
-      segments.push({ type, persona, kind, brief });
+      const segment = fields.segment ?? null;
+      if (segment != null && !isSegmentType(segment)) {
+        issues.push(`${label}: unknown "segment:" tag "${segment}" -- must be one of the taxonomy in script/segments.js.`);
+      }
+      segments.push({ type, persona, kind, brief, segment });
     }
   }
 
@@ -174,6 +188,7 @@ export function renderScript({ title, durationMinutes, segments }) {
         'type: dj',
         `persona: ${seg.persona}`,
         ...(seg.slot ? [`slot: ${seg.slot}`] : []),
+        ...(seg.segment ? [`segment: ${seg.segment}`] : []),
         '',
         seg.body.trim(),
         ''
@@ -194,6 +209,7 @@ export function renderScript({ title, durationMinutes, segments }) {
         `persona: ${seg.persona}`,
         `kind: ${seg.kind}`,
         `brief: ${seg.brief}`,
+        ...(seg.segment ? [`segment: ${seg.segment}`] : []),
         ''
       );
     }

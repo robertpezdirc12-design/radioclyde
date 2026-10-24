@@ -158,6 +158,14 @@ phases hand off through.
   rotation. Borrowed from AzuraCast's Playlist Groups design — see
   [analysis §4.5](docs/ready-made-scripts-analysis.md) for the one-word
   `radio.liq` mode flip that puts the wheel on air.
+- **Segment taxonomy + min-inventory metric**: every show segment carries a
+  content type from a small closed set (show_intro/outro, listener_mailbag,
+  news_analysis, deep_dive, ...) — explicitly via an optional `segment:`
+  field in `script.md`, inferred from slot/position otherwise. The studio
+  Diagnostics view reports, per upcoming slot, whether the script is ready:
+  it exists, it parses, and it meets the station's speech/track minimums
+  (WRIT-FM's health metric) — see
+  [analysis §4.2](docs/ready-made-scripts-analysis.md).
 - **Listener requests reach the air**: the studio dashboard's Queue button
   pushes an approved request onto Liquidsoap's `request.queue` over telnet —
   it plays at the next track boundary with no competition from the playlist

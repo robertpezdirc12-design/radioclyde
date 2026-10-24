@@ -58,6 +58,7 @@ outros, and handoffs between personas are all just this.
 ## DJ — Ryan
 type: dj
 persona: ryan
+segment: listener_mailbag        (optional — see "Segment taxonomy" below)
 
 Alright everyone, kicking off Friday drivetime!
 ```
@@ -113,6 +114,55 @@ brief: <free text: tone, length, angle — direction, not content>
 - `brief` is *instruction*, not content — write it like direction to a DJ, not like the
   line itself. Good: `"20s casual check-in, drivetime energy"`. Bad: `"It's sunny and
   75 degrees"` (you don't know that yet — that's the director's job).
+
+## Segment taxonomy
+
+Every `dj`/`live` segment carries a **content type** from a small closed set — the
+WRIT-FM taxonomy (borrowed for integration-table item #7). The type is used by the
+studio Diagnostics min-inventory view ("is the next slot's content ready?"); it never
+changes playback.
+
+You can tag it explicitly with an optional `segment:` field (must be exactly one of
+the strings below; anything else is a parse error):
+
+```
+segment: listener_mailbag | deep_dive | story | music_essay | interview |
+         panel | banter | show_intro | show_outro | track_intro | quiz |
+         news_analysis | weather_check
+```
+
+Absent a tag, the type is **inferred** — every existing script classifies unchanged:
+
+| Inferred from | Type |
+|---|---|
+| `slot: open` / first spoken segment | `show_intro` |
+| `slot: close` / last spoken segment | `show_outro` |
+| `slot: intro` / `slot: recap` | `track_intro` |
+| `slot: quizIntro` / `slot: quizReveal` | `quiz` |
+| `slot: newsHeadlines` / `sportHeadlines` / `obzorje` | `news_analysis` |
+| `slot: weatherNow`, or any `type: live` segment | `weather_check` |
+| anything else (incl. `slot: handoff`) | `banter` |
+
+`listener_mailbag`, `deep_dive`, `story`, `music_essay`, `interview`, and `panel` are
+**explicit-only** — nothing in today's structure implies them, so they are never
+guessed; they become real the moment a script tags one. (A two-persona `interview` or
+`panel` is mechanically just `dj` segments alternating — the tag records the intent.)
+
+Station IDs are not a script segment: the imaging layer owns them
+(`imaging/id.m3u`, on the hour).
+
+### Min-inventory ("zdravstveno merilo zaloge")
+
+Diagnostics reports, for each upcoming slot, whether its script meets the station's
+minimums (WRIT-FM's health metric, adapted to this library's 3.5–5 min tracks):
+
+- at least `shows.inventory.minSpeechSegments` (default 3) speech segments
+  (`dj` + `live`) per show, and
+- at least `shows.inventory.minTracksPer30Minutes` (default 6) tracks per 30 minutes
+  of scheduled duration.
+
+The metric **reports** — it never blocks a parse or a production. A shortfall shows up
+in Diagnostics as a not-ready slot with the exact counts that missed.
 
 ## Rules of thumb when authoring
 
