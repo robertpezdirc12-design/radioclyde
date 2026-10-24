@@ -34,6 +34,16 @@ implementacije, izhod je dokument + predlog P4.
 >   "personas": [...] }`), rotacija po ISO tednu, brifi se izrisujejo v
 >   `show-descriptions/themed/<tema>.md`, CLI `npm run themed-shows`.
 >   npm test 323/323 (89 suitov, 0 fail, 0 skip pod PIPER_LIVE=1).
+>
+> - **#22 (rubrika "Kviz") je IMPLEMENTIRAN** (po uporabnikovem »odlično,
+>   nadaljuj«): resnična kviz vprašanja (korpus `src/auto/quizFacts.js`, 25
+>   kuriranih vprašanj z enim preverljivim odgovorom) na ŽE OBSTOJEČEM kviz
+>   položaju (`quizIntro`/`quizReveal` ob sredinski skladbi briefa s `quiz`
+>   segmentom) — stari sloti in letno ugibanje ostanejo rezerva, voice
+>   plast se ni spremenila. Ključna beseda `kviz`/`quiz` v `Rubrike:` vrstici,
+>   nastavitev `rubrics.quizCount` (privzeto 1). Edina rubrika, ki v
+>   `--offline` načinu deluje CELA (korpus brez omrežja). Reference v
+>   [auto-radio.md](auto-radio.md) §Kviz.
 
 ## 1. Kaj stationa že zmore (zemljevid obstoječega stanja)
 

@@ -178,6 +178,12 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     generalFactQueue: [...(trivia?.generalFacts ?? [])],
   };
 
+  // P4 #22 quiz state: real question/answer pairs from the "Kviz" rubric
+  // (auto/quizFacts.js via feeds.js). Consumed FIFO at the quiz position;
+  // when the queue is empty the legacy year-guess quizIntro/quizReveal
+  // templates render instead -- same slots, no brief change needed.
+  const quizQueue = [...(rubricData?.quiz?.questions ?? [])];
+
   segments.push({
     type: 'dj',
     persona: primaryPersona,
@@ -208,12 +214,21 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
       ...triviaSegments({ trivia, track, index: i, persona: primaryPersona, commonValues, showId, date, trackSeed, state: triviaState })
     );
 
+    // P4 #22: at the quiz position consume ONE question from the queue (null
+    // when the rubric is off / corpus empty -> legacy year-guess below).
+    const quizItem = i === quizIndex ? quizQueue.shift() ?? null : null;
+
     if (i === quizIndex) {
       segments.push({
         type: 'dj',
         persona: primaryPersona,
         slot: 'quizIntro',
-        body: renderSlot('quizIntro', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizIntro` }),
+        body: quizItem
+          ? renderSlot('quizQuestion', {
+              values: { ...commonValues(), question: quizItem.prompt },
+              seed: `${trackSeed}|quizIntro`,
+            })
+          : renderSlot('quizIntro', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizIntro` }),
       });
     } else {
       segments.push({
@@ -231,7 +246,12 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
         type: 'dj',
         persona: primaryPersona,
         slot: 'quizReveal',
-        body: renderSlot('quizReveal', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizReveal` }),
+        body: quizItem
+          ? renderSlot('quizAnswer', {
+              values: { ...commonValues(), answer: quizItem.answer },
+              seed: `${trackSeed}|quizReveal`,
+            })
+          : renderSlot('quizReveal', { values: { ...commonValues(), ...trackValues(track) }, seed: `${trackSeed}|quizReveal` }),
       });
     } else {
       segments.push({

@@ -23,6 +23,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import { pickQuizQuestions } from './quizFacts.js';
 
 const log = createLogger('station');
 
@@ -403,6 +404,9 @@ export function rubricSettings() {
     sportLimit: cfg.sportLimit ?? 4,
     onThisDayLimit: cfg.onThisDayLimit ?? 2,
     onThisDayMusicLimit: cfg.onThisDayMusicLimit ?? 2,
+    // P4 #22: questions per show from the local quiz corpus; 0 disables the
+    // quiz content and falls back to the legacy year-guess quizIntro/quizReveal.
+    quizCount: cfg.quizCount ?? 1,
     timeoutSeconds: cfg.timeoutSeconds ?? 10,
   };
 }
@@ -413,12 +417,20 @@ export function rubricSettings() {
 // (The "zanimivosti" rubric is NOT collected here: its artist half needs the
 // tracklist, so auto/produce.js calls collectArtistTrivia() itself and stores
 // the result as rubricData.trivia.)
-export async function collectRubricData({ names = [], offline = false, date } = {}) {
+//
+// P4 #22: the "kviz" rubric is the one exception to "offline -> null": its
+// content comes from the local quiz corpus (auto/quizFacts.js), so it works
+// with zero network and is collected in the offline branch too.
+export async function collectRubricData({ names = [], offline = false, date, seed } = {}) {
+  const settings = rubricSettings();
+  const quizSeed = seed ?? date ?? 'quiz';
+  const quiz = names.includes('quiz') && settings.quizCount > 0
+    ? { questions: pickQuizQuestions(settings.quizCount, quizSeed) }
+    : null;
   if (offline) {
     log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, offline: true };
+    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, offline: true };
   }
-  const settings = rubricSettings();
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
   const [weather, news, sport, onThisDay, onThisDayMusic] = await Promise.all([
@@ -428,5 +440,5 @@ export async function collectRubricData({ names = [], offline = false, date } = 
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
     wants('onthisdaymusic') ? fetchOnThisDayMusic({ date, limit: settings.onThisDayMusicLimit, timeoutMs }) : null,
   ]);
-  return { weather, news, sport, onThisDay, onThisDayMusic, offline: false };
+  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, offline: false };
 }

@@ -56,6 +56,17 @@ const DEFAULT_TEMPLATES = {
     'Pravilen odgovor: {title} je iz\u0161la leta {year}. \u010ce ste zadeli, \u010destitamo!',
     'Resitev kviza -- {year}. {artist} s skladbo {title}.',
   ],
+  // P4 #22 "Kviz" rubric: real question/answer content from auto/quizFacts.js
+  // renders through these keys; the legacy year-guess quizIntro/quizReveal
+  // above stay as the fallback when the rubric is off or the corpus is empty.
+  quizQuestion: [
+    'Kviz za pozorne poslu\u0161alce: {question} Odgovor razkrijemo takoj po skladbi.',
+    'Malo tekmovalnosti -- {question} Pravilni odgovor povemo takoj po skladbi.',
+  ],
+  quizAnswer: [
+    'Pravilen odgovor: {answer}. \u010ce ste zadeli, \u010destitamo!',
+    'Re\u0161itev kviza: {answer}. Zdaj pa nazaj k glasbi.',
+  ],
   handoff: [
     'Poglejmo \u0161e, kak\u0161no vreme nas \u010daka. \u010cez mikrofon se oglasa {to}.',
     'Vremenska napoved sledi -- prijavlja {to}.',

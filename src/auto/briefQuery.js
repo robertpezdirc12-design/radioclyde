@@ -418,6 +418,11 @@ const RUBRIC_KEYWORDS = {
   'na danasnji dan v glasbi': 'onthisdaymusic',
   'obzorje glasbe': 'onthisdaymusic',
   onthisdaymusic: 'onthisdaymusic',
+  // P4 #22 "Kviz" (auto/quizFacts.js): real question/answer content for the
+  // existing quiz position (quizIntro/quizReveal around the middle track of
+  // a brief whose Segments line includes "quiz").
+  kviz: 'quiz',
+  quiz: 'quiz',
 };
 
 export function parseBriefRubrics(descriptionText) {

@@ -315,11 +315,13 @@ prose for humans. The selection section supports:
 - English or Slovenian rule sentences: *Don't repeat the same artist in a
   single show* (artist cooldown, 3 h station-wide by default), *No track
   longer than 5 minutes*, *Favor well-known tracks* (popularity mix)
-- `Rubrike: vreme, šport, obzorje, zanimivosti, glasba` — opt the show into the
+- `Rubrike: vreme, šport, obzorje, zanimivosti, glasba, kviz` — opt the show into the
   live-data service segments, deterministic per-artist + general rock trivia
   ("Zanimivosti": MusicBrainz / sl.wikipedia fact before the artist's track,
-  plus an offline Slovenian rock-history corpus) and the musician-filtered
-  "Na današnji dan v glasbi" (see [docs/auto-radio.md](docs/auto-radio.md))
+  plus an offline Slovenian rock-history corpus), the musician-filtered
+  "Na današnji dan v glasbi" and the offline "Kviz" — a real rock question
+  before the middle track, answer revealed right after it
+  (see [docs/auto-radio.md](docs/auto-radio.md))
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
   wave, whole-album night) renders real briefs on demand — no hand-writing.

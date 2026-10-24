@@ -164,6 +164,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
 | `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi" | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
+| `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 25 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
 
 Nastavitve v `config.autoRadio.rubrics`:
 
@@ -175,6 +176,7 @@ Nastavitve v `config.autoRadio.rubrics`:
 - `onThisDayMusicLimit` — koliko glasbenih dogodkov "na današnji dan" (privzeto 2)
 - `triviaMaxArtists` — na koliko unikatnih izvajalcev na oddajo se sploh poizveduje (privzeto 6)
 - `triviaGeneralCount` — koliko splošnih rock zanimivosti na oddajo iz korpusa (privzeto 3)
+- `quizCount` — koliko kviz vprašanj na oddajo iz korpusa (privzeto 1; 0 izklopi resnično vsebino in pusti staro ugibanje leta)
 - `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
 
 Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
@@ -182,8 +184,31 @@ Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
 predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h, izvajalec 24 h), tako
 da prewarm in ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje,
 če je ni v briefu; `--offline` (preview) jih vedno spusti — **razen korpusne
-polovice `zanimivosti`**, ki je lokalna datoteka in deluje brez omrežja (samo
-polovica za izvajalce se ob offline spusti).
+polovice `zanimivosti` in cele rubrike `kviz`**, ki sta lokalni datoteki in
+delujeta brez omrežja (samo polovica zanimivosti za izvajalce se ob offline
+spusti).
+
+### Kviz — resnična vprašanja na obstoječem mestu (P4 #22)
+
+Brief z `quiz` v vrstici **Segments:** že od začetka odpre kviz položaj:
+sredinska skladba dobi `quizIntro` (namesto navadnega `intro`) in
+`quizReveal` (namesto `recap`). Brez rubrike `kviz` tam zazveni staro
+ugibanje leta iz metapodatkov skladbe. Z rubriko — ključna beseda `kviz`
+(v ali `quiz`) v vrstici `Rubrike:` — pa se na to mesto postavi **resnično
+vprašanje** iz korpusa `src/auto/quizFacts.js` (»Kdo je ustanovil Iron
+Maiden?«), odgovor pa razkrije takoj po skladbi (»Pravilen odgovor: Steve
+Harris.«). Vprašanja se rotirajo po zgodovini rocka (kronološko) glede na
+seme `oddaja|datum`, zato vsak dan drugo vprašanje, isti dan pa vedno isto
+(reproducirljivi prepisi, predpomnljivi zvok). Vsebina je povsem lokalna —
+ta rubrika je edina, ki v `--offline` načinu deluje CELA.
+
+Predloge za vsebino so `quizQuestion` (vsebuje `{question}` in obljubo
+»odgovor takoj po skladbi«) in `quizAnswer` (vsebuje `{answer}`); stari
+`quizIntro`/`quizReveal` ostanejo rezerva. V clips načinu lahko oba slotita
+posnameš posamezno (`voice-clips/<persona>/quizIntro.wav`,
+`quizReveal.wav`); v načinu predgeneriranih klipov kviz slot v trajanje
+uporabi intro/recap klip te skladbe — prepis pa vedno nosi pravo
+vprašanje.
 
 ### Wikimedia iz podatkovnih središč (HTTP 403) — živo opaženo
 
