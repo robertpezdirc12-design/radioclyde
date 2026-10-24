@@ -52,6 +52,17 @@ config.paths = {
   // moderation (studioRequestsApi.js).
   requestsFile: path.join(config.dataDir, 'requests.jsonl'),
   pollsFile: path.join(config.dataDir, 'polls.json'),
+  // Web Push (push/vapid.js + push/subscriptions.js + push/dispatch.js):
+  // everything the opt-in "show is starting" notifications need, under one
+  // dataDir namespace. vapid.json holds the locally generated P-256 pair
+  // (losing it invalidates existing browser subscriptions); subscriptions
+  // are the minimal opt-in records (endpoint + encryption keys, no
+  // accounts); sent.jsonl is the idempotence ledger (one line per
+  // date@time@show already notified).
+  pushDir: path.join(config.dataDir, 'push'),
+  pushVapidFile: path.join(config.dataDir, 'push', 'vapid.json'),
+  pushSubscriptionsFile: path.join(config.dataDir, 'push', 'subscriptions.json'),
+  pushSentLedgerFile: path.join(config.dataDir, 'push', 'sent.jsonl'),
   artCacheDir: path.join(config.dataDir, 'cache', 'art'),
   // Persona system prompts + the script-review system prompt, split out of
   // this boot-time-loaded config.json into their own file so studio admin

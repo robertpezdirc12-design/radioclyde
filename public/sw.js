@@ -12,7 +12,9 @@
 //    straight through untouched, no caching, no auth interference
 //
 // The cache name carries a version; bumping it is the whole update story.
-const VERSION = 'rc-pwa-v1';
+// v2: push + notificationclick handlers (P5 #4) -- existing installs pick
+// up the new SW on their next visit (stale-while-revalidate shell + claim).
+const VERSION = 'rc-pwa-v2';
 const PRECACHE = [
   '/',
   '/app.js',
@@ -65,4 +67,48 @@ self.addEventListener('fetch', (event) => {
   }
   // Non-shell same-origin GETs (dj-photos, /api/art under its own routes,
   // embed.html) pass through -- small, often uncacheable, not worth pinning.
+});
+
+// ---------- P5 #4: push obvestila ob zaciku terminirane oddaje ----------
+//
+// Streznik poslje sifriran JSON { title, body, tag, url } (push/dispatch.js).
+// tag zamenja starejse obvestilo istega termina, zato ponovno poslano
+// sporocilo ne kupi kupice zastarelih obvestil v triku. Neuspel JSON pars
+// NI tih propad: pokazemo splosno obvestilo z besedilom, ki je prislo.
+self.addEventListener('push', (event) => {
+  let data = {};
+  let text = '';
+  try {
+    text = event.data ? event.data.text() : '';
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = {}; // spodaj pade na surovi text
+  }
+  const title = typeof data.title === 'string' && data.title ? data.title : 'Radio Markec';
+  const body = typeof data.body === 'string' && data.body ? data.body : text || '';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag: typeof data.tag === 'string' && data.tag ? data.tag : 'markec-push',
+      icon: '/logo.png',
+      badge: '/favicon.svg',
+      data: { url: typeof data.url === 'string' && data.url ? data.url : '/' },
+    })
+  );
+});
+
+// Klik na obvestilo: osredotoce obstojeci zavihek, ce obstaja, sicer odpri
+// novega na url iz sporocila. Brez toga bi klik naredil mlakav nov zavihek
+// ob vsakem obvestilu -- nihce tega noce.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url ?? '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
+    })
+  );
 });

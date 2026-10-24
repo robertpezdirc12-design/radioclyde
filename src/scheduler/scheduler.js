@@ -24,6 +24,7 @@ import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
 import { writeImagingPlaylists } from './imagingPlaylists.js';
 import { runAutocueScan } from './autocueScan.js';
+import { pushDispatchTick } from './pushDispatch.js';
 import { sampleNow } from '../analytics/listenerSamples.js';
 
 const log = createLogger('station');
@@ -144,6 +145,13 @@ export function startScheduler() {
   // exactly as before, and a no-ffmpeg or empty-library box simply logs a
   // zero-work scan each tick.
   every(Math.max(1, config.autocue?.checkIntervalMinutes ?? 60), 'autocue', runAutocueScan);
+  // P5 #4 push obvestila: oddaje se zacikajo tocno na startTime, zato je
+  // minuto natancnost tu kljucna (leadMinutes se nadalje skraja okno).
+  // ?. + ?? povsod: config.linux.json NE vsebuje push bloka, branje brez
+  // zašcitne verige bi bilo naslednje ponovitev F2-razreda (TypeError ob
+  // zagonu tiho ubije vse jobe registrirane za to vrstico -- analytics
+  // regresija 2026-10-24, ki se NE SME vrniti).
+  every(Math.max(1, config.push?.checkIntervalMinutes ?? 1), 'push_dispatch', pushDispatchTick);
 
   log('Scheduler started.');
 }

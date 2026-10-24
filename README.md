@@ -353,6 +353,16 @@ prose for humans. The selection section supports:
   `/podcast/<file>.mp3` (traversal-proof, plans never public). Routes stay
   behind Basic Auth by default; open them with
   `web.publicPaths: ["/podcast", "/api/podcast"]`.
+- **Show-start push notifications (P5 #4)**: the listener opts in on the
+  "Zdaj" panel and the browser notifies right before a scheduled show
+  starts. Zero new npm dependencies and zero third-party API keys: the VAPID
+  P-256 pair is generated locally (RFC 8292 signed JWT), the payload is
+  encrypted with the browser's own keys (RFC 8291 aes128gcm), the scheduler
+  job `push_dispatch` fires once per minute and an append-only ledger makes
+  it idempotent across restarts; dead endpoints (404/410) are pruned.
+  Subscription routes live behind Basic Auth by default -- open them with
+  `web.publicPaths: ["/api/push"]`. The studio gets the subscriber count,
+  the last-sent truth from the ledger and a test-send button.
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
   wave, whole-album night) renders real briefs on demand — no hand-writing.

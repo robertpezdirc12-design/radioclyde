@@ -38,6 +38,8 @@ const els = {
   upcomingError: $('upcoming-error'),
   favList: $('fav-list'),
   favEmpty: $('fav-empty'),
+  pushButton: $('push-button'),
+  pushStatus: $('push-status'),
   weekGrid: $('week-grid'),
   scheduleTz: $('schedule-tz'),
   topList: $('top-list'),
@@ -907,12 +909,127 @@ async function fetchTopListened() {
   }
 }
 
+// ---------- P5 #4: push opt-in (obvestilo ob začetku oddaje) ----------
+//
+// Resnica o stanju je pushManager.getSubscription() brskalnika -- ne
+// localStorage (tisti bi lahal po odstranitvi naročnine drugje). Vklop:
+// dovoljenje -> subscribe z javnim VAPID ključem s strežnika -> POST
+// /api/push/subscribe. Izklop: unsubscribe + POST /api/push/unsubscribe.
+// Neuspeh je vedno viden v status vrstici, nikoli tiho.
+
+const PUSH_LEAD_HINT = 'Obvestilo pride tik pred začetkom oddaje.';
+
+function pushCapabilitiesNote() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    return 'Ta brskalnik ne podpira push obvestil.';
+  }
+  if (!window.isSecureContext) {
+    return 'Push deluje samo prek HTTPS (ali na localhost).';
+  }
+  return null;
+}
+
+async function setPushStatus(text, showButton) {
+  els.pushStatus.textContent = text;
+  els.pushStatus.hidden = !text;
+  els.pushButton.hidden = showButton !== true;
+}
+
+async function renderPushState() {
+  const note = pushCapabilitiesNote();
+  if (note) {
+    await setPushStatus(note, false);
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = registration ? await registration.pushManager.getSubscription() : null;
+    if (subscription) {
+      els.pushButton.textContent = 'Izklopi obvestila';
+      await setPushStatus(`Obvestila so vklopljena. ${PUSH_LEAD_HINT}`, true);
+    } else {
+      els.pushButton.textContent = 'Vklopi obvestila';
+      await setPushStatus('', true);
+    }
+  } catch {
+    await setPushStatus('Stanja obvestil ni bilo mogoče preveriti.', false);
+  }
+}
+
+async function enablePush() {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    await setPushStatus('Dovoljenje za obvestila ni bilo dano -- vklopi ga v nastavitvah brskalnika.', false);
+    return;
+  }
+  const registration = await navigator.serviceWorker.ready;
+  let vapidKey;
+  try {
+    const res = await fetch('/api/push/vapid');
+    if (!res.ok) throw new Error(res.status);
+    vapidKey = (await res.json()).publicKey;
+  } catch {
+    await setPushStatus('Strežnik trenutno ne omogoča prijave na obvestila (rute /api/push so zaprte ali nedosegljive).', false);
+    return;
+  }
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: vapidKey,
+  });
+  const record = subscription.toJSON();
+  const res = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: record.endpoint, keys: record.keys }),
+  });
+  if (!res.ok) {
+    // Ne pusti pol-odprte naročbine: odjavimo jo, da UI ne laže.
+    await subscription.unsubscribe().catch(() => {});
+    await setPushStatus(`Strežnik je zavrnil prijavo (napaka ${res.status}). Poskusi znova kasneje.`, false);
+    return;
+  }
+  els.pushButton.textContent = 'Izklopi obvestila';
+  await setPushStatus(`Obvestila so vklopljena. ${PUSH_LEAD_HINT}`, true);
+}
+
+async function disablePush() {
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = registration ? await registration.pushManager.getSubscription() : null;
+  if (subscription) {
+    const endpoint = subscription.endpoint;
+    await subscription.unsubscribe().catch(() => {});
+    await fetch('/api/push/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint }),
+    }).catch(() => {});
+  }
+  els.pushButton.textContent = 'Vklopi obvestila';
+  await setPushStatus('Obvestila so izklopljena.', true);
+}
+
+async function onPushButtonClick() {
+  els.pushButton.disabled = true;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = registration ? await registration.pushManager.getSubscription() : null;
+    if (subscription) await disablePush();
+    else await enablePush();
+  } catch {
+    await setPushStatus('Upravljanje obvestil ni uspelo -- poskusi znova.', true);
+  } finally {
+    els.pushButton.disabled = false;
+  }
+}
+
 // ---------- boot ----------
 
 els.form.addEventListener('submit', submitRequest);
 els.checkButton.addEventListener('click', checkRequest);
+els.pushButton.addEventListener('click', onPushButtonClick);
 
 renderFavs();
+renderPushState();
 fetchNowPlaying();
 fetchHistory();
 fetchTopListened();

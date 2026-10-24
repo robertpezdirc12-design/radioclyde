@@ -568,6 +568,46 @@ brez ležerja, brez vzorcev, brez IP. Prazno stanje je izpisano z razlogom,
 nikoli izumljeno. Kartica živi na poslušalski strani med »Nedavno
 predvajano« in priljubljenimi.
 
+## Push obvestilo ob začetku terminirane oddaje (P5 #4)
+
+Zadnja velika asimetrija iz analize vmesnikov: poslušalec mora sam pogruntati,
+kdaj njegova oddaja začenja. Zdaj lahko na poslušalski strani (panel »Zdaj«,
+kartica »Obvestilo ob začetku oddaje«) vklopi obvestilo — brskalnik ga dobi
+tik pred začetkom. Celoten cevovod je brez novih odvisnosti in brez tretjih
+API tipk:
+
+- **VAPID par** (`push/vapid.js`, RFC 8292): P-256 par se prvič ustvari
+  lokalno z `node:crypto` in leži v `<dataDir>/push/vapid.json`; javna
+  polovica gre brskalniku kot `applicationServerKey`. Izguba datoteke = vse
+  obstoječe naročnine prenehajo veljati (brskalnik jih zavre) — datoteko
+  varuj kot del dataDir varnostne kopije.
+- **Šifriranje** (`push/encrypt.js`, RFC 8291 shema `aes128gcm`): payload
+  je za push servis Slepa — samo odjemalec s parom `p256dh` ga odšifrira.
+- **Naročnine** (`push/subscriptions.js`): `<dataDir>/push/subscriptions.json`
+  — najmanjši zapis (endpoint + ključi), brez računov, brez e-pošte, brez
+  povezave na osebo. Odjava briše.
+- **Dispatch** (`push/dispatch.js` + `scheduler/pushDispatch.js`): schedulerski
+  tik `push_dispatch` enkrat na `config.push.checkIntervalMinutes` (privzeto 1)
+  pošlje obvestila oddajam, katerih začetek je v oknu
+  `config.push.leadMinutes` (privzeto 2) minutah. Idempotentnost:
+  poslani termin gre v `<dataDir>/push/sent.jsonl`, zato restart nikoli ne
+  pošlje dvakrat. Mrli endpointi (404/410) se obrežejo. Oddaja, ki jo je
+  zamudil strežnik (minutesUntil < 0), se NE pošlje — brez zastarelih
+  obvestil.
+
+Rute: `GET /api/push/vapid`, `POST /api/push/subscribe`,
+`POST /api/push/unsubscribe` (javna plast, privzeto za Basic Auth vrati —
+lastnik jih odpre z `config.web.publicPaths`, npr. `"/api/push"`, po istem
+precedensu kot `/podcast` v P5 #3). Studio dobi `GET /studio/api/push`
+(število naročnin, zadnji poslani termin iz ležerja) in
+`POST /studio/api/push/test` (testno obvestilo vsem — edini način, da
+lastnik preveri cevovod, preden ga ob oddaji rabi).
+
+V brskalniku: `sw.js` obvlada `push` (JSON {title, body, tag, url}; tag
+zamenja zastarelo obvestilo istega termina) in `notificationclick`
+(osredotoči obstoječi zavihek). Opt-in pogoj je `userVisibleOnly: true` —
+sistem je zgrajen za vidna obvestila, ne tihe.
+
 ## Orodja
 
 - `npm run doctor [-- --cron] [--minutes-before=15]`

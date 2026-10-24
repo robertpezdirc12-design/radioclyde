@@ -338,6 +338,17 @@ body {
   cursor: pointer; font-size: inherit; padding: 0; text-decoration: underline;
 }
 
+/* ---- push opt-in (P5 #4) ---- */
+.push-btn {
+  background: var(--accent); color: var(--bg, #10131a);
+  border: none; border-radius: var(--radius-sm);
+  cursor: pointer; font-weight: 600; font-size: 0.92rem;
+  padding: 8px 16px; margin-top: 2px;
+}
+.push-btn:hover { filter: brightness(1.12); }
+.push-btn:active { transform: scale(0.98); }
+.push-btn:disabled { opacity: 0.55; cursor: wait; }
+
 /* ---- spored ---- */
 .week-grid {
   display: grid;

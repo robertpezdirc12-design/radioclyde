@@ -92,17 +92,41 @@
     },
     "clockwheel": {
       "pools": {
-        "chill": { "genres": ["chillout", "ambient"], "excludeKeywords": ["metal"] }
+        "chill": {
+          "genres": [
+            "chillout",
+            "ambient"
+          ],
+          "excludeKeywords": [
+            "metal"
+          ]
+        }
       },
       "steps": [
-        { "pool": "chill", "count": 1 },
-        { "pool": "rotation", "count": 4 }
+        {
+          "pool": "chill",
+          "count": 1
+        },
+        {
+          "pool": "rotation",
+          "count": 4
+        }
       ],
       "dayparts": [
-        { "from": "22:00", "to": "24:00", "steps": [
-          { "pool": "chill", "count": 2 },
-          { "pool": "rotation", "count": 2 }
-        ] }
+        {
+          "from": "22:00",
+          "to": "24:00",
+          "steps": [
+            {
+              "pool": "chill",
+              "count": 2
+            },
+            {
+              "pool": "rotation",
+              "count": 2
+            }
+          ]
+        }
       ]
     }
   },
@@ -118,14 +142,26 @@
   "smartBlocks": [
     {
       "name": "friday-night-jazz",
-      "criteria": { "genre": "Jazz", "excludeKeywords": ["live"] },
-      "limit": { "count": 12 },
+      "criteria": {
+        "genre": "Jazz",
+        "excludeKeywords": [
+          "live"
+        ]
+      },
+      "limit": {
+        "count": 12
+      },
       "order": "random"
     },
     {
       "name": "petkova-noc-jazz",
-      "criteria": { "genre": "Jazz", "maxTrackDurationSeconds": 360 },
-      "limit": { "minutes": 45 },
+      "criteria": {
+        "genre": "Jazz",
+        "maxTrackDurationSeconds": 360
+      },
+      "limit": {
+        "minutes": 45
+      },
       "order": "newest",
       "overflow": false
     }
@@ -168,18 +204,41 @@
     "stationName": "Radio Markec",
     "music": {
       "source": "auto",
-      "localDirs": ["/mnt/plex-music"],
-      "audioExtensions": [".mp3", ".flac", ".m4a", ".ogg", ".opus", ".wav"]
+      "localDirs": [
+        "/mnt/plex-music"
+      ],
+      "audioExtensions": [
+        ".mp3",
+        ".flac",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".wav"
+      ]
     },
     "rules": {
       "artistCooldownHours": 3,
-      "popularityMix": { "popularShare": 0.7 },
+      "popularityMix": {
+        "popularShare": 0.7
+      },
       "decadeSpread": true,
       "timeOfDayBlocks": {
-        "morning": { "start": "05:00", "end": "10:00" },
-        "daytime": { "start": "10:00", "end": "17:00" },
-        "evening": { "start": "17:00", "end": "23:00" },
-        "night": { "start": "23:00", "end": "05:00" }
+        "morning": {
+          "start": "05:00",
+          "end": "10:00"
+        },
+        "daytime": {
+          "start": "10:00",
+          "end": "17:00"
+        },
+        "evening": {
+          "start": "17:00",
+          "end": "23:00"
+        },
+        "night": {
+          "start": "23:00",
+          "end": "05:00"
+        }
       }
     },
     "voice": {
@@ -208,5 +267,11 @@
       "quizCount": 1,
       "timeoutSeconds": 10
     }
+  },
+  "push": {
+    "enabled": true,
+    "leadMinutes": 2,
+    "checkIntervalMinutes": 1,
+    "subject": "mailto:CHANGE_ME@example.com"
   }
 }

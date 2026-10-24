@@ -88,6 +88,12 @@ modelov in brez mesečnega računa za AI**.
 
 ## 5. Predlagani vrstni red naslednjih korakov (P5)
 
+Status (dopisano pri P5 #4): točke 1–3 so IZVEDENE (javni podkast + RSS +
+stran, studijski gumb, javna »najbolj poslušano«) in točka 4 pravkar tudi —
+push obvestila ob začetku terminirane oddaje so živa (`push/*` + rute +
+opt-in kartica na poslušalski strani + studijski test-gumb, brez novih
+npm odvisnosti). Točka 5 ostaja zavestno NE.
+
 1. **Javni podcast naslov** (največji Markec dobiček za najmanj kode):
    serviranje `podcasts/` + RSS z pravim `link`, stran »Podkast« z
    predvajalnikom epizod — `podcast-export` že piše RSS, manjka samo

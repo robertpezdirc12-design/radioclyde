@@ -4,6 +4,7 @@ import { getUpcomingShows } from './upcoming.js';
 import { registerScheduleRoute } from './scheduleApi.js';
 import { registerRequestsRoutes } from './requestsApi.js';
 import { registerTopListenedRoutes } from './topListenedApi.js';
+import { registerPushRoutes } from './pushApi.js';
 import { registerPollsRoutes } from './pollsApi.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { readSamples } from '../analytics/listenerSamples.js';
@@ -58,4 +59,9 @@ export function registerApiRoutes(fastify) {
   // P4 #25 listener polls -- open/vote/close, the "anketa" rubric reads the
   // same store at air time (server/pollsStore.js).
   registerPollsRoutes(fastify);
+  // P5 #4 push obvestila -- opt-in narocnine. Privzeto za Basic Auth vrati
+  // (kot cela /api plast); lastnik odpre z publicPaths flipom, npr.
+  // "/api/push", ko poslusalci res vklopijo obvestila (isti precedens kot
+  // /podcast v P5 #3).
+  registerPushRoutes(fastify);
 }
