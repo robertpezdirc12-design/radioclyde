@@ -38,6 +38,7 @@ import { buildSegments } from './boundaryWalk.js';
 import { reviewScript } from './reviewScript.js';
 import { autoRadioEnabled } from '../auto/voice.js';
 import { runAutoProducerPipeline, recordAutoPlayedTracks } from '../auto/produce.js';
+import { resolveSpecialTheme, ensureThemedBrief } from '../auto/showCatalog.js';
 
 const log = createLogger('station');
 
@@ -144,6 +145,10 @@ async function runProducerPipeline({ id, descriptionText, durationMinutes, date 
 // duration directly rather than reading process.argv, same split as
 // director/index.js's directShow()/cli/directShow.js.
 export async function generateScript({ id, weekday, date, descriptionPath, durationMinutes } = {}) {
+  const now = new Date();
+  weekday = weekday || scheduleUtil.weekdayKey(now);
+  date = date || scheduleUtil.dateKey(now);
+
   if (!descriptionPath || !durationMinutes) {
     const entry = loadShowEntry(id);
     if (!entry) {
@@ -153,6 +158,22 @@ export async function generateScript({ id, weekday, date, descriptionPath, durat
     }
     descriptionPath = descriptionPath || entry.description;
     durationMinutes = durationMinutes || entry.durationMinutes;
+    // P4 #18 -- the weekly special slot. loadSchedule() already resolved the
+    // entry against the current week, but the script must key on THIS
+    // occurrence's date: the one case where the two disagree (a Sunday-night
+    // prewarm of a Monday 00:00 slot sits in the previous ISO week but airs
+    // in the new one) crosses the boundary between them, so re-resolve here
+    // with the occurrence date and materialize the brief on disk before the
+    // readFileSync below. An explicitly passed descriptionPath (CLI tools)
+    // still wins over the slot's own resolution.
+    if (entry.special && !descriptionPath) {
+      const theme = resolveSpecialTheme(entry.special, date);
+      ensureThemedBrief(theme, {
+        durationMinutes,
+        personas: entry.special.personas ?? [Object.keys(loadPersonas())[0]],
+      });
+      log(`[${id}] special slot resolves to themed show "${theme.id}" for ${date}.`);
+    }
   }
 
   // show-descriptions/*.md live under config.dataDir now, alongside
@@ -163,10 +184,6 @@ export async function generateScript({ id, weekday, date, descriptionPath, durat
     ? descriptionPath
     : path.join(config.dataDir, descriptionPath);
   const descriptionText = fs.readFileSync(resolvedDescriptionPath, 'utf8');
-
-  const now = new Date();
-  weekday = weekday || scheduleUtil.weekdayKey(now);
-  date = date || scheduleUtil.dateKey(now);
 
   log(`Starting producer pipeline for "${id}" (${durationMinutes}min) from ${resolvedDescriptionPath}`);
 

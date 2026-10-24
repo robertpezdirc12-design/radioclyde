@@ -25,8 +25,13 @@ implementacije, izhod je dokument + predlog P4.
 >   sloti `triviaArtist`/`triviaGeneral`/`obzorjeGlasba`, reference v
 >   [auto-radio.md](auto-radio.md) §Rubrike. npm test 301/301 (83 suitov,
 >   0 fail, 0 skip pod PIPER_LIVE=1).
-> - **#18 (generator tematskih oddaj) ostane ODPRTO** — naslednji logični
->   korak, ko bo potrdil uporabnik.
+> - **#18 (generator tematskih oddaj) je prav tako IMPLEMENTIRAN** (isti dan,
+>   po uporabnikovem »odlično, nadaljuj« ob posredovanem GitHub žetonu):
+>   katalog desetih kuriranih tematskih oddaj (`src/auto/showCatalog.js`) +
+>   tedenski special slot v station.json (`"special": { "themes": [...],
+>   "personas": [...] }`), rotacija po ISO tednu, brifi se izrisujejo v
+>   `show-descriptions/themed/<tema>.md`, CLI `npm run themed-shows`.
+>   npm test 323/323 (89 suitov, 0 fail, 0 skip pod PIPER_LIVE=1).
 
 ## 1. Kaj stationa že zmore (zemljevid obstoječega stanja)
 
@@ -122,7 +127,7 @@ isti cache, ista skip-not-fail pogodba.
 |---|---|---|---|
 | **16** | Preimenovanje prikaznega imena v **Radio Markec** (UI, konfiguracija, manifest, README, vzorčni podatki; inženirska imena radioclyde — paket, servisi, repo, android applicationId — ostanejo za zdaj nespremenjena) | naredil ta commit | identiteta postaje |
 | **17** | Rubrika **»Zanimivosti«** za auto način: `Rubrike: zanimivosti` → za izvajalce izbrane vrste ena deterministična poved (MusicBrainz leto/nastanek/država + rezerva Wikipedia sl extract, s zaščitami pred napačno entiteto: MB ime mora ujemati poizvedbo, wiki stran ne sme biti razločevalna in mora ujemati naslov), PLUS lokalni korpus splošnih rock zanimivosti (`src/auto/rockFacts.js`, 40 kuriranih fakty, deluje brez omrežja); vstavljanje pred uvod vsake tretje skladbe, izvajalčev fakt ima prednost; cache na izvajalca (24 h), MusicBrainz 1 zahteva/s; skip-not-fail | **NAREJENO** | točno zahtevani »Queen/Freddie Mercury« posnetek — in katerikoli drug izvajalec, plus splošne rock zanimivosti, brez LLM |
-| **18** | **Generator tematskih oddaj**: katalog predlog oddaj (»Zgodovina rocka«, »Zgodovina kitare«, »Veliki nastopi«, po Navidrome taksonomiji: desetletja/žanri/razpoloženja) → izpisuje prave `show-descriptions/*.md` brife (pravila + `Rubrike: zanimivosti`) → obstoječi pipeline jih izvede; tedenski »special« slot v station.json | 2–4 dneva | poljubne oddaje brez pisanja briefov ročno |
+| **18** | **Generator tematskih oddaj**: katalog predlog oddaj (»Zgodovina rocka«, »Zgodovina kitare«, »Veliki nastopi«, po Navidrome taksonomiji: desetletja/žanri/razpoloženja) → izpisuje prave `show-descriptions/*.md` brife (pravila + `Rubrike: zanimivosti`) → obstoječi pipeline jih izvede; tedenski »special« slot v station.json | **NAREJENO** (`src/auto/showCatalog.js`, ISO-tedenska rotacija, CLI `npm run themed-shows`, [auto-radio.md §Tematske oddaje](auto-radio.md)) | poljubne oddaje brez pisanja briefov ročno |
 | **19** | **»Na današnji dan v glasbi«**: filter poklica (P106/P279* na Q639669) na obstoječi Wikidata poizvedbi obzorja, nova rubrika `glasba`, slot `obzorjeGlasba` | **NAREJENO** | glasbena rubrika skoraj zastonj |
 | 20 | (odsvetovano za zdaj) agentic DJ s lokalnim LLM po vzoru SUB/WAVE / savonet ai-radio v živo | velik | proti arhitekturi brez AI; GPU strošek; vseeno bi govor zasedal rezi, ki jih že imamo |
 

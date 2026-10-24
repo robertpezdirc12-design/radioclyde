@@ -320,6 +320,15 @@ prose for humans. The selection section supports:
   ("Zanimivosti": MusicBrainz / sl.wikipedia fact before the artist's track,
   plus an offline Slovenian rock-history corpus) and the musician-filtered
   "Na današnji dan v glasbi" (see [docs/auto-radio.md](docs/auto-radio.md))
+- **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
+  history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
+  wave, whole-album night) renders real briefs on demand — no hand-writing.
+  Add a weekly special slot to `station.json`:
+  `{ "id": "special", "startTime": "20:00", "durationMinutes": 60,
+  "special": { "themes": ["zgodovina-rocka", "zgodovina-kitare",
+  "veliki-nastopi"] } }` — the theme rotates by ISO week, the brief is
+  generated into `show-descriptions/themed/`, and the standard pipeline
+  (rules + rubrics + trivia) runs it unchanged
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
@@ -341,6 +350,10 @@ Pipeline (normally only invoked by the scheduler, not by hand):
 Preview/dry-run tools, for iterating on a show while designing it (no
 station.json entry required):
 
+- `npm run themed-shows -- list | brief <theme> | ensure <theme> [minutes] | resolve`:
+  the themed-show catalog — list every theme with its selection lines, print
+  a rendered brief to stdout, materialize one under `show-descriptions/themed/`,
+  or show which theme each special slot resolves to this week.
 - `npm run preview-auto-show -- <show-name> [--duration=<minutes>] [--offline]`:
   the full auto-mode dry run: deterministic brief parse, track queue (with
   cooldown/popularity/decade stats), rubrique resolution, the complete

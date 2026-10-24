@@ -266,7 +266,58 @@ modela. Vsa ostala proza se ignorira.
 
 Vzorčni brief za ta način: `sample-data/show-descriptions/80s-rock-auto.md`.
 
+## Tematske oddaje (P4 #18: katalog + tedenski special)
+
+Katalog desetih kuriranih tematskih oddaj (`src/auto/showCatalog.js`) izriše
+**prave** `show-descriptions/*.md` brife — z vsemi pravili izbire in vrstico
+`Rubrike:` — tako da za poljubno temo (»Zgodovina rocka«, »Zgodovina kitare«,
+»Veliki nastopi«, portreti desetletij, rock nekdanje Jugoslavije, punk in novi
+val, album v celoti) ni treba ročno pisati briefa. Vso mehaniko (izbira
+skladb, rubrike, zanimivosti, govor) nato opravi obstoječi cevovod, nespremenjen.
+
+**Tedenski special slot** v `station.json`:
+
+```json
+{
+  "id": "special",
+  "startTime": "20:00",
+  "durationMinutes": 60,
+  "special": {
+    "themes": ["zgodovina-rocka", "zgodovina-kitare", "veliki-nastopi"],
+    "personas": ["elena"]
+  }
+}
+```
+
+- **Rotacija po ISO tednu**: tema za določen teden je
+  `themes[isoTeden % themes.length]` — znotraj istega ISO tedna vsi dnevi
+  (vključno z večerno pripravo za ponočni slot) razrešijo isto temo, vsak
+  teden naprej, po koncu kataloga znova od začetka.
+- **Razrešitev na dveh mestih**: `loadSchedule()` razreši special vnos za
+  prikaz (spored, now-playing, prihajajoče takoj pokažejo naslov teme),
+  produkcija (`generateScript`) pa ga ponovno razreši na **pravi datum
+  oddaje** — edini primer, ko se tedna razlikujeta, je priprava v nedeljski
+  noči za ponedeljkovo polnoč. Brif se materializira v
+  `show-descriptions/themed/<tema>.md` (prepiše se le, ko se vsebina spremeni,
+  torej ob posodobitvi kataloga).
+- **Personas**: `special.personas` ima prednost; privzeto prvi persona iz
+  `prompts.json`.
+- **Neuspeh je pošten**: tema, ki v knjižnici ne najde skladb (npr.
+  »Zgodovina kitare« brez kitaristov v izvajalcih ali »Veliki nastopi« brez
+  albumske oznake »Live«), konča z znanim »resolved zero tracks« in ura pade
+  na polnilo — enako kot ročno napisan brief. Napačno nastavljen `special`
+  ne poruši branja urnika: gre skozi surov in produkcija vrže enako sporočilo
+  napake.
+- Tematske brife lahko pred ogledom tudi ročno materializiraš
+  (`npm run themed-shows -- ensure <tema>`) in jih urejaš kot običajne — ob
+  naslednji produkciji pa jih samodejno osveževanje prepiše s katalogom,
+  če se vsebina razlikuje.
+
 ## Orodja
+
+- `npm run themed-shows -- list | brief <tema> | ensure <tema> [minute] | resolve`
+  — katalog tematskih oddaj: seznam, predogled izrisanega brifa, pisanje
+  brifa na disk in »katera tema je ta teden na vrsti« za vsak special slot.
 
 - `npm run preview-auto-show -- <ime-oddaje> [--duration=<minute>] [--offline]`
   — celoten suhi preizkus producenta: razčleni brief, zgradi vrsto skladb z

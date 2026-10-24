@@ -36,7 +36,7 @@ function showEntry(show) {
   // Display name/host resolve through the show's markdown brief exactly like
   // nowPlaying.js/upcoming.js do -- the grid never invents a title from the
   // raw id when a real one exists.
-  const { name, host } = resolveShowInfo(show, show.id);
+  const { name, host } = resolveShowInfo(show, show.specialTitle ?? show.id);
   return {
     id: show.id,
     name: name ?? show.id,

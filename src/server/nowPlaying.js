@@ -50,7 +50,7 @@ export function composeNowPlaying() {
   }
 
   const showEntry = (loadSchedule()[state.weekday] ?? []).find((s) => s.id === state.id);
-  const { name, host } = resolveShowInfo(showEntry, state.id);
+  const { name, host } = resolveShowInfo(showEntry, showEntry?.specialTitle ?? state.id);
   return {
     station,
     show: { id: state.id, name, host },

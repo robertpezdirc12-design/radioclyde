@@ -8,11 +8,42 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
+import { createLogger } from '../lib/logger.js';
+import { resolveSpecialTheme, themedBriefRelPath } from '../auto/showCatalog.js';
+
+const log = createLogger('station');
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 function readStationFile() {
   return JSON.parse(fs.readFileSync(config.paths.stationFile, 'utf8'));
+}
+
+// P4 #18: a schedule entry carrying a `special` block ({ themes: [...],
+// personas: [...] }) is the weekly themed slot (see auto/showCatalog.js).
+// It gets resolved here against the CURRENT week so every reader (scheduler,
+// grid, now-playing, upcoming) sees one concrete show: a `description`
+// pointing at the generated brief, the resolved `specialTheme`/`specialTitle`
+// for display. The raw `special` block is PRESERVED on the resolved entry --
+// generateScript.js re-resolves it against the TRUE occurrence date (the one
+// case where the two disagree: a Sunday-night prewarm of a Monday 00:00 slot
+// sits in the previous ISO week, but airs in the new one). A misconfigured
+// special must not take the whole schedule read down with it: it's passed
+// through raw and production throws the same message later, where the
+// failure actually has a show/slot name attached to it.
+function resolveSpecialOccurrence(show) {
+  try {
+    const theme = resolveSpecialTheme(show.special, new Date());
+    return {
+      ...show,
+      description: themedBriefRelPath(theme.id),
+      specialTheme: theme.id,
+      specialTitle: theme.title,
+    };
+  } catch (err) {
+    log(`special slot "${show.id}" is not resolvable (${err.message}) -- passed through raw; production will fail with the same message.`);
+    return show;
+  }
 }
 
 // Keys may be a single weekday ("monday") or a comma-separated list
@@ -23,7 +54,7 @@ export function loadSchedule() {
   const schedule = {};
   for (const [key, shows] of Object.entries(raw)) {
     for (const day of key.split(',').map((d) => d.trim())) {
-      schedule[day] = shows;
+      schedule[day] = shows.map((show) => (show.special ? resolveSpecialOccurrence(show) : show));
     }
   }
   return schedule;
