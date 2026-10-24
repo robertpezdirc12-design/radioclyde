@@ -148,6 +148,13 @@ const STRUCTURED_KEYS = {
   izkljuci: 'excludeKeywords',
   'max track length': 'maxTrackDurationSeconds',
   'min track length': 'minTrackDurationSeconds',
+  // P3 #14 (LibreTime Smart Blocks): "- smart block: <name>" resolves the
+  // whole Track Selection section against config.smartBlocks -- the named
+  // block's criteria+limit+order replace prose parsing (producer/
+  // smartBlocks.js). Diacritics folded by the same fold() used for genre
+  // matching, so "pametni blok" and smart block naming stay flexible.
+  'smart block': 'smartBlock',
+  'pametni blok': 'smartBlock',
 };
 
 function parseDurationField(value) {
@@ -321,6 +328,7 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
     albumGenre: structured.albumGenre ?? null,
     recentlyAdded: structured.recentlyAdded ?? prose.recentlyAdded ?? false,
     singleAlbum: structured.singleAlbum ?? prose.singleAlbum ?? false,
+    smartBlock: structured.smartBlock ?? null,
     excludeKeywords: [...new Set([...(prose.excludeKeywords ?? []), ...(structured.excludeKeywords ?? [])])],
     repeatArtist: structured.repeatArtist ?? prose.repeatArtist ?? true,
     oneTrackPerAlbum: structured.oneTrackPerAlbum ?? prose.oneTrackPerAlbum ?? false,
@@ -328,6 +336,17 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
     maxTrackDurationSeconds: structured.maxTrackDurationSeconds ?? prose.maxTrackDurationSeconds ?? null,
     minTrackDurationSeconds: structured.minTrackDurationSeconds ?? prose.minTrackDurationSeconds ?? null,
   };
+
+  // A block reference IS the selection: prose/structured criteria beside it
+  // are ignored (the block is the operator's frozen decision -- mixing the
+  // two would make "what plays" depend on which lines the brief happened to
+  // carry). The caller (auto/produce.js) resolves the name against
+  // config.smartBlocks and expands it there, where the honest unknown-name
+  // error can list what IS defined.
+  if (query.smartBlock) {
+    log(`briefQuery: smart block "${query.smartBlock}" requested -- bypassing prose/structured criteria`);
+    return { query };
+  }
 
   if (query.albumGenre && albumGenreTags.length > 0 && !albumGenreTags.includes(query.albumGenre)) {
     const folded = fold(query.albumGenre);
@@ -353,6 +372,7 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
   }
 
   const hasSelection =
+    query.smartBlock ||
     query.artist || query.genre || query.decade || query.albumKeyword || query.folder ||
     query.artistList?.length || query.albumGenre || query.recentlyAdded;
 
@@ -360,8 +380,8 @@ export function produceTrackQueryDeterministic({ trackSelectionText, genreTags =
     throw new Error(
       'Could not deterministically resolve a selection from the "## Track Selection" section. ' +
         'Add at least one explicit line, e.g. "- genre: Pop/Rock", "- artist: Elvis Presley", ' +
-        '"- decade: 1980" or "- artists: Name One, Name Two" (free themes like "female vocalists" ' +
-        'need the explicit artist list -- there is no model here to expand them).'
+        '"- decade: 1980", "- artists: Name One, Name Two" or "- smart block: <name from config.smartBlocks>" ' +
+        '(free themes like "female vocalists" need the explicit artist list -- there is no model here to expand them).'
     );
   }
 

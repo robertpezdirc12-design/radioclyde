@@ -22,6 +22,7 @@ import { createLogger } from '../lib/logger.js';
 import { parseScript, renderScript } from '../script/format.js';
 import { loadPersonas } from '../scheduler/promptsUtil.js';
 import { buildTrackQueue } from '../producer/trackSelection/queue.js';
+import { smartBlocksConfig, findSmartBlock, expandSmartBlock } from '../producer/smartBlocks.js';
 import { parseShowBrief } from '../producer/showBrief.js';
 import { recordPlayed } from '../producer/history.js';
 import { produceTrackQueryDeterministic, parseBriefRubrics } from './briefQuery.js';
@@ -65,14 +66,40 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   debug.cooldownHours = cooldown.cooldownHours;
   const popularShare = popularityShare();
 
-  const trackQueueResult = await buildTrackQueue({
-    ...query,
-    targetDurationMinutes: durationMinutes,
-    repeatWindowDays: brief.repeatWindowDays,
-    excludeArtists: cooldown.excludeArtists,
-    popularShare,
-    decadeSpread: config.autoRadio?.rules?.decadeSpread ?? true,
-  });
+  // Smart Block reference (P3 #14, LibreTime model): when the brief's Track
+  // Selection names a saved block, the block IS the selection -- its own
+  // criteria/limit/order expand deterministically instead of the generic
+  // duration-fitting queue. Deliberately NOT layered with the auto rules
+  // (cooldown/popularShare/decadeSpread): those rewrite a themed selection
+  // to fight repetition across a whole schedule, while a block is an
+  // operator-curated unit whose exact shape is the point -- same reason
+  // LibreTime smart blocks don't get auto-alterations. Same eligibility
+  // rules still apply underneath (recently-played, neverPlay, dedupe,
+  // durations), so a block can never schedule what a show could not.
+  let trackQueueResult;
+  if (query.smartBlock) {
+    const block = findSmartBlock(query.smartBlock);
+    if (!block) {
+      const available = smartBlocksConfig().map((b) => b.name).join(', ') || '(none defined)';
+      throw Object.assign(
+        new Error(
+          `Show "${id}"'s brief references smart block "${query.smartBlock}", which is not defined in config.smartBlocks. Available: ${available}.`
+        ),
+        { debug }
+      );
+    }
+    log(`[${id}] Phase A (auto): expanding smart block "${block.name}"...`);
+    trackQueueResult = await expandSmartBlock(block, { repeatWindowDays: brief.repeatWindowDays });
+  } else {
+    trackQueueResult = await buildTrackQueue({
+      ...query,
+      targetDurationMinutes: durationMinutes,
+      repeatWindowDays: brief.repeatWindowDays,
+      excludeArtists: cooldown.excludeArtists,
+      popularShare,
+      decadeSpread: config.autoRadio?.rules?.decadeSpread ?? true,
+    });
+  }
   debug.trackQueueResult = {
     poolSize: trackQueueResult.poolSize,
     estimatedMusicMs: trackQueueResult.estimatedMusicMs,
@@ -82,6 +109,9 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
     cooldownExcluded: trackQueueResult.cooldownExcluded ?? 0,
     popularShare: trackQueueResult.popularShare ?? null,
     decadeSpread: trackQueueResult.decadeSpread ?? false,
+    smartBlock: trackQueueResult.block?.name ?? null,
+    shortfall: trackQueueResult.shortfall ?? null,
+    limitNote: trackQueueResult.limitNote ?? null,
   };
   const tracks = trackQueueResult.tracks;
   if (tracks.length === 0) {

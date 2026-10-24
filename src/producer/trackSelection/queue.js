@@ -17,7 +17,10 @@ import { createLogger } from '../../lib/logger.js';
 
 const log = createLogger('station');
 
-function neverPlayBans(excludeKeywords) {
+// Exported so smartBlocks.js (P3 #14) merges bans identically instead of
+// forking the merge rule -- a block and a brief query must be interchangeable
+// inputs to the same eligibility rules.
+export function neverPlayBans(excludeKeywords) {
   const station = loadNeverPlay();
   return {
     keywords: [...new Set([...station.keywords, ...excludeKeywords])],

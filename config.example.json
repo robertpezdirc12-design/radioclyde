@@ -115,6 +115,21 @@
       "minTracksPer30Minutes": 6
     }
   },
+  "smartBlocks": [
+    {
+      "name": "friday-night-jazz",
+      "criteria": { "genre": "Jazz", "excludeKeywords": ["live"] },
+      "limit": { "count": 12 },
+      "order": "random"
+    },
+    {
+      "name": "petkova-noc-jazz",
+      "criteria": { "genre": "Jazz", "maxTrackDurationSeconds": 360 },
+      "limit": { "minutes": 45 },
+      "order": "newest",
+      "overflow": false
+    }
+  ],
   "cleanup": {
     "retentionDays": 7,
     "intervalMinutes": 360

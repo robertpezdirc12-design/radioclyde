@@ -182,6 +182,16 @@ phases hand off through.
   studio Diagnostics view reports ("the guard worked" vs "even the emergency
   bed is dead"). Boundary micro-gaps and produced speech pauses never
   trigger it — [analysis §3](docs/ready-made-scripts-analysis.md).
+- **Deterministic Smart Blocks**: name a block once in `config.smartBlocks`
+  (criteria + a count/minute limit + an order — LibreTime's model,
+  semantics verified from their docs), then reference it from any show brief
+  with one line (`- smart block: friday-night-jazz`) and the block expands
+  deterministically into the exact tracks it will play. Blocks run through
+  the same eligibility chain as everything else (recently-played, station
+  bans, dedupe, durations), never overflow their limit unless asked, and
+  report under-fill honestly; `previewSmartBlock.js <name>` shows exactly
+  what a block would schedule right now, and the studio API exposes live
+  previews — [analysis §4.4](docs/ready-made-scripts-analysis.md).
 
 ## Meet the DJs
 

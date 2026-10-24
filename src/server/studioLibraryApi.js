@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { allLocalTracks, localMusicDirs } from '../auto/localLibrary.js';
 import { getRecentHistory, readAiredEntries } from './historyApi.js';
 import { repeatOffenders } from './diagnosticsUtil.js';
+import { smartBlocksConfig, findSmartBlock, expandSmartBlock } from '../producer/smartBlocks.js';
 
 // A full rescan reads tags of every file; on a big library that's seconds of
 // disk IO. A short cache keeps the studio view snappy without ever serving
@@ -100,4 +101,51 @@ export function registerStudioLibraryApi(fastify) {
       offenders: repeatOffenders(aired, windowHours),
     };
   });
+
+  // Smart Blocks (P3 #14, LibreTime model): the configured blocks plus a
+  // live preview -- the exact deterministic expansion a show would get if it
+  // referenced the block right now (same library + history + rules), so the
+  // studio can sanity-check a block before any brief points at it.
+  fastify.get('/api/smart-blocks', async () => {
+    return {
+      blocks: smartBlocksConfig().map((b) => ({
+        name: b.name,
+        criteria: b.criteria ?? {},
+        limit: b.limit ?? null,
+        order: b.order ?? 'random',
+        overflow: b.overflow === true,
+      })),
+    };
+  });
+
+  fastify.get('/api/smart-blocks/:name/preview', async (request) => {
+    const block = findSmartBlock(request.params.name);
+    if (!block) {
+      const available = smartBlocksConfig().map((b) => b.name).join(', ') || '(none defined)';
+      return reply404(`No smart block named "${request.params.name}" (configured: ${available}).`);
+    }
+    const result = await expandSmartBlock(block);
+    return {
+      block: result.block,
+      poolSize: result.poolSize,
+      musicMs: result.estimatedMusicMs,
+      targetMs: result.targetMs,
+      shortfall: result.shortfall,
+      limitNote: result.limitNote ?? null,
+      tracks: result.tracks.map((t) => ({
+        ratingKey: t.ratingKey,
+        artist: t.artist,
+        title: t.title,
+        album: t.album ?? null,
+        year: t.year ?? null,
+        durationSeconds: t.durationMs ? t.durationMs / 1000 : null,
+      })),
+    };
+  });
+}
+
+function reply404(message) {
+  const err = new Error(message);
+  err.statusCode = 404;
+  return err;
 }
