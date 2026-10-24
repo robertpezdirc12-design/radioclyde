@@ -33,6 +33,22 @@ export function edgeVoiceForPersona(persona) {
   return personaCfg.edgeVoice ?? config.autoRadio?.voice?.edgeVoice ?? 'sl-SI-RokNeural';
 }
 
+// P4 #26 prosody (research pass): pace and pitch ARE naturalness -- a voice
+// at +0% default rate sounds fine for navigation but slightly rushed for a
+// relaxed radio; operators can now slow it a touch. Persona config wins
+// over global; only keys actually set are sent (empty prosody = the same
+// request as before this feature).
+export function edgeProsodyForPersona(persona) {
+  const personaCfg = config.autoRadio?.voice?.personas?.[persona] ?? {};
+  const voice = config.autoRadio?.voice ?? {};
+  const prosody = {};
+  for (const key of ['rate', 'pitch', 'volume']) {
+    const value = personaCfg[`edge${key[0].toUpperCase()}${key.slice(1)}`] ?? voice[`edge${key[0].toUpperCase()}${key.slice(1)}`];
+    if (value != null && value !== '') prosody[key] = value;
+  }
+  return Object.keys(prosody).length ? prosody : undefined;
+}
+
 function streamToBuffer(audioStream) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -66,7 +82,8 @@ export async function synthesizeWithEdge(text, outPath, persona) {
   const tts = new MsEdgeTTS();
   try {
     await withTimeout(tts.setMetadata(voice, 'audio-24khz-48kbitrate-mono-mp3'), SYNTH_TIMEOUT_MS, `connect (${voice})`);
-    const { audioStream } = tts.toStream(text);
+    const prosody = edgeProsodyForPersona(persona);
+    const { audioStream } = prosody ? tts.toStream(text, prosody) : tts.toStream(text);
     const mp3 = await withTimeout(streamToBuffer(audioStream), SYNTH_TIMEOUT_MS, 'synthesis');
     if (mp3.length === 0) throw new Error('edge TTS returned empty audio');
     await writeFile(outPath, mp3);

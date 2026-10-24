@@ -136,7 +136,7 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   const rubricNames = parseBriefRubrics(descriptionText);
   const rubricData = rubricNames.length > 0
     ? await collectRubricData({ names: rubricNames, date, seed: `${id}|${date}` })
-    : { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz: null, poll: null };
+    : { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz: null, poll: null, listeners: null };
   if (rubricNames.includes('trivia')) {
     rubricData.trivia = await collectArtistTrivia({ tracks, offline: rubricData.offline ?? false, seed: `${id}|${date}` });
   }
@@ -150,6 +150,7 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
       onThisDayMusic: rubricData.onThisDayMusic?.events.length ?? 0,
       quiz: rubricData.quiz?.questions.length ?? null,
       poll: rubricData.poll?.question ?? null,
+      listeners: rubricData.listeners?.shouts.length ?? null,
       trivia: rubricData.trivia
         ? { artists: rubricData.trivia.artistFacts.length, general: rubricData.trivia.generalFacts.length }
         : null,
@@ -163,7 +164,8 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
       `obzorjeGlasba=${debug.rubrics.resolved.onThisDayMusic}` +
       (trivia ? `, zanimivosti=${trivia.artists} artist + ${trivia.general} general` : '') +
       (debug.rubrics.resolved.quiz != null ? `, kviz=${debug.rubrics.resolved.quiz}` : '') +
-      (debug.rubrics.resolved.poll != null ? ', anketa=aktivna' : ''));
+      (debug.rubrics.resolved.poll != null ? ', anketa=aktivna' : '') +
+      (debug.rubrics.resolved.listeners != null ? `, poslusalci=${debug.rubrics.resolved.listeners}` : ''));
   }
 
   const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData });

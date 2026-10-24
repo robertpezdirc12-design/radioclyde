@@ -25,6 +25,7 @@ import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { pickQuizQuestions } from './quizFacts.js';
 import { activePollSummary } from '../server/pollsStore.js';
+import { readRequests } from '../server/requestsStore.js';
 
 const log = createLogger('station');
 
@@ -408,6 +409,11 @@ export function rubricSettings() {
     // P4 #22: questions per show from the local quiz corpus; 0 disables the
     // quiz content and falls back to the legacy year-guess quizIntro/quizReveal.
     quizCount: cfg.quizCount ?? 1,
+    // P4 #26 listener shouts: how many freshly-approved entries may air and
+    // how old an approval may be to still count as "fresh" (hours). 0
+    // disables the rubric's content entirely.
+    listenerLimit: cfg.listenerLimit ?? 2,
+    listenerWindowHours: cfg.listenerWindowHours ?? 12,
     timeoutSeconds: cfg.timeoutSeconds ?? 10,
   };
 }
@@ -422,6 +428,52 @@ export function rubricSettings() {
 // P4 #22: the "kviz" rubric is the one exception to "offline -> null": its
 // content comes from the local quiz corpus (auto/quizFacts.js), so it works
 // with zero network and is collected in the offline branch too.
+// P4 #26: the "poslusalci" rubric -- freshly approved listener requests and
+// dedications (server/requestsStore.js). The studio approves, the air reads:
+// this is the Aiir Studio-Inbox / listener-driven-radio pattern from the
+// research, wired to the queue the station already moderates. Honesty
+// rules:
+//   - ONLY status 'approved' entries are mentioned (pending stays pending),
+//   - only approvals inside the freshness window count -- updatedAt is the
+//     approval moment (stale approvals would tease songs long played; the
+//     store has no played flag),
+//   - dedication messages are truncated to 160 chars (TTS-friendly, and
+//     never a listener's whole paragraph on air),
+//   - the request's own words are NEVER edited, just cut with '...'.
+// Local file -> zero network -> collected in the offline branch too, like
+// quiz/poll. No fresh approvals -> null -> no segment (skip-not-fail).
+export function collectListenerShout({ limit, windowHours } = {}) {
+  const settings = rubricSettings();
+  const maxItems = limit ?? settings.listenerLimit;
+  const hours = windowHours ?? settings.listenerWindowHours;
+  if (maxItems <= 0 || hours <= 0) return null;
+  const cutoff = Date.now() - hours * 60 * 60_000;
+  let entries;
+  try {
+    entries = readRequests();
+  } catch {
+    return null; // fail-open: an unreadable store never breaks a show
+  }
+  const approvedAt = (e) => Date.parse(e.updatedAt ?? e.createdAt ?? '') || 0;
+  const created = (e) => Date.parse(e.createdAt ?? '') || 0;
+  const fresh = entries
+    .filter((e) => e.status === 'approved' && approvedAt(e) >= cutoff)
+    // Deterministic order: approval time desc, then creation time desc as
+    // the tie-break (same-millisecond approvals stay reproducible).
+    .sort((a, b) => approvedAt(b) - approvedAt(a) || created(b) - created(a))
+    .slice(0, maxItems);
+  const shouts = fresh.map((e) =>
+    e.type === 'dedication'
+      ? {
+          kind: 'dedication',
+          message: e.message.length > 160 ? `${e.message.slice(0, 160).trimEnd()}...` : e.message,
+          from: e.from ?? '',
+        }
+      : { kind: 'request', artist: e.artist ?? '', title: e.title ?? '', from: e.from ?? '' }
+  );
+  return shouts.length ? { shouts } : null;
+}
+
 export async function collectRubricData({ names = [], offline = false, date, seed } = {}) {
   const settings = rubricSettings();
   const quizSeed = seed ?? date ?? 'quiz';
@@ -432,9 +484,11 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // zero network, so like the quiz it is collected in the offline branch
   // too. No open poll simply yields null and the segment skips.
   const poll = names.includes('poll') ? activePollSummary() : null;
+  // P4 #26 "poslusalci": freshly approved requests/dedications, local file.
+  const listeners = names.includes('listeners') ? collectListenerShout() : null;
   if (offline) {
     log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, poll, offline: true };
+    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, poll, listeners, offline: true };
   }
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
@@ -445,5 +499,5 @@ export async function collectRubricData({ names = [], offline = false, date, see
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
     wants('onthisdaymusic') ? fetchOnThisDayMusic({ date, limit: settings.onThisDayMusicLimit, timeoutMs }) : null,
   ]);
-  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, poll, offline: false };
+  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, poll, listeners, offline: false };
 }

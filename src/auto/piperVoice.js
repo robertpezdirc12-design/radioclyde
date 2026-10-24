@@ -78,11 +78,15 @@ export function resolvePiperVoice(persona) {
 
 // argv for `python3 -m piper ...` -- identical for both runtime generations
 // (old piper and piper1-gpl); --data-dir only matters for key lookups.
-export function buildPiperArgs({ model, isKey, dataDir, textFile, outPath, speaker }) {
+export function buildPiperArgs({ model, isKey, dataDir, textFile, outPath, speaker, lengthScale }) {
   const args = ['-m', 'piper', '-m', model];
   if (isKey) args.push('--data-dir', dataDir);
   args.push('-f', outPath, '--input-file', textFile);
   if (speaker != null) args.push('--speaker', String(speaker));
+  // P4 #26 prosody knob (research pass: pace IS naturalness -- slightly
+  // slower delivery reads as calm and human; <1 speeds up, >1 slows down).
+  // Omitted entirely at the default 1 so no flag changes existing behavior.
+  if (lengthScale != null && Number(lengthScale) !== 1) args.push('--length-scale', String(Number(lengthScale)));
   return args;
 }
 
@@ -132,6 +136,9 @@ export async function synthesizePiper(text, outPath, persona, { runner = execFil
     textFile,
     outPath,
     speaker: config.autoRadio?.voice?.personas?.[persona]?.piperSpeaker ?? null,
+    // P4 #26: per-persona override first, global fallback, undefined = flag omitted.
+    lengthScale: config.autoRadio?.voice?.personas?.[persona]?.piperLengthScale
+      ?? config.autoRadio?.voice?.piperLengthScale ?? null,
   });
   try {
     await runner(piperPythonPath(), args, { timeout: timeoutMs });

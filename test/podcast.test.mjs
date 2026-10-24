@@ -52,6 +52,8 @@ describe('podcast feed primitives', () => {
     const parsed = new XMLParser({ ignoreAttributes: false }).parse(xml);
     assert.equal(parsed.rss.channel.title, 'Subotno jutro & prijatelji <>');
     assert.equal(parsed.rss.channel.language, 'sl');
+    assert.equal(parsed.rss.channel['itunes:type'], 'episodic', 'P4 #26: episodic show type');
+    assert.equal(String(parsed.rss.channel['itunes:explicit']), 'false', 'P4 #26: explicit flag honest');
     assert.equal(parsed.rss.channel.item.guid['@_isPermaLink'], 'false');
     assert.match(String(parsed.rss.channel.item.guid['#text']), /^radioclyde-[0-9a-f]{40}$/);
     assert.equal(parsed.rss.channel.item['itunes:duration'], '1:00:00');

@@ -130,6 +130,29 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
     });
   }
 
+  // P4 #26: "Poslusalci" -- freshly approved listener requests/dedications
+  // (server/requestsStore.js via feeds.js collectListenerShout). Each shout
+  // is its own segment so clips-mode users can record the line once; the
+  // collector already windowed/truncated the data, the templates only
+  // dress it. No fresh approvals -> no segments (skip-not-fail).
+  for (const [index, shout] of (rubricData.listeners?.shouts ?? []).entries()) {
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: shout.kind === 'dedication' ? 'dedicationShout' : 'requestShout',
+      body:
+        shout.kind === 'dedication'
+          ? renderSlot('dedicationShout', {
+              values: { ...commonValues(), message: shout.message, from: shout.from },
+              seed: seedFor({ showId, date, slot: `dedicationShout:${index}` }),
+            })
+          : renderSlot('requestShout', {
+              values: { ...commonValues(), artist: shout.artist, title: shout.title, from: shout.from },
+              seed: seedFor({ showId, date, slot: `requestShout:${index}` }),
+            }),
+    });
+  }
+
   return segments;
 }
 

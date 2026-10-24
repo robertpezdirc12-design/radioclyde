@@ -181,6 +181,21 @@ const DEFAULT_TEMPLATES = {
     'Anketa: {question}. Do zdaj {total} glasov, vodi {leader} z {leaderVotes}. Glasovanje \u0161e traja.',
     'Medpostava iz ankete: {question}. Trenutno vodi {leader} z {leaderVotes} od {total} glasov. Hvala za glasove!',
   ],
+
+  // P4 #26: "Poslusalci" rubric -- freshly approved listener requests and
+  // dedications (server/requestsStore.js, status 'approved', windowed). The
+  // studio approves, the air reads. Only the shout line carries metadata;
+  // dedication messages arrive TRUNCATED by the collector, so templates
+  // never have to cut a listener's words mid-thought.
+  requestShout: [
+    'Poslu\u0161alceva izbira: {artist} -- {title}. Dober vkus, povsem po mojem zanesenja\u010du.',
+    'Po va\u0161ih zahtevah: {title} od {artist}. Svetovna izbira -- tudi mikrofon bi aplaudiral.',
+    'Va\u0161 zahtevek gre na zrak: {artist} -- {title}. Tole je oddaja, ki jo pi\u0161ete vi.',
+  ],
+  dedicationShout: [
+    'Posvetilo: {message}. Iz mikrofona gre nazaj en sam velik pozdrav.',
+    'Sli\u0161ite posvetilo: {message}. Lepo od vas -- hvala, da pi\u0161ete.',
+  ],
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the

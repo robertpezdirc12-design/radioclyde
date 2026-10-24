@@ -87,6 +87,8 @@ const SLOT_TYPES = {
   teaseQuiz: 'banter',            // P4 #25: same, quiz-flavored variant
   pollRunning: 'listener_mailbag', // P4 #25: fresh poll, votes wanted
   pollResults: 'listener_mailbag', // P4 #25: poll tally mid-show
+  requestShout: 'listener_mailbag',     // P4 #26: approved request on air
+  dedicationShout: 'listener_mailbag',  // P4 #26: approved dedication on air
   handoff: 'banter',
 };
 

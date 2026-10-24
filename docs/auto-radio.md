@@ -174,6 +174,16 @@ slovenskimi glasi (ElevenLabs, Narakeet, speechgen.io) zvenijo sorodno, a
 zahtevajo račune in API-ključe -- v autoRadio ostajajo zunaj obsega
 (ni modela, ni ključa, ni naročnine).
 
+**Tempo in ton (P4 #26, iz raziskave TTS naravnosti):** ritem JE naravnost
+-- malo počasnejša izreka zaznavamo kot mirno in človeško, hitrejšo kot
+navezano. Zato imata oba glavna vira prozodični nastavitvi (po osebi ali
+globalno): edge -- `voice.edgeRate`/`edgePitch`/`edgeVolume`
+(npr. `"-8%"` za sproščeno, `"-2Hz"` za mehkejši ton; oseba preko
+`voice.personas.<ime>.edgeRate`), piper -- `voice.piperLengthScale`
+(npr. `1.08`; pod 1 hitreje, nad 1 počasneje). Pisateljska pravila ostanejo
+isti najmočnejši vzvod: ločila so pavze, kratki stavki vremejo ritem,
+dolgi ga upočasnijo -- predloge nad tem pišemo od začetka.
+
 ## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
 
 Poleg glasbe lahko oddaja prebere **resnične podatke** iz slovenskih virov —
@@ -194,6 +204,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
 | `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 40 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
 | `anketa` | **lokalna datoteka ankete** (`dataDir/polls.json`, upravlja prek API `/api/polls` — brez omrežja, deluje tudi offline; brez aktivne ankete segment preprosto ni na sporedu) | `pollRunning` (brez glasov) / `pollResults` (pošteno trenutno stanje) | `pollRunning` / `pollResults` |
+| `poslušalci` | **lokalna datoteka zahtevkov** (`dataDir/requests.jsonl`, odobri prek studia — brez omrežja, deluje tudi offline; SAMO sveže odobrene zahtevke/posvetila v 12 h oknu, nastavljivo `rubrics.listenerLimit`/`listenerWindowHours`) | `requestShout` / `dedicationShout` (na zahtevek) | `requestShout` / `dedicationShout` |
 
 Nastavitve v `config.autoRadio.rubrics`:
 

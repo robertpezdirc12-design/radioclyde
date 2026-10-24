@@ -99,6 +99,8 @@ export function buildPodcastFeed({ title, description, link, pubDate, durationMi
     <title>${safeTitle}</title>
     <link>${safeLink}</link>
     <language>sl</language>
+    <itunes:type>episodic</itunes:type>
+    <itunes:explicit>false</itunes:explicit>
 ${safeAuthor ? `    <itunes:author>${safeAuthor}</itunes:author>\n` : ''}    <description>${safeDesc}</description>
     <item>
       <title>${safeTitle}</title>

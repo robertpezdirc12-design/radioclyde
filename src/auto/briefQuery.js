@@ -428,6 +428,13 @@ const RUBRIC_KEYWORDS = {
   anketa: 'poll',
   poll: 'poll',
   glasovi: 'poll',
+  // P4 #26 "Poslušalci" (server/requestsStore.js): freshly approved listener
+  // requests and dedications read on air (local store, works offline).
+  poslusalci: 'listeners',
+  zahteve: 'listeners',
+  posvecila: 'listeners',
+  requests: 'listeners',
+  shoutouts: 'listeners',
 };
 
 export function parseBriefRubrics(descriptionText) {
