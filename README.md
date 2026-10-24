@@ -134,7 +134,16 @@ phases hand off through.
   only) and an emergency bed below the program sources — all three degrade
   gracefully: an empty/missing clip directory simply drops that layer off
   air, never the program — [design & asset production](docs/imaging-layer.md).
-- **Beds ("postelje", P3 #12)**: announcements OVER the music via the builtin `smooth_add` — the program ducks to 20% while a pushed clip plays on top (`beds.push` over telnet, CLI `src/liquidsoap/bedQueue.js`), no sidechain process. Verified against the 2.2.4 stdlib source.
+- **Beds ("postelje", P3 #12/#13)**: announcements OVER the music — the
+  program ducks to 20% while a pushed clip plays on top (`beds.push` over
+  telnet, CLI `src/liquidsoap/bedQueue.js`). Since #13 a stdlib-native
+  sidechain ducker (the same `rms.smooth` + `on_frame` + `amplify` getter
+  mechanism this build's `normalize()` uses) ducks on the clip's ACTUAL
+  loudness — attack ~20 ms, release ~0.5 s, hysteresis — so the music
+  breathes back during speech pauses instead of staying ducked for the whole
+  clip. No `sidechaincompress` exists in any Liquidsoap 2.x (it's an ffmpeg
+  filter name, verified upstream); everything here runs on verified 2.2.4
+  stdlib.
 - **R128 loudness alignment (autocue gain layer)**: a budgeted offline scan
   measures every library track's integrated loudness with one ffmpeg ebur128
   pass; playlist entries then carry `liq_amplify` and radio.liq's

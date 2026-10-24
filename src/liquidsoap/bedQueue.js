@@ -1,10 +1,15 @@
-// Beds (P3 #12, integration table row 12): announcements OVER the music.
-// radio.liq mixes a request.queue(id="beds") source over the program via
-// the builtin smooth_add (verified against v2.2.4 src/libs/extra/
-// audio.liq): a pushed clip ducks the program to p=0.2 and plays at (1-p),
-// mid-track, then the program fades back up -- music under speech with no
-// sidechain process. This module is the Node half of the P2 #8 pattern:
-// one telnet `beds.push <local-path>` queues a produced clip.
+// Beds (P3 #12/#13, integration table rows 12-13): announcements OVER the
+// music. radio.liq mixes a request.queue(id="beds") source over the program
+// via the sidechain ducker (P3 #13): rms.smooth measures the clip's actual
+// loudness, the program ducks to 0.2 only while the clip actually sounds
+// (attack ~20 ms, release ~0.5 s, hysteresis so inter-word gaps don't pump
+// the music) and breathes back during pauses -- music under speech with no
+// optional dependency, no ffmpeg filter process (the roadmap's literal
+// "sidechaincompress" turned out to be an ffmpeg FILTER, not a Liquidsoap
+// operator -- no such operator exists in any LS 2.x, verified upstream).
+// This module is the Node half of the P2 #8 pattern: one telnet
+// `beds.push <local-path>` queues a produced clip. The telnet layer is
+// byte-identical to P3 #12 -- only the mixing mechanism changed.
 //
 // Wire contract verified against the v2.2.4 source (src/libs/request.liq,
 // same file the requests layer uses -- every request.queue registers the
@@ -60,8 +65,8 @@ export async function queueBeds() {
 }
 
 // Cuts the CURRENT bed mid-clip ("Done." on success per request.liq). The
-// program's fade back up is smooth_add's to_blank transition, not ours --
-// skip only ends the special source, Liquidsoap still shapes the edges.
+// program's release back up is the ducker's release time constant, not ours
+// -- skip only ends the request, radio.liq still shapes the mix.
 export async function skipBed() {
   const response = await sendCommand(`${BEDS_SOURCE_ID}.skip`);
   const ok = response.trim() === 'Done.';

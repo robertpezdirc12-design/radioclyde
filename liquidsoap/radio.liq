@@ -244,40 +244,85 @@ radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
 
-# --- Postelje (P3 #12, docs/ready-made-scripts-analysis.md §2.6, row 12) ----
-# An announcement OVER the music: while the beds queue holds a clip, the
-# program ducks to p of its amplitude and the clip fades in at (1-p) -- the
-# mix's total amplitude stays ~1.0 with NO sidechain/compressor process, and
-# when the clip ends the same fades run backwards. smooth_add is a BUILT-IN
-# of this build, verified against v2.2.4 src/libs/extra/audio.liq (and its
-# own regression test tests/regression/115-2.liq): the inner
-# fallback(track_sensitive=false, [special, blank()]) starts a pushed bed
-# IMMEDIATELY, mid-track -- that is the whole point of a bed -- while the
-# mkfade-shaped volume transitions keep both edges soft over ~duration
-# seconds. p=0.2 / duration=1. are the builtin defaults, kept as literals
-# here on purpose (same policy as the stingers interval and the blank guard
-# params: radio.liq's json.parse type stays untouched, so an older
-# config.json still boots). The two mixed sources ride this build's single
-# global frame format, exactly like the ID overlay add() above.
+# --- Postelje: sidechain ducker (P3 #13, docs/ready-made-scripts-analysis.md
+# §2.6 row 13) ----------------------------------------------------------------
+# An announcement OVER the music, ducking on the clip's ACTUAL loudness.
+# Supersedes P3 #12's smooth_add wiring (that block lives in git history):
+# smooth_add ducked the program to a fixed p=0.2 for the clip's WHOLE
+# duration -- including every pause inside the speech. This block ducks only
+# while the clip actually sounds and lets the music breathe back during
+# pauses, which is what "more precise than #12" means on air.
 #
-# beds_source = request.queue(id="beds") reuses the P2 #8 machinery (same
-# verified v2.2.4 src/libs/request.liq semantics as the requests layer):
-# telnet "beds.push <local-path>" queues a produced clip (Node side:
-# src/liquidsoap/bedQueue.js -- push/queue/skip CLI), push replies with the
-# numeric request id, and availability is exactly "queue non-empty", which
-# is what smooth_add's inner track_sensitive=false fallback needs to cut in
-# mid-track. Sits ABOVE the hour-ID overlay and the requests fallback on
-# purpose: an announcement outranks everything musical, including a
-# listener's request, and would ride over the ID if they ever collide. The
-# program dead-air observers below see the MIXED output (same reasoning as
-# the ID overlay above them): a bed playing over a silent program is audible
-# radio, not dead air -- an episode is recorded only if the silence survives
-# the bed too. Bare local path, no annotate: no liq_amplify metadata, so the
-# amplify below stays a 1.0 pass-through and the bed airs at its produced
-# loudness (scaled by smooth_add's own 1-p), same treatment as
-# stingers/IDs/requests.
+# Why NOT an operator literally named sidechaincompress (the roadmap's
+# radio-dj borrowing): no such operator exists in Liquidsoap 2.x -- verified
+# against this build's full v2.2.4 source (zero "sidechain" hits under src/)
+# and upstream raw trees (v2.3.0, v2.4.0, main: no sidechain operator file).
+# "sidechaincompress" is an FFMPEG FILTER name; reaching it from 2.2.4 would
+# need the optional ffmpeg-avfilter build plus a muxer() two-track graph
+# feeding one ffmpeg.filter graph -- a new build dependency and a filter
+# round-trip for something the stdlib already solves.
+#
+# The mechanism below is the one THIS build's own normalize() uses
+# (src/libs/audio.liq, all verified in the v2.2.4 tar):
+#   rms.smooth(duration=...)  -> source + .rms method: current smoothed RMS,
+#                                linear scale, low-pass time constant
+#                                `duration` seconds (rms_smooth.ml)
+#   source.on_frame(s, fn)    -> fn runs every pulled frame (normalize's own
+#                                gain-update loop is exactly this)
+#   amplify({getter}, s)      -> gain re-evaluated EVERY frame
+#                                (amplify.ml: `coeff ()` inside get_frame)
+#   add(normalize=false, ...) -> plain summation, same as smooth_add itself
+#
+# State machine (duck_update): level >= 0.02 (-34 dB RMS) ducks the program
+# to 0.2 with a ~20 ms attack time constant; level < 0.008 (-42 dB) releases
+# toward 1.0 over a ~0.5 s time constant; between the two the gain HOLDS.
+# The hysteresis band is what keeps inter-word gaps (~100 ms, smoothed to
+# ~0.013 at tau=0.05) from pumping the music, while real sentence pauses
+# still let it breathe back. When the beds queue empties, source.is_ready
+# flips false and level counts as 0 -- needed because rms.smooth stops being
+# pulled then, and its .rms would otherwise freeze at the last spoken value,
+# leaving the program ducked forever.
+#
+# Mix balance is #12's: bed clips ride at 0.8 (smooth_add's 1-p), the
+# program floors at 0.2 (smooth_add's p), so the summed air stays ~1.0.
+# Every parameter is a literal on purpose (same policy as the stingers
+# interval and the blank guard params: radio.liq's json.parse type stays
+# untouched, so an older config.json still boots). The two thresholds are
+# calibrated for piper/ffmpeg-produced speech (RMS ~0.05-0.2); a much
+# quieter clip may not fully duck -- retune the literals here, not config.
+#
+# override=null() on the duck amplifier is load-bearing: amplify.ml applies
+# its `override` FIELD's metadata ("liq_amplify" by default) INSTEAD of the
+# coefficient whenever a track carries it, so the default here would swallow
+# every track's liq_amplify correction at track start AND freeze this
+# amplifier's gain for that whole track; null() keeps this amplifier purely
+# getter-driven and leaves the metadata intact for the R128 amplify below.
+#
+# Wiring position is #12's: ABOVE the hour-ID overlay and the requests
+# fallback (an announcement outranks everything musical, including a
+# listener's request), BELOW the program dead-air observers (they see the
+# MIXED output -- a bed over a silent program is audible radio, not dead
+# air; an episode is recorded only if silence survives the bed too). The
+# telnet side is UNCHANGED from #12: beds.push/queue/skip via
+# src/liquidsoap/bedQueue.js pushes a bare local path (no annotate), so the
+# bed amplifier below stays a plain 0.8 and the bed is not scrobbled.
 beds_source = request.queue(id="beds")
-radio = smooth_add(duration=1., p=0.2, normal=radio, special=beds_source)
+beds_rms = rms.smooth(duration=0.05, beds_source)
+duck_gain = ref(1.)
+duck_attack = 1. - exp(0. - frame.duration() / 0.02)
+duck_release = 1. - exp(0. - frame.duration() / 0.5)
+def duck_update() =
+  level = if source.is_ready(beds_source) then beds_rms.rms() else 0. end
+  duck_target =
+    if level >= 0.02 then 0.2
+    elsif level >= 0.008 then duck_gain()
+    else 1. end
+  duck_coef = if duck_target < duck_gain() then duck_attack else duck_release end
+  duck_gain := duck_gain() + duck_coef * (duck_target - duck_gain())
+end
+radio = source.on_frame(radio, duck_update)
+radio = amplify(id="beds-duck", override=null(), {duck_gain()}, radio)
+radio = add(normalize=false, [radio, amplify(0.8, beds_rms)])
 # Dead-air guard, program layer: detect observes (first-positional handler is
 # blank.detect's unnamed first argument, on_noise named -- call shape matches
 # this build's src/libs/source.liq usage), strip reacts. strip wraps detect so

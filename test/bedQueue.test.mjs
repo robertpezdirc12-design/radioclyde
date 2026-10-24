@@ -1,5 +1,5 @@
-// Tests for P3 #12 -- beds ("postelje"): announcements OVER the music via
-// the builtin smooth_add (radio.liq) + a request.queue(id="beds") fed by
+// Tests for P3 #12/#13 -- beds ("postelje"): announcements OVER the music
+// via the sidechain ducker (radio.liq) + a request.queue(id="beds") fed by
 // telnet pushes (src/liquidsoap/bedQueue.js). Two layers, mirroring the
 // feature: the radio.liq wiring (structural, same pattern as
 // requestQueue.test.mjs -- Liquidsoap can't run in CI) and the three telnet
@@ -10,6 +10,9 @@
 // (push -> numeric id, queue -> space-separated ids, skip -> "Done.") and
 // src/core/tools/server.ml (command/args split at the FIRST space, so paths
 // with spaces survive; "ERROR: ..." strings are never success).
+// P3 #13 replaced #12's smooth_add mixing with a stdlib-native ducker
+// (rms.smooth + source.on_frame + amplify getter -- the exact mechanism
+// this build's normalize() uses); the telnet layer is byte-identical.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,30 +36,61 @@ const liq = liqRaw
   .map((line) => line.replace(/#.*$/, ''))
   .join('\n');
 
-describe('radio.liq beds wiring', () => {
-  test('beds request.queue exists and smooth_add mixes it over the program', () => {
+describe('radio.liq beds wiring (P3 #13 sidechain ducker)', () => {
+  test('beds request.queue exists and the ducker mixes it over the program', () => {
     assert.match(liq, /beds_source = request\.queue\(id="beds"\)/);
-    assert.match(liq, /radio = smooth_add\(duration=1\., p=0\.2, normal=radio, special=beds_source\)/);
+    assert.match(liq, /beds_rms = rms\.smooth\(duration=0\.05, beds_source\)/);
+    assert.match(liq, /radio = add\(normalize=false, \[radio, amplify\(0\.8, beds_rms\)\]\)/);
   });
 
-  test('smooth_add sits above the ID overlay and the requests layer, below the dead-air guard', () => {
-    const smoothAt = liq.indexOf('radio = smooth_add(');
+  test('P3 #12 smooth_add is fully superseded -- no smooth_add wiring left', () => {
+    // The ducker replaced smooth_add everywhere in this script; a leftover
+    // would mean two competing mixers over the same beds queue.
+    assert.doesNotMatch(liq, /smooth_add/);
+  });
+
+  test('ducker state machine: is_ready gate, hysteresis literals, attack/release constants', () => {
+    // is_ready gate: rms.smooth stops being pulled (and its .rms freezes at
+    // the last spoken value) once the beds queue empties -- without the gate
+    // the program would stay ducked forever after a clip ends.
+    assert.match(liq, /level = if source\.is_ready\(beds_source\) then beds_rms\.rms\(\) else 0\. end/);
+    // Hysteresis: duck at -34 dB RMS, release below -42 dB, hold in between.
+    assert.match(liq, /if level >= 0\.02 then 0\.2\n\s*elsif level >= 0\.008 then duck_gain\(\)/);
+    // Attack/release time constants, same exponential form normalize() uses.
+    assert.match(liq, /duck_attack = 1\. - exp\(0\. - frame\.duration\(\) \/ 0\.02\)/);
+    assert.match(liq, /duck_release = 1\. - exp\(0\. - frame\.duration\(\) \/ 0\.5\)/);
+    assert.match(liq, /duck_gain := duck_gain\(\) \+ duck_coef \* \(duck_target - duck_gain\(\)\)/);
+  });
+
+  test('duck amplifier is getter-driven with override=null(), upstream of the R128 amplify', () => {
+    // override=null() is load-bearing: with the default "liq_amplify" field
+    // (amplify.ml) this amplifier would swallow each track's R128 correction
+    // at track start AND freeze its own gain for that track.
+    assert.match(liq, /radio = amplify\(id="beds-duck", override=null\(\), \{duck_gain\(\)\}, radio\)/);
+    assert.match(liq, /amplify\(override="liq_amplify", 1\., radio\)/);
+    const duckAt = liq.indexOf('amplify(id="beds-duck"');
+    const r128At = liq.indexOf('amplify(override="liq_amplify"');
+    assert.ok(duckAt !== -1 && r128At !== -1 && duckAt < r128At, 'duck amplifier sits upstream of the R128 one');
+  });
+
+  test('on_frame updater drives the gain ref before the amplifier applies it', () => {
+    // stdlib normalize() ordering: on_frame updates the ref, the amplify
+    // getter reads it -- one frame of lag, the same accepted cost.
+    const onFrameAt = liq.indexOf('radio = source.on_frame(radio, duck_update)');
+    const ampAt = liq.indexOf('radio = amplify(id="beds-duck"');
+    assert.ok(onFrameAt !== -1 && ampAt !== -1 && onFrameAt < ampAt);
+  });
+
+  test('ducker sits above the ID overlay and the requests layer, below the dead-air guard', () => {
+    const duckerAt = liq.indexOf('radio = add(normalize=false, [radio, amplify(0.8, beds_rms)])');
     const idAt = liq.indexOf('add([radio, switch([({0m0s}, id_source)])])');
     const requestsAt = liq.indexOf('fallback(track_sensitive=true, [requests_source, radio])');
     const detectAt = liq.indexOf('blank.detect(dead_air_program');
-    assert.ok(smoothAt !== -1, 'smooth_add line present');
+    assert.ok(duckerAt !== -1, 'ducker mix line present');
     assert.ok(idAt !== -1 && requestsAt !== -1 && detectAt !== -1, 'reference layers present');
-    assert.ok(smoothAt > idAt, 'an announcement outranks the hour ID overlay');
-    assert.ok(smoothAt > requestsAt, 'an announcement rides over a listener request too');
-    assert.ok(smoothAt < detectAt, 'the program dead-air observer sees the MIXED output');
-  });
-
-  test('the builtin smooth_add is used, not an inlined copy', () => {
-    // The 2.2.4 builtin (src/libs/extra/audio.liq) already carries the exact
-    // fade/duck state machine -- an inlined re-definition here would fork
-    // from it silently on build changes.
-    assert.doesNotMatch(liq, /def smooth_add/);
-    assert.match(liq, /smooth_add\(duration=1\., p=0\.2/);
+    assert.ok(duckerAt > idAt, 'an announcement outranks the hour ID overlay');
+    assert.ok(duckerAt > requestsAt, 'an announcement rides over a listener request too');
+    assert.ok(duckerAt < detectAt, 'the program dead-air observer sees the MIXED output');
   });
 
   test('program core and safety net untouched', () => {
