@@ -18,6 +18,7 @@ export const HASHTAG = '#RadioMarkec';
 
 const SLOT_FILES = {
   weatherNow: 'vreme',
+  weatherOffline: 'vreme',
   newsHeadlines: 'novice',
   sportHeadlines: 'sport',
   obzorje: 'obzorje',

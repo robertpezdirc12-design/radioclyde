@@ -97,6 +97,20 @@ const DEFAULT_TEMPLATES = {
     time: ['Trenutno je {time}.'],
     weather: ['Zunaj je {condition}, temperatura {temp} \u00b0C, veter piha s hitrostjo {wind} km/h.'],
     'time-weather': ['Je {time}, zunaj je {condition} in {temp} \u00b0C.'],
+    // P4 #29: the live weather segment resolved at DIRECT time -- and
+    // directShow() awaits resolveLiveLine() with no retry, so a dead
+    // Open-Meteo used to throw and kill the whole occurrence (no
+    // playlist.m3u -> dead air until the next scheduled show). Now it
+    // resolves to this pool: honest (the time is the local clock, the only
+    // fact left), no fabricated condition/temperature, same honesty rules
+    // as weatherOffline above. Every variant opens with "Je {time}" so the
+    // rendered line stays visibly a live segment.
+    weatherOffline: [
+      'Je {time}, podatkov o vremenu pa ni -- zato samo toliko: zunaj se danes odvija vreme, za podrobnosti pa priporočam okno.',
+      'Je {time} -- vremenska povezava je na dopustu, okna pa delujejo brez omejitev. Vabim k lastnemu poročanju.',
+      'Je {time}. Vremenskih podatkov ni, ugib pa je takšen: zunaj je vsaj nekaj. Podrobneje vas obvestijo lastna očesa.',
+      'Je {time} in vremenske napovedi ni -- uradno torej: danes bo vreme. Natančnost si delite z oknom, ki je pri vas.',
+    ],
   },
 
   // Rubrikes (service segments rendered from real data at produce time --
@@ -115,6 +129,24 @@ const DEFAULT_TEMPLATES = {
       'Trenutne razmere na {station}: {condition}.',
     ],
   },
+  // P4 #29 "vreme brez omrežja": when ARSO is unreachable (dead router,
+  // timeout, station missing) the rubric no longer vanishes -- it airs an
+  // HONEST offline line instead. Ground rules, enforced by
+  // test/weatherOffline.test.mjs:
+  //   - zero fabricated data: no digits, no degrees, no "stopinj", and no
+  //     word the WMO map could produce as a "condition" -- a weather report
+  //     without numbers cannot pretend to be data,
+  //   - every variant names the station (colon construction, no declension
+  //     of the ARSO station name), so the line keeps the rubric's shape,
+  //   - the joke is the honesty: the line says out loud that there are no
+  //     data and points to the only reliable sensor the listener owns.
+  weatherOffline: [
+    'Vreme: postaja {station} se je danes poslala na dopust -- uradnih podatkov ni, priporočamo pa brezplačno aplikacijo, ki ji rečemo okno.',
+    'Vremensko poročilo z danes: {station} javlja tišino -- podatkov ni. Vse ostalo si poglejte skozi okno, aplikacija je brezplačna in brez reklam.',
+    'Vreme: {station} trenutno molči, mi pa ne -- danes bo vreme, napoved zanesljiva kot vsako leto v tem času.',
+    'Vremenski podatki iz {station} so odsotni, zato napovedujemo edino, kar vemo zanesljivo: zunaj je vsaj nekaj.',
+    'Vreme: brez podatkov iz {station} -- meteorologi so v zastoju, okna pa delujejo normalno. Vabimo k lastnemu raziskovanju.',
+  ],
   sportHeadlines: [
     '\u0160portne novice: {headlines}',
     'Poglejmo, kaj je novega v \u0161portu: {headlines}',

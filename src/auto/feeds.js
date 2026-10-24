@@ -489,6 +489,13 @@ export async function collectRubricData({ names = [], offline = false, date, see
     names.includes('onthisdaymusic')
       ? pickOnThisDayMusic({ month: obzorjeTarget.month, day: obzorjeTarget.day, limit: settings.onThisDayMusicLimit, seed: quizSeed })
       : null;
+  // P4 #29 "vreme brez omrežja": the station name is config (always known),
+  // the weather facts are not -- so a dead ARSO no longer drops the rubric
+  // but airs an honest offline line instead (templates.weatherOffline, no
+  // fabricated data; scriptBuilder renders source 'fallback' via the
+  // weatherOffline slot). Respecting `names` keeps the rubric opt-in.
+  const weatherFallback = () =>
+    names.includes('weather') ? { source: 'fallback', station: settings.station } : null;
   const quiz = names.includes('quiz') && settings.quizCount > 0
     ? { questions: pickQuizQuestions(settings.quizCount, quizSeed) }
     : null;
@@ -499,8 +506,8 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // P4 #26 "poslusalci": freshly approved requests/dedications, local file.
   const listeners = names.includes('listeners') ? collectListenerShout() : null;
   if (offline) {
-    log('feeds: rubrics skipped (offline mode); obzorjeGlasba falls back to the local corpus (P4 #28).');
-    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: localMusic(), quiz, poll, listeners, offline: true };
+    log('feeds: rubrics skipped (offline mode); obzorjeGlasba falls back to the local corpus (P4 #28), vreme to its offline lines (P4 #29).');
+    return { weather: weatherFallback(), news: null, sport: null, onThisDay: null, onThisDayMusic: localMusic(), quiz, poll, listeners, offline: true };
   }
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
@@ -517,5 +524,9 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // whenever it actually has events.
   const musicWithFallback =
     onThisDayMusic?.events?.length ? onThisDayMusic : (wants('onthisdaymusic') ? localMusic() : null);
-  return { weather, news, sport, onThisDay, onThisDayMusic: musicWithFallback, quiz, poll, listeners, offline: false };
+  // P4 #29: same contract for vreme -- ARSO wins whenever it answers, the
+  // honest offline line covers a dead/empty answer (fetch failure, station
+  // miss, cached null) so the rubric promised in the brief always airs.
+  const weatherWithFallback = weather ?? weatherFallback();
+  return { weather: weatherWithFallback, news, sport, onThisDay, onThisDayMusic: musicWithFallback, quiz, poll, listeners, offline: false };
 }

@@ -196,7 +196,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 
 | Rubrika | Vir | Slot | Predloga |
 |---|---|---|---|
-| `vreme` | **ARSO** — uradna meteorološka služba RSS (opazovanja, ~20 slovenskih postaj, slovenski opisi) | `weatherNow` | `weatherNow.withTemp` / `.tempOnly` / `.generic` |
+| `vreme` | **ARSO** — uradna meteorološka služba RSS (opazovanja, ~20 slovenskih postaj, slovenski opisi). Od P4 #29 ima **pošteno offline vrstico** (`weatherOffline` — brez izmišljenih podatkov), ko je ARSO nedosegljiv | `weatherNow` / `weatherOffline` (rezerva) | `weatherNow.withTemp` / `.tempOnly` / `.generic`; rezerva `weatherOffline` |
 | `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
 | `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta | `newsHeadlines` | `newsHeadlines` |
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
@@ -220,13 +220,17 @@ Nastavitve v `config.autoRadio.rubrics`:
 - `timeoutSeconds` — trdi časovna omejitev za vsak vir (privzeto 10)
 
 Dogovor je vedno enak: **vir odgovori → segment je v oddaji; vir odpove ali
-čas poteče → segment spusti, oddaja teče dalje.** Odgovori so v procesu
-predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h, izvajalec 24 h), tako
-da prewarm in ponovni zagoni ne obremenjujejo virov. Rubrika ni del oddaje,
-če je ni v briefu; `--offline` (preview) jih vedno spusti — **razen korpusne
-polovice `zanimivosti` in cele rubrike `kviz`**, ki sta lokalni datoteki in
-delujeta brez omrežja (samo polovica zanimivosti za izvajalce se ob offline
-spusti).
+čas poteče → segment spusti, oddaja teče dalje.** Od P4 #28/#29 velja
+dopolnitev: korpusne rubrike in vreme imajo **lokalno rezervo**, zato ob
+mrtem usmerjevalniku ne izginejo — `vreme` na zrak gre s pošteno offline
+vrstico (brez izmišljenih podatkov), `glasba` z lokalnim korpusom. Odgovori
+so v procesu predpomnjeni (vreme 15 min, šport 30 min, obzorje 6 h,
+izvajalec 24 h), tako da prewarm in ponovni zagoni ne obremenjujejo virov.
+Rubrika ni del oddaje, če je ni v briefu; `--offline` (predogled) omrežne
+vire spusti — ostanejo: `kviz` (cela), `anketa`, `poslušalci`, korpusna
+polovica `zanimivosti`, korpus `glasbe` in poštena vrstica `vremena`; spustijo
+se `novice`, `šport`, net-korpusna polovica obzorja in polovica zanimivosti za
+izvajalce.
 
 ### Kviz — resnična vprašanja na obstoječem mestu (P4 #22)
 
@@ -468,7 +472,7 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 
 | Funkcija | Markec |
 |---|---|
-| Lokalne rubrike iz resničnih virov | ARSO vreme, RTV novice + šport, Wikidata obzorje/glasba, MusicBrainz zanimivosti |
+| Lokalne rubrike iz resničnih virov | ARSO vreme (+ poštena offline vrstica, P4 #29), RTV novice + šport, Wikidata obzorje/glasba (+ lokalni korpus, P4 #28), MusicBrainz zanimivosti |
 | Resnični kviz | korpus 40 vprašanj, hecavne predloge (P4 #22/#24) |
 | Zanimivosti | korpus + MusicBrainz/sl.wikipedia, skip-not-fail |
 | DJ osebnosti + najave | personas, predloge open/intro/recap/close, variantna rotacija |
@@ -482,7 +486,10 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
 teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
 licenčna skladnost (izvajalno poročilo) -- ostal je le smart-speaker
-spretnost, ki potrebuje zunanjega ponudnika.
+spretnost, ki potrebuje zunanjega ponudnika. P4 #28/#29 poleg tega zapirata
+zadnjo luknjo odpornosti: radio preživi mrtev usmerjevalnik s CELOM
+programom — rubrika vreme na zraku ostane s pošteno vrstico, živi segment pa
+ne podrže več režije.
 
 ### P4 #25: raziskava v kodo -- teases, ankete, podcast, social
 
@@ -568,6 +575,44 @@ napak v spolnih končavah.
 - **Tone pass:** bazena `obzorje` in `obzorjeGlasba` imata poleg osnovnega
   stavka še po eno hecavno varianto na kindKey (rojstva igriva, smrti
   tolažilno -- "plošče pa od takrat molčijo le, ko jih mi izklopimo").
+
+### P4 #29: vreme brez omrežja — poštena rezerva na vseh legah
+
+Vremenska rubrika je bila zadnja, ki ob mrtem usmerjevalniku ni imela
+rezerve: ARSO odgovori → `weatherNow`; ARSO odpove → segment tiho izgine —
+čeprav handoff na dveh tretjinah oddaje ("Poglejmo še, kakšno vreme nas
+čaka ...") obljubi vreme, ki nato ne pride. Hujše pa: živi vremenski segment
+se rešuje V REŽIJI (`directShow()` čaka `resolveLiveLine()` brez ponovnega
+poskusa), tako da je odpoved Open-Meteo točno v trenutku režije pomenila
+PADLO CELO oddaje — brez `playlist.m3u`, dead air do naslednje terminirane
+oddaje. P4 #29 zapre obe luknji s tremi premiki, vse po istem dogovoru kot
+korpus #28:
+
+- **Rubrika:** ko ARSO ni dosegljiv (offline način, mrtev router, timeout,
+  manjkajoča postaja), gre na zrak **poštena offline vrstica** — nova
+  predloga `weatherOffline` ("Vreme: postaja Ljubljana se je danes poslala
+  na dopust -- uradnih podatkov ni, priporočamo pa brezplačno aplikacijo,
+  ki ji rečemo okno."). Zdrav ARSO še vedno zmaguje (`weatherNow`),
+  nadomestna vrstica pa ima zapisana PRAVILA POŠTENOSTI, ki jih varujejo
+  testi: **brez številk, brez stopinj, brez besed, ki bi jih WMO slovar
+  lahko izgovoril kot podatke** — vremensko poročilo brez številk ne more
+  pretvarjati, da je podatek. Šala JE iskrenost: vrstica glasno pove, da
+  podatkov ni, in pokaže na edini zanesljivi senzor, ki ga ima poslušalec
+  (okno).
+- **Živi segment:** `auto/liveLines.js` ujame odpoved Open-Meteo in rešuje
+  `live:weatherOffline` ("Je {time} -- vremenska povezava je na dopustu,
+  okna pa delujejo brez omejitev."). Režija torej NE PADA več; handoffova
+  obljuba ostane izpolnjena. Lokalna ura je edini podatek, ki ga imamo —
+  pogoj in temperatura se ne izmislijo.
+- **Izvozi:** podcast show-notes in social izvoz poznata nov slot
+  (`weatherOffline`), tako da poštena vrstica pride tudi v oba izvoda.
+
+Deterministika neuspeha je enaka deterministiki podatkov: isti dan + isto
+seme = ista offline vrstica (FNV-1a kot povsod), tako ostanejo prepisi
+reproducirljivi in zvok predpomnljiv. Testi: 415 → 435
+(`test/weatherOffline.test.mjs`, 20 — vključno z varovalkami poštenosti, ki
+prepovedujejo številke in vremenske besede v vseh variantah obeh bazenov,
+ter živim testom, ki dokazuje, da mrtev Open-Meteo NE vrže več napake).
 
 ## Zapisi, ki ostajajo odprti (PoC)
 

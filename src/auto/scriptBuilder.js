@@ -26,7 +26,22 @@ function rubricSegments({ rubricData, persona, commonValues, showId, date }) {
   if (!rubricData) return segments;
 
   const weather = rubricData.weather;
-  if (weather) {
+  if (weather?.source === 'fallback') {
+    // P4 #29: ARSO unreachable (offline mode, dead router, station miss) --
+    // the rubric airs an HONEST offline line instead of vanishing (the
+    // handoff at the two-thirds position would otherwise promise weather
+    // and deliver silence). The station name is config and always truthful;
+    // the pool itself carries no fabricated condition/temperature.
+    segments.push({
+      type: 'dj',
+      persona,
+      slot: 'weatherOffline',
+      body: renderSlot('weatherOffline', {
+        values: { ...commonValues(), station: weather.station },
+        seed: seedFor({ showId, date, slot: 'weatherOffline' }),
+      }),
+    });
+  } else if (weather) {
     segments.push({
       type: 'dj',
       persona,

@@ -194,7 +194,7 @@ export function runPodcastExport({ dir, audio, title, date, link, out, station =
     chapters: chapterList(segments),
     tracks,
     rubricLines: segments
-      .filter((s) => s.type === 'dj' && ['weatherNow', 'newsHeadlines', 'sportHeadlines', 'obzorje', 'obzorjeGlasba', 'triviaArtist', 'triviaGeneral', 'quizIntro'].includes(s.slot))
+      .filter((s) => s.type === 'dj' && ['weatherNow', 'weatherOffline', 'newsHeadlines', 'sportHeadlines', 'obzorje', 'obzorjeGlasba', 'triviaArtist', 'triviaGeneral', 'quizIntro'].includes(s.slot))
       .map((s) => s.body),
   });
   const notesPath = path.join(outDir, 'show-notes.md');
