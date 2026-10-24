@@ -194,7 +194,10 @@ obsega, ne uporabniškega agenta). V tem primeru se `obzorje`, `glasba` in
 wikipedijina rezerva `zanimivosti` vsako produkcijo pošteno spustijo — v
 `station.log` je to prepoznavno kot »`query failed (HTTP 403 from Wikidata)
 -- rubric skipped`« oziroma »`brez zanimivosti (HTTP 403 from sl.wikipedia)`«
-— oddaja pa teče naprej na ARSO, RTV, MusicBrainzu in korpusu. Domači in
+— oddaja pa teče naprej na ARSO, RTV, MusicBrainzu in korpusu. Pri zgoščenem
+ponavljanju produkcij lahko iste wikipedije iz istega okolja včasih vrnejo
+tudi **HTTP 429** (omejitev pogostosti, ne blokada) — podpis v dnevniku je
+enake oblike, pomen za oddajo pa enak. Domači in
 pisarniški IP-ji težave nimajo (WDQS ne potrebuje ključa, le uporabniški
 agent). Odpravljanje: poglej `station.log` na »403 from Wikidata«; rešitev je
 gostovanje na IP-ju, ki ga Wikimedia ne blokira, ali izhodni posrednik
@@ -215,7 +218,10 @@ za pevce in vse, česar MusicBrainz ne najde, poskusi povzetek s
 sl.wikipedia — ampak samo, če stran ni razločevalna in se naslov
 udeja s poizvedbo. MusicBrainz se poizveduje največ enkrat na sekundo
 (uradna omejitev) in z obveznim uporabniškim agentom; rezultati so
-predpomnjeni 24 h na izvajalca.
+predpomnjeni 24 h na izvajalca. Pod zgoščenimi ponovljenimi produkcijami
+(testni nizi, več zagonov v enem valu) MusicBrainz občasno vrne 503 —
+takrat rubrika segment pošteno spusti in oddaja nadaljuje na korpusu,
+kot pri vsaki drugi spodleteli poizvedbi.
 
 V `clips` načinu so novi sloti posnetljivi posamezno: `triviaArtist`,
 `triviaGeneral` in `obzorjeGlasba` — manjkajoč posnetek spusti samo ta
