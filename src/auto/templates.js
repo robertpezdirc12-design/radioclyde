@@ -59,13 +59,25 @@ const DEFAULT_TEMPLATES = {
   // P4 #22 "Kviz" rubric: real question/answer content from auto/quizFacts.js
   // renders through these keys; the legacy year-guess quizIntro/quizReveal
   // above stay as the fallback when the rubric is off or the corpus is empty.
+  // P4 #24 tone pass: the pools mix plain and playful variants -- every
+  // question variant promises the answer right after the song, every answer
+  // variant names it ("Pravilen odgovor" / "Re\u0161itev kviza") -- see
+  // test/quiz.test.mjs section E, which pins exactly that contract.
   quizQuestion: [
     'Kviz za pozorne poslu\u0161alce: {question} Odgovor razkrijemo takoj po skladbi.',
     'Malo tekmovalnosti -- {question} Pravilni odgovor povemo takoj po skladbi.',
+    'Malica za mo\u017egane, vstop brezpla\u010den: {question} Re\u0161itev razkrijemo takoj po skladbi.',
+    'Doma\u010da naloga za vse, ki trdijo, da o rocku vedo vse: {question} Odgovor povemo takoj po skladbi, brez ocen.',
+    'Kdor ugane, dobi rundo aplavza: {question} Odgovor razkrijemo takoj po skladbi.',
+    'Ugibanje je brez vstopnic, mikrofon pa vse sli\u0161i: {question} Odgovor povemo takoj po skladbi.',
   ],
   quizAnswer: [
     'Pravilen odgovor: {answer}. \u010ce ste zadeli, \u010destitamo!',
     'Re\u0161itev kviza: {answer}. Zdaj pa nazaj k glasbi.',
+    'Pravilen odgovor je {answer} -- in vsem, ki ste ugibali kaj drugega, priznavamo vsaj vztrajnost.',
+    'Re\u0161itev kviza: {answer}. Kdor je zadel, si privi\u0161\u010dite; kdor pa ne, zdaj to ve zastonj.',
+    'Re\u0161itev kviza: {answer}. Kdor je zadel, mu dol\u017eim eno pivo -- izpla\u010dilo ob naslednjem sre\u010danju.',
+    'Pravilen odgovor: {answer}. Tega znanja nikjer ne kupite, tukaj pa ste ga dobili zastonj.',
   ],
   handoff: [
     'Poglejmo \u0161e, kak\u0161no vreme nas \u010daka. \u010cez mikrofon se oglasa {to}.',

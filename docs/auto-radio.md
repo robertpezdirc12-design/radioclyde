@@ -146,6 +146,34 @@ kodekski dogovor, ki ga je imel Chatterboxov izhod), zato spajanje sosednjih
 govornih odsekov ostane brez izgub. SAPI/espeak/edge/piper izhod dobi še
 `djDrops.gain`; posnetki (clips, pregenerated) ostanejo netaknuti.
 
+### Govorni stil: naravno, pogovorno, hecavno (P4 #24)
+
+Cilj govora je, da TTS ne zveni kot napovednik prikazovalnika, ampak kot
+ta isti, ki se heca za mikrofonom. Pravila, ki jih držimo pri novih
+predlogah:
+
+- **Pogovorni ritem:** kratki stavki, naravni vezniki (»no pa«, »tokrat«,
+  »samo zavedite se«); uradne fraze (»v skladu s programsko shemo«) ne.
+- **Hec na pravi strani mikrofona:** šale gredo na skladbe, izvajalce,
+  mikrofon ali na DJ-ja samega -- nikoli poniževalno na poslušalca.
+  »Kdor ugane, dobi rundo aplavza« je hec; »kdor ne zna, naj posluša
+  drugje« pa ne.
+- **Čisti slovenski jezik:** brez angleških vpadov, kjer obstaja slovenska
+  beseda.
+- **TTS-prijaznost:** brez oklepajev, brez okrajšav, brez smejkov;
+  številke izpisane ali pripravljene za izgovorjavo; pomišljaj » -- «
+  izgovorjamo kot kratko pavzo, uporabljamo ga zmerno.
+- **Deterministična rotacija:** vsaka šala je nova različica v obstoječem
+  bazenu predloge; zgoščevalnik za isto oddajo in datum izbere vedno isto
+  različico -- humor je torej reproducirljiv, ne naključen.
+
+Za čisto slovenščino sta trenutno najbolj naravna vira edge
+`sl-SI-PetraNeural`/`sl-SI-RokNeural` (nevronska, brez modela na boxu) in
+piper `sl_SI-artur-medium` (~63 MB, povsem offline). Online storitve s
+slovenskimi glasi (ElevenLabs, Narakeet, speechgen.io) zvenijo sorodno, a
+zahtevajo račune in API-ključe -- v autoRadio ostajajo zunaj obsega
+(ni modela, ni ključa, ni naročnine).
+
 ## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
 
 Poleg glasbe lahko oddaja prebere **resnične podatke** iz slovenskih virov —
@@ -210,6 +238,15 @@ posnameš posamezno (`voice-clips/<persona>/quizIntro.wav`,
 `quizReveal.wav`); v načinu predgeneriranih klipov kviz slot v trajanje
 uporabi intro/recap klip te skladbe — prepis pa vedno nosi pravo
 vprašanje.
+
+Od P4 #24 je bazen predlog bolj razposajen: `quizQuestion` ima šest
+različic (od strožje »Kviz za pozorne poslušalce« do »Malica za možgane,
+vstop brezplačen« in »Kdor ugane, dobi rundo aplavza«), `quizAnswer` tudi
+šest (od »Rešitev kviza« do »Kdor je zadel, mu dolžim eno pivo -- izplačilo
+ob naslednjem srečanju«). Vsaka različica ohranja isti dogovor: vprašanje
+vsebuje obljubo o odgovoru takoj po skladbi, odgovor pa izrecno
+»Pravilen odgovor«/»Rešitev kviza« -- test `test/quiz.test.mjs` (razdelek
+E) ta dva namiga zapne, konfiguracijski prepisi pa ostanejo kompatibilni.
 
 ### Wikimedia iz podatkovnih središč (HTTP 403) — živo opaženo
 
@@ -383,6 +420,50 @@ nespremenjen.
   — enaka kot prej; pod autoRadio zataknita deterministični poti.
 - `npm run generate-filler-playlist` — polnilni seznam prav tako po glasbenem
   viru (Plex ali lokalno).
+
+## Kaj delajo najboljši avtonomni radii (raziskava, P4 #24)
+
+Povzetek raziskave oktobra 2026 (RadioGPT / Futuri AudioAI, Spotify AI DJ,
+Aiir, radiocontentpro 2026 vodič, shoutcheap 2026 pregled). Skupne funkcije
+vodilnih avtonomnih postaj:
+
+- **sveže lokalne vsebine:** skeniranje novic in trendov (Futuri TopicPulse)
+  ter AI DJ, ki komentira vreme, promet in naslovnice;
+- **uvajanje skladb + naznanila:** osebnost, ki najavlja pesmi in naznanja,
+  kaj sledi kasneje v oddaji (teases);
+- **poslušalska interakcija:** zahteve po skladbah prek bota, ankete,
+  sporočila social/SMS/WhatsApp na enem zaslonu (Aiir Studio Inbox),
+  Alexa/Google spretnosti, push v aplikaciji;
+- **multiformatni izvoz:** blog, objave socialnih omrežij, kratki videi in
+  podcast iz oddaje (Futuri POST);
+- **analitika:** poslušalske heatmape, sentiment, poročila oglaševalcem;
+- **otočna avtomatika:** predvajalni logi, licenčna skladnost, now-playing
+  push.
+
+Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
+
+| Funkcija | Markec |
+|---|---|
+| Lokalne rubrike iz resničnih virov | ARSO vreme, RTV novice + šport, Wikidata obzorje/glasba, MusicBrainz zanimivosti |
+| Resnični kviz | korpus 40 vprašanj, hecavne predloge (P4 #22/#24) |
+| Zanimivosti | korpus + MusicBrainz/sl.wikipedia, skip-not-fail |
+| DJ osebnosti + najave | personas, predloge open/intro/recap/close, variantna rotacija |
+| Zahteve poslušalcev | requestQueue |
+| Analitika poslušanosti | listenerAnalytics |
+| Now-playing push | nowPlayingPush |
+| Predogled oddaj | imagingPlaylists, preview-auto-show |
+
+Kandidati za naslednje korake (razporejeno po najmanjšem uporu za
+brezmodelno arhitekturo, nič od tega še ni dogovorjeno):
+
+1. **Naznanila »sledi kasneje«:** deterministični tease iz obstoječe vrste
+   skladb -- čista predloga + metapodatki, nič novega omrežja.
+2. **Podcast iz oddaje:** oddaja že piše `script.md`, `transcript.json` in
+   normaliziran zvok; izrez »najlepših trenutkov« je povezljiv s ffmpeg.
+3. **Ankete:** korpus vprašanj že obstaja za kviz; anketa potrebuje le
+   kanal (studio API).
+4. **Social izvoz:** naslovnice rubrik so že slovenske enovrstice --
+   pretvorba v objavo je preslikava, ne model.
 
 ## Zapisi, ki ostajajo odprti (PoC)
 
