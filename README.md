@@ -26,7 +26,7 @@ and no neural TTS at all**.
 |---|---|---|
 | Track selection | Local LLM resolves the brief into a Plex query | Deterministic rule parser + rule-based queue |
 | DJ script | LLM writes every line against Wikipedia-researched facts | Fixed Slovenian templates filled from library metadata |
-| Voice | Chatterbox (neural TTS) | **Edge neural TTS** / pre-recorded clips / Windows SAPI / espeak-ng / none |
+| Voice | Chatterbox (neural TTS) | **Edge neural TTS** / **local Piper** / pre-recorded clips / Windows SAPI / espeak-ng / none |
 | Service segments | LLM-composed live lines | **Live data rubriques**: ARSO weather, RTV Slovenija sport headlines, Wikidata "on this day" |
 | Hardware needed | GPU/CPU heavy LLM + TTS model | Any box — even a Raspberry Pi |
 | Offline capable | No | Yes (`--offline` dry-run, music-only fallback) |
@@ -85,7 +85,12 @@ phases hand off through.
   step could see all at once.
 - **Distinct DJ personas**: each show picks a persona (photo + voice); speech
   is synthesized and cached per persona. Auto mode maps personas onto neural
-  Slovenian voices `sl-SI-PetraNeural` / `sl-SI-RokNeural` with zero setup.
+  Slovenian voices `sl-SI-PetraNeural` / `sl-SI-RokNeural` with zero setup —
+  or onto the fully local Piper voice `sl_SI-artur-medium` (piper1-gpl): the
+  model downloads once into `<dataDir>/piper` and synthesis is 100% offline
+  and CPU-only afterwards, no GPU, no cloud. The studio Voice view reports
+  the voice-key cache state honestly — what is downloaded, what is missing,
+  and the exact command to fix it.
 - **Live segments resolved fresh**: time/weather call-ins are generated at
   air time from real data, not baked into yesterday's recording.
 - **Filler that never sleeps**: off-air gaps are filled by a generated
@@ -144,14 +149,21 @@ phases hand off through.
   clip. No `sidechaincompress` exists in any Liquidsoap 2.x (it's an ffmpeg
   filter name, verified upstream); everything here runs on verified 2.2.4
   stdlib.
-- **DJ transition effects (P3 #11)**: sweep / washout / dissolve seams
-  between music tracks, borrowed from SUB/WAVE's production mixer and gated
-  behind `%ifversion >= 2.4.6` — on the current 2.2.4 build the file is
-  stripped before parsing and the station is byte-identical to pre-#11.
-  After the box upgrade ([runbook](docs/liquidsoap-upgrade.md)) the music
-  chain wraps in a low-level `cross()` whose per-seam transition hard-cuts
-  every seam touching speech or a jingle (`source_tag` dispatch — the DJ is
-  never faded) and applies the effect stamped on the track via
+- **DJ transition effects (P3 #11), live-verified on the real engine**: sweep
+  / washout / dissolve seams between music tracks, borrowed from SUB/WAVE's
+  production mixer and gated behind `%ifversion >= 2.4.6` — on the current
+  2.2.4 build the file is stripped before parsing and the station boots
+  byte-identically to pre-#11. The 2.4.6 path was exercised LIVE on real
+  2.4.6 binaries (extracted from the official Docker image and run without
+  root: `--check`, the full source graph, and an on-air run where washout
+  and dissolve actually fired while speech seams hard-cut) — three defects
+  only the real engine could reveal (a mandatory `synchronous` argument, the
+  method-extension `self_sync` conflict with `cross()`, the pre-2.4.6
+  post-cross metadata double-fire) were caught and fixed that way. Only the
+  box's own runtime upgrade remains ([runbook](docs/liquidsoap-upgrade.md)).
+  The music chain wraps in a low-level `cross()` whose per-seam transition
+  hard-cuts every seam touching speech or a jingle (`source_tag` dispatch —
+  the DJ is never faded) and applies the effect stamped on the track via
   `src/liquidsoap/stampTransitionFlags.js`. Imaging layers sit ABOVE the
   cross, so a stinger is never blended — [status](docs/subwave-deep-analysis.md).
 - **R128 loudness alignment (autocue gain layer)**: a budgeted offline scan
@@ -265,6 +277,7 @@ now-playing page and the Google TV app.
 | **Plex Media Server** or local folders | Music library backend: track/artist/album metadata and search |
 | **LM Studio** (AI mode only) | Local LLM: track-query resolution, script writing, script editing, live-segment lines |
 | **Chatterbox** (AI mode only) | Neural text-to-speech for the classic mode's DJ audio |
+| **Piper** (auto mode, optional) | Local neural text-to-speech (piper1-gpl): one Slovenian voice, ~60 MB model, fully offline after a one-time download |
 | **Liquidsoap** | Playout engine: plays the directed playlist or falls back to filler, feeds Icecast |
 | **Icecast** | The actual stream server listeners connect to |
 | **Fastify** | Web server: now-playing page, JSON API, authenticated stream proxy, password-protected studio admin, and the scheduling daemon (one merged process) |
@@ -348,6 +361,11 @@ neural TTS model on your hardware:
 - **Voice engines** (pick one per station, per-show personas map onto them):
   `edge` (Microsoft Edge neural TTS — real Slovenian voices
   `sl-SI-PetraNeural`/`sl-SI-RokNeural`, no API key, no model download),
+  `piper` (fully local neural TTS via [piper1-gpl](https://github.com/OHF-Voice/piper1-gpl)
+  — Slovenian voice `sl_SI-artur-medium`, model downloaded once from
+  HuggingFace into `<dataDir>/piper`, offline and CPU-only afterwards;
+  per-persona `piperVoice` keys, and `piperAutoDownload: false` turns the
+  one-time download into an actionable error instead),
   `clips` (your own recordings, one file per slot, numbered variants picked
   by the same hash as the text), `sapi` (Windows voices), `espeak-ng`,
   or `none` (music + jingles only). Every provider's output is normalized to
