@@ -247,8 +247,18 @@ radio = fallback(track_sensitive=false, [show_source, filler_source])
 # liq_amplify metadata means amplify below stays a 1.0 pass-through for them.
 # Wrapped ABOVE the stinger layer on purpose: at a boundary where both are
 # ready, a listener's request outranks imaging.
+#
+# P3 #11: the requests fallback stays INSIDE the crossed chain on 2.4.6 -- a
+# listener request is music and its seam gets the same crossfade as any
+# other music seam. (An interim restructure had moved it outside the cross
+# on a self-sync suspicion; the real 2.4.6 --check disproved it:
+# request_dynamic.ml reports method self_sync = (`Static, None), which cross
+# accepts -- the refusal pointed at the whole fallback VALUE and the dirty
+# part was the fade.in-wrapped playlists, see the block below. The wrap
+# normalizes the entire chain, requests included.)
 requests_source = request.queue(id="requests")
 radio = fallback(track_sensitive=true, [requests_source, radio])
+
 # --- DJ transition cross (P3 #11, docs/ready-made-scripts-analysis.md row 11)
 #
 # On 2.4.6+ the music chain (show + filler + requests -- everything above
@@ -274,21 +284,37 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 # an operator ever hand-stamps a track, it behaves the SUB/WAVE way instead
 # of silently resetting.
 #
-# Imaging stays OUT of the blend by construction: the stinger fallback (and
-# the ID overlay, beds, emergency bed) attach ABOVE this cross, so a
-# stinger seam is never handed to dj_transition -- SUB/WAVE needed an
-# explicit flag to protect their jingles from being washed out (#1565);
-# our layering gives the property for free, same as the speech hard-cut.
+# Everything NON-musical stays OUT of the blend by construction: the stinger
+# fallback and the ID overlay attach BELOW this wiring (they wrap the
+# crossed source), and the beds and emergency bed above that -- so
+# stinger/ID/bed seams are never handed to dj_transition. A 3.5 s blend
+# would eat most of a short stinger -- SUB/WAVE #1565's "a jingle is never
+# blended", solved here by layering instead of a flag. The crossed source
+# still emits a track mark at every crossing (cross fires on_track on every
+# crossing, fixed upstream in 2.4.6, #5379), so the track-sensitive
+# fallbacks below keep seeing music boundaries exactly as before.
 #
-# The scrobble handler below is registered on the PRE-cross source on
-# purpose: the transition replays the outgoing track's metadata into its
-# fades (initial_metadata=), so a handler registered after the cross fires
-# TWICE per transition and strands now-playing one song behind
-# (SUB/WAVE-measured; #5360/#5379 are the 2.4.6 fixes in this area).
-# Pre-cross sees exactly one metadata event per track, same as the old
-# post-mksafe registration saw, because everything between (ID overlay,
-# beds, guards) passes metadata through untouched.
-#
+# SELF-SYNC WRAP -- why source.dynamic sits in front of cross. cross
+# requires every child to report EXACTLY (`Static, None) as its internal
+# self_sync (child_support.ml). Our chain is HONESTLY not self-syncing
+# (nothing here runs its own realtime loop -- the Lang-level self_sync()
+# boolean is false for playlist, fade.in and fallback alike, measured on the
+# real 2.4.6 binary), but the stdlib fade.in wrapper attaches RECORD
+# METHODS to its source (fades.liq: .{fade_duration=..., fade_type=...}),
+# and a method-extended source reports (`Dynamic, None) internally -- which
+# cross refuses. Caught by our own --check/--describe-sources on the real
+# 2.4.6 binary (docs/liquidsoap-upgrade.md): "This source may control its
+# own latency" at the fallback line. The fix is SUB/WAVE's production
+# pattern (their radio.liq ~line 401: "self_sync=false: a playlist never
+# drives its own clock, and cross() below"): wrap the pre-cross chain in
+# source.dynamic(self_sync=false, {..}), which normalizes the reported
+# property for the whole chain. The thunk form {radio} is required by
+# source.dynamic's signature.
+%ifversion >= 2.4.6
+radio = source.dynamic(self_sync=false, {radio})
+radio = cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)
+%endif
+
 # --- Plex scrobble (moved here from below mksafe, P3 #11) --------------------
 # Plex never sees these plays otherwise -- playback here reads straight off
 # the filesystem, bypassing Plex entirely -- so this pings its scrobble
@@ -300,6 +326,24 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 # regardless of whether a track mark accompanied it, so it's not sensitive to
 # how any given source graph handles track marks at a transition -- one
 # fewer thing to break if show_source's fade handling changes again.
+#
+# Registration position: AFTER the transition cross, BEFORE the stinger
+# layer. That covers the crossed chain (show + filler + requests -- listener
+# requests must scrobble: requestQueue.js side-indexes their paths for
+# scrobbleTrack.js) and stays above the stinger layer so imaging never
+# reaches it. That is BELOW the cross on 2.4.6 -- and that is fine:
+# SUB/WAVE's "post-cross handlers fire twice per transition" warning
+# predates the 2.4.6 deduplication fix (#5360: cross marks the outgoing
+# track's replayed metadata, and the stdlib cross wrapper with the default
+# deduplicate=true drops that replay when it repeats the last announcement).
+# Verified LIVE on the real 2.4.6 binary (docs/liquidsoap-upgrade.md): a
+# playlist of two annotated files through our exact transition shape fired
+# the post-cross handler exactly once per track (META: AAA, META: BBB -- no
+# replay events). Honest deltas vs the old post-mksafe position: the
+# emergency bed's metadata no longer pings scrobbleTrack (those were always
+# unknown-path noise -- the bed is not in the rating-key index), and on
+# 2.4.6 a track that repeats the previous one is deduplicated by the cross
+# wrapper, not double-scrobbled.
 #
 # on_metadata handlers run in the main streaming thread and must stay fast,
 # so the actual work happens in thread.run(fast=false, ...); process.run's
@@ -340,10 +384,6 @@ end
 radio.on_metadata(synchronous=true, scrobble_on_metadata)
 %else
 radio = source.on_metadata(radio, scrobble_on_metadata)
-%endif
-
-%ifversion >= 2.4.6
-radio = cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)
 %endif
 
 # Stingers slot in between show/filler tracks (their own fallback with
@@ -441,7 +481,7 @@ end
 # default and matches the old operator's timing (gain updated before the
 # frame is produced, the normalize() pattern this ducker copies).
 %ifversion >= 2.4.0
-radio.on_frame(duck_update)
+radio.on_frame(synchronous=true, duck_update)
 %else
 radio = source.on_frame(radio, duck_update)
 %endif
@@ -494,10 +534,10 @@ radio = blank.detect(dead_air_total, on_noise=sound_total,
   threshold=-40., max_blank=20., track_sensitive=false, radio)
 %endif
 
-# (The Plex scrobble handler lives above the transition cross now -- see the
-# P3 #11 block there for why: post-cross registration fires twice per
-# transition. The def + registration moved up wholesale, comments included;
-# nothing else in the chain below changed.)
+# (The Plex scrobble handler lives below the transition cross now, right
+# after it -- see the P3 #11 block there: the 2.4.6 cross deduplication
+# drops the outgoing replay, so post-cross registration fires exactly once
+# per track, and the crossed chain including requests stays covered.)
 
 output.icecast(%mp3(bitrate=config.icecast.bitrate),
   host = config.icecast.sourceHost, port = config.icecast.port,

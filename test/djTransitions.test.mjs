@@ -81,9 +81,9 @@ describe('radio.liq P3 #11 version gating', () => {
     }
   });
 
-  test('cross wiring exists only inside the >= 2.4.6 gate', () => {
-    const gate = /%ifversion >= 2\.4\.6\nradio = cross\(duration=dj_transition_buffer, persist_override=true, dj_transition, radio\)\n%endif/;
-    assert.match(radio, gate);
+  test('cross wiring exists only inside the >= 2.4.6 gate, behind the self-sync wrap', () => {
+    const gate = /%ifversion >= 2\.4\.6\nradio = source\.dynamic\(self_sync=false, \{radio\}\)\nradio = cross\(duration=dj_transition_buffer, persist_override=true, dj_transition, radio\)\n%endif/;
+    assert.match(radio, gate, 'source.dynamic(self_sync=false) must precede cross: the stdlib fade.in wrapper attaches record methods, method-extended sources report (Dynamic, None) internally, and cross refuses anything that is not exactly (Static, None) -- caught by --describe-sources on the real 2.4.6 binary');
     // Exactly one cross wiring, and it is the gated one.
     assert.equal((radio.match(/radio = cross\(/g) || []).length, 1);
   });
@@ -91,18 +91,24 @@ describe('radio.liq P3 #11 version gating', () => {
   test('callback migrations: method forms on 2.4+, old forms preserved in %else', () => {
     // scrobble: method form + old function form in %else
     assert.match(radio, /%ifversion >= 2\.4\.0\nradio\.on_metadata\(synchronous=true, scrobble_on_metadata\)\n%else\nradio = source\.on_metadata\(radio, scrobble_on_metadata\)\n%endif/);
-    // ducker on_frame: method form + old function form in %else
-    assert.match(radio, /%ifversion >= 2\.4\.0\nradio\.on_frame\(duck_update\)\n%else\nradio = source\.on_frame\(radio, duck_update\)\n%endif/);
+    // ducker on_frame: method form + old function form in %else (the method's
+    // synchronous parameter is REQUIRED on 2.4.x -- caught by the real 2.4.6
+    // type checker: "Missing arguments in function application: synchronous")
+    assert.match(radio, /%ifversion >= 2\.4\.0\nradio\.on_frame\(synchronous=true, duck_update\)\n%else\nradio = source\.on_frame\(radio, duck_update\)\n%endif/);
     // blank.detect x2: zero-arg handler methods on 2.4+, positional+on_noise form on 2.2.4
     assert.match(radio, /%ifversion >= 2\.4\.0\nradio = blank\.detect\(threshold=-40\., max_blank=20\., track_sensitive=true, radio\)\nradio\.on_blank\(synchronous=true, dead_air_program\)\nradio\.on_noise\(synchronous=true, sound_program\)\n%else\nradio = blank\.detect\(dead_air_program, on_noise=sound_program,\n  threshold=-40\., max_blank=20\., track_sensitive=true, radio\)\n%endif/);
     assert.match(radio, /%ifversion >= 2\.4\.0\nradio = blank\.detect\(threshold=-40\., max_blank=20\., track_sensitive=false, radio\)\nradio\.on_blank\(synchronous=true, dead_air_total\)\nradio\.on_noise\(synchronous=true, sound_total\)\n%else\nradio = blank\.detect\(dead_air_total, on_noise=sound_total,\n  threshold=-40\., max_blank=20\., track_sensitive=false, radio\)\n%endif/);
   });
 
-  test('scrobble registration sits ABOVE the cross (pre-cross handle)', () => {
-    const onMetadataIdx = radio.indexOf('radio.on_metadata(synchronous=true, scrobble_on_metadata)');
+  test('requests stay INSIDE the crossed chain; scrobble sits post-cross, pre-imaging', () => {
+    const requestsIdx = radio.indexOf('radio = fallback(track_sensitive=true, [requests_source, radio])');
     const crossIdx = radio.indexOf('radio = cross(');
-    assert.ok(onMetadataIdx >= 0 && crossIdx >= 0);
-    assert.ok(onMetadataIdx < crossIdx, 'post-cross registration fires twice per transition (initial_metadata replay)');
+    const onMetadataIdx = radio.indexOf('radio.on_metadata(synchronous=true, scrobble_on_metadata)');
+    const stingerIdx = radio.indexOf('radio = fallback(track_sensitive=true, [stinger_timed, radio])');
+    assert.ok(requestsIdx >= 0 && crossIdx >= 0 && onMetadataIdx >= 0 && stingerIdx >= 0);
+    assert.ok(requestsIdx < crossIdx, 'a request is music -- its seam gets the same crossfade as any music seam (request.dynamic reports (Static, None); the self-sync suspect was the fade.in method-extension, normalized by the source.dynamic wrap)');
+    assert.ok(crossIdx < onMetadataIdx && onMetadataIdx < stingerIdx,
+      'post-cross registration fires exactly once per track on 2.4.6 (the stdlib cross wrapper with default deduplicate=true drops the marked outgoing replay -- verified LIVE on the real binary: META: AAA, META: BBB, no replay events); imaging never reaches it');
   });
 
   test('stingers and everything imaging attach ABOVE the cross (never blended)', () => {

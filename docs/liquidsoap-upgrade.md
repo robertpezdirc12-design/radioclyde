@@ -51,6 +51,53 @@ Pričakovano, neškodljivo: opozorjenja `lang.deprecated` ob zagonu 2.4.6 za
 parsira, zato vrstica ostane skupna; in za morebitne ostanke stare funkcije
 `source.on_frame`, če kdo ročno razpiše `%else` vejo na 2.4.6.
 
+## Lokalna validacija na pravih binarkah (2026-10-24) — ZELO NAJBRŽ
+
+Skripta je bila preverjena na **uradnih Docker binarkah obeh verzij**,
+izvlečenih v userspace (anonimen registry pull + lasten loader), brez
+boxa:
+
+| Preverba | 2.2.4-1 (vrata ZAPRTA) | 2.4.6 (vrata ODPRTA) |
+|---|---|---|
+| `--check` | EXIT 0, 0 napak | EXIT 0, 0 napak |
+| `--describe-sources` (celoten graf) | (2.2.4 zastave nima) | EXIT 0, 0 napak |
+| živ zagon 12–75 s | teče, 0 napak | teče, 0 napak |
+| efekti na zraku | — (odrezani) | washout 2× (`tap=0.45s (d=2.5s)`), dissolve 1× (`d=3.48s`), speech seam trd rez ✓ |
+
+Iz teh živih preverb so nastala TRI resnična odkritja, vsa že popravljena
+v skripti:
+
+1. **`synchronous` je OBVEZEN argument metod** (`on_frame`/`on_metadata`) —
+   tipni preverjevalnik 2.4.6: »Missing arguments in function application:
+   synchronous«. Vsi klici nosijo `synchronous=true`.
+2. **cross zavrača method-razširjene vire**: stdlib `fade.in` obesi RECORD
+   METODE na vir (`.{fade_duration=...}`), tak vir poroča notranji
+   `self_sync = (Dynamic, None)`, cross pa zahteva točno `(Static, None)`
+   (child_support.ml) — kljub temu, da je jezikovni `self_sync()` bool
+   `false` (nič v verigi ne poganja svoje realtime zanke). Rešitev je
+   SUB/WAVE-jev produkcijski vzorec: `source.dynamic(self_sync=false,
+   {radio})` tik pred crossom (thunk oblika `{..}` je obvezna). Postopki
+   `request.dynamic` poročajo `(Static, None)` in so nedolžni — zahtevki
+   ostanejo znotraj prekrižane verige.
+3. **post-cross `on_metadata` se ne sproži dvakrat**: opozorilo SUB/WAVE
+   je starejše od popravka #5360 + stdlib cross ovojnika z
+   `deduplicate=true` (privzeto), ki odstrani označen replay odhajajoče
+   meta. Živo merjeno: točno EN dogodek na skladbo (`META: AAA`, `META:
+   BBB`). Scrobble je torej registriran pod crossom (pokrije zahtevke).
+
+Opazka za živi zagon: `track_sensitive=false` preklop show↔filler ustvari
+tudi kratke dodatne prehode (d = 0.02–0.5 s, prihajajoča meta včasih še
+prazna) — to so takojšnji mehki preklopi, slušno neopazni; na boxu
+pričakuj v dnevniku več `dj_transition` klicev kot je glasbenih meja.
+
+Reproducirati je mogoče tako (brez roota): anonimen
+`registry-1.docker.io` pull tagov `v2.2.4`/`v2.4.6` slike
+`savonet/liquidsoap`, razpakirati sloje, pognati binarno z lastnim
+loaderjem (`ld-linux-x86-64.so.2 --library-path ...`), za 2.4.6 z
+`--stdlib <rootfs>/usr/share/liquidsoap/libs/stdlib.liq`, za 2.2.4 z
+LD_PRELOAD shimom, ki preusmerja `/usr/share/liquidsoap` (trdo kodirana
+pot) v rootfs. Podrobnosti v worklogu Task 26.
+
 ## Koraki na boxu
 
 1. **Varnostna kopija trenutnega stanja**: `liquidsoap --check radio.liq`
