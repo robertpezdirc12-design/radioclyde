@@ -239,6 +239,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | Rivendell / OpenBroadcaster / EBU ostalo | ● | ● | — (težke platforme) | razne | n/a | ne uvajamo |
 | WRIT-FM / radio-dj LLM jedra | ● | — (stohastično) | — (proti brez-AI arhitekturi) | MIT | n/a | zavrženo |
 | Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | **izposojeno** (P3 #15 ✓) |
+| SUB/WAVE dj_transition efekti (sweep/washout/dissolve) | ● (produkcijski radio.liq) | ● (čista signalna oblika, brez analize) | ● (stdlib operatorji na 2.4.6) | MIT | ● ( efekti za vrati `%ifversion`) | **izposojeno** (P3 #11 ✓ koda; box nadgradnja odprta) |
 
 ## 6. Končna razvrstitev in predlog integracije
 
@@ -254,7 +255,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 ✓ |
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 ✓ |
 | 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2 ✓ |
-| 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
+| 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 ✓ (kodna polovica — boxova nadgradnja: docs/liquidsoap-upgrade.md) |
 | 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 ✓ → nadomeščeno z 13 |
 | 13 | natančnejši ducking postelj — dejansko stdlib ducker (`rms.smooth` + `source.on_frame` + `amplify` getter), ker `sidechaincompress` kot LS operator NE obstaja (to je FFmpeg filter) | radio-dj → buildov `normalize` vzorec | srednja | glasba utihne po DEJANSKI ravni klipa (napad ~20 ms, spust ~0,5 s, histereza) | P3 ✓ |
 | 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 ✓ |
@@ -270,7 +271,7 @@ Do zdaj je odobren zahtevek samo sedel v `requests.jsonl` — do zraka je priše
 
 Live verifikacija na boxu (pred zrakom, kot vedno): `liquidsoap --check radio.liq`, potem en pravi push prek CLI in poslušanje meje (zahtevek mora začeti na naslednji meji skladbe, program pa se vrniti po njegovem koncu).
 
-**Eksplicitna ne-priporočila (raziskana in zavržena):** `cross.smart` (odsvetovan tudi od avtorja autocue; 2.2); global `fade.out` na naši 2.2.4 (utrjen bug: utiša celo skladbo — ostaja prepoved do ponovne verifikacije); SUB/WAVE efekti pred nadgradnjo LS (2.4.5 odvrne delne okvirje po crossu); blankskip na TTS posnetkih (odreže konec sporočila); WRIT-FM/radio-dj LLM jedra in eternityready2 AI newscaster (proti arhitekturi brez AI); Rivendell/OpenBroadcaster/težke platforme (spreminjata infrastrukturo, ne dodajata funkcij); goli `switch({0m-5m})` za ID (prikaže lahko več jinglov — vzemimo `predicate.activates`); `medialib` predmeta (zahteva LS 2.5.x — zanimiv kasneje za kriterijske iskalne bloke).
+**Eksplicitna ne-priporočila (raziskana in zavržena):** `cross.smart` (odsvetovan tudi od avtorja autocue; 2.2); global `fade.out` na naši 2.2.4 (utrjen bug: utiša celo skladbo — 2.4.6 CHANGES.md potrjuje popravko #5514 + »amplifying by infinity«, a prepoved velja do nove žive preverbe na novem buildu); SUB/WAVE efekti pred nadgradnjo LS (2.4.5 odvrne delne okvirje po crossu — zato je #11 implementiran dvoversijsko: cela dj_transitions.liq za `%ifversion >= 2.4.6` vrati, glej STATUS v docs/subwave-deep-analysis.md §2.4); blankskip na TTS posnetkih (odreže konec sporočila); WRIT-FM/radio-dj LLM jedra in eternityready2 AI newscaster (proti arhitekturi brez AI); Rivendell/OpenBroadcaster/težke platforme (spreminjata infrastrukturo, ne dodajata funkcij); goli `switch({0m-5m})` za ID (prikaže lahko več jinglov — vzemimo `predicate.activates`); `medialib` predmeta (zahteva LS 2.5.x — zanimiv kasneje za kriterijske iskalne bloke).
 
 **Naslednji konkreten korak** (če se strinjaš): #1 + #3 + #9 v enem večeru (čisti `radio.liq`, reverzibilno, vsi trije uradni vzorci že verificirani na 2.2.x API), potem #2 kot prva »velika« izboljšava večernega zvoka — offline analizator v Node, ki zapiše ista annotate polja, ki jih že beremo, torej brez spremembe pogodbe z Liquidsoapom.
 

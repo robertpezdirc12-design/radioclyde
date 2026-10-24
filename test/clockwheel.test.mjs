@@ -303,8 +303,19 @@ describe('filler integration (end-to-end, real WAV library in genre folders)', (
         [...before].sort(),
         'same 8 tracks, order no longer wheel-constrained'
       );
-      assert.notDeepEqual(after.map((p) => path.basename(path.dirname(p))), ['chill', 'chill', 'rock', 'rock', 'chill', 'chill', 'rock', 'rock'],
-        'plain path is a shuffle, not the wheel sequence');
+      // A single shuffle CAN land on the exact wheel pattern (the weighted
+      // plain-path shuffle makes c,c,r,r,c,c,r,r likelier than a uniform
+      // draw, and this assertion false-failed on air twice on 2026-10-24),
+      // so a match alone proves nothing -- retry the regeneration a few
+      // times and only fail if EVERY plain draw is the wheel sequence.
+      let sawDifferentOrder = false;
+      for (let attempt = 0; attempt < 3 && !sawDifferentOrder; attempt += 1) {
+        await generateFillerPlaylist();
+        const next = m3uOrderedPaths(liveConfig.paths.fillerPath);
+        assert.deepEqual([...next].sort(), [...before].sort(), 'same multiset on every plain regeneration');
+        sawDifferentOrder = next.map((p) => path.basename(path.dirname(p))).join() !== 'chill,chill,rock,rock,chill,chill,rock,rock';
+      }
+      assert.ok(sawDifferentOrder, 'plain path is a shuffle, not the wheel sequence');
     } finally {
       liveConfig.filler.clockwheel = saved;
       fs.writeFileSync(path.join(repoRoot(), 'config.json'), JSON.stringify(liveConfig, null, 2));

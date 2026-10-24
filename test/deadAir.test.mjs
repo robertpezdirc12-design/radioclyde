@@ -69,13 +69,18 @@ describe('radio.liq dead-air guard wiring', () => {
   test('air detector measures the FINAL chain, after the emergency fallback, absolutely', () => {
     const mksafeAt = liq.indexOf('mksafe(fallback(track_sensitive=false, [radio, emergency_source]))');
     const airAt = liq.indexOf('radio = blank.detect(dead_air_total, on_noise=sound_total,');
-    const metaAt = liq.indexOf('radio = source.on_metadata(radio, scrobble_on_metadata)');
-    assert.ok(mksafeAt !== -1 && airAt !== -1 && metaAt !== -1);
-    assert.ok(mksafeAt < airAt && airAt < metaAt,
-      'the air observer hears post-mksafe output INCLUDING the emergency bed, and before scrobbling wraps it');
+    const outputAt = liq.indexOf('output.icecast(');
+    assert.ok(mksafeAt !== -1 && airAt !== -1 && outputAt !== -1);
+    assert.ok(mksafeAt < airAt && airAt < outputAt,
+      'the air observer hears post-mksafe output INCLUDING the emergency bed, and is the last wrapper before the output');
     const airLine = liq.slice(airAt, liq.indexOf(')', liq.indexOf('track_sensitive=', airAt)) + 1);
     assert.match(airLine, /track_sensitive=false/,
       'mksafe blank frames contain no track boundaries -- nothing would ever reset the counter');
+    // P3 #11 moved the scrobble registration PRE-cross (post-cross metadata
+    // handlers fire twice per transition), so "before scrobbling" is no
+    // longer an ordering this layer can assert -- what matters here is that
+    // the air detector still sees the ABSOLUTE final chain (mksafe included)
+    // and nothing wraps the source after it except the output.
   });
 
   test('every guard callback pings the Node CLI backgrounded (streaming thread stays fast)', () => {

@@ -144,6 +144,16 @@ phases hand off through.
   clip. No `sidechaincompress` exists in any Liquidsoap 2.x (it's an ffmpeg
   filter name, verified upstream); everything here runs on verified 2.2.4
   stdlib.
+- **DJ transition effects (P3 #11)**: sweep / washout / dissolve seams
+  between music tracks, borrowed from SUB/WAVE's production mixer and gated
+  behind `%ifversion >= 2.4.6` — on the current 2.2.4 build the file is
+  stripped before parsing and the station is byte-identical to pre-#11.
+  After the box upgrade ([runbook](docs/liquidsoap-upgrade.md)) the music
+  chain wraps in a low-level `cross()` whose per-seam transition hard-cuts
+  every seam touching speech or a jingle (`source_tag` dispatch — the DJ is
+  never faded) and applies the effect stamped on the track via
+  `src/liquidsoap/stampTransitionFlags.js`. Imaging layers sit ABOVE the
+  cross, so a stinger is never blended — [status](docs/subwave-deep-analysis.md).
 - **R128 loudness alignment (autocue gain layer)**: a budgeted offline scan
   measures every library track's integrated loudness with one ffmpeg ebur128
   pass; playlist entries then carry `liq_amplify` and radio.liq's

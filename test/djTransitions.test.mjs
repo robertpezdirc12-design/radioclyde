@@ -1,0 +1,304 @@
+// Tests for P3 #11 -- dj_transition effects (sweep / washout / dissolve) on
+// the upgraded Liquidsoap 2.4.6 runtime, plus the version-gated migration of
+// radio.liq's callback forms. Liquidsoap can't run in CI, so the LS half is
+// structural (the established pattern): regex assertions over the raw
+// scripts, plus gate-balance and ordering checks that the preprocessor
+// gating is well-formed. The Node half (stampTransitionFlags.js) is tested
+// behaviorally against real temp files.
+//
+// Every asserted shape was verified against the PRIMARY sources before it
+// was written:
+//   * 2.4.6 tar (savonet/liquidsoap v2.4.6): cross's persist_override +
+//     transition ({source, db_level, metadata} records), filter.rc/comb
+//     signatures (feedback in dB), fade.in/out type= ("sin"/"exp"/"log"/
+//     "lin") + initial_metadata, source.elapsed/remaining builtins,
+//     blank.detect's ~callbacks on_blank/on_noise (zero-arg handlers,
+//     synchronous labeled param -- noblank.ml), the REMOVED
+//     source.on_metadata function form (deprecations.liq keeps only the
+//     unqualified alias), and the %ifversion preprocessor (tests/language/
+//     pp.liq, present in BOTH the 2.2.4 and 2.4.6 tars).
+//   * SUB/WAVE v1.27.0 radio.liq (perminder-klair/subwave, MIT): the effect
+//     envelopes, the measured engine constraints (comb not echo,
+//     filter.rc not SVF/iir, mode="high" broken, one dry-subtraction for
+//     all dissolve taps, 2.4.6 minimum runtime) and the cross-not-crossfade
+//     wrapper rule -- all kept verbatim where the math is concerned.
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { setupTestConfig, repoRoot } from './fixtures.mjs';
+
+setupTestConfig('dj-transitions', {});
+
+const { stampFlagsOnLine, stampTransitionFlags, TRANSITION_FLAGS } = await import(
+  '../src/liquidsoap/stampTransitionFlags.js'
+);
+
+// ---------------------------------------------------------------------------
+// Script loading + helpers
+// ---------------------------------------------------------------------------
+
+function stripComments(raw) {
+  return raw
+    .split('\n')
+    .map((line) => line.replace(/#.*$/, ''))
+    .join('\n');
+}
+
+const radioRaw = fs.readFileSync(path.join(repoRoot(), 'liquidsoap', 'radio.liq'), 'utf8');
+const radio = stripComments(radioRaw);
+const transitionsRaw = fs.readFileSync(path.join(repoRoot(), 'liquidsoap', 'dj_transitions.liq'), 'utf8');
+const transitions = stripComments(transitionsRaw);
+
+function gateBalance(raw) {
+  const opens = (raw.match(/^%ifversion/gm) || []).length + (raw.match(/^%ifdef/gm) || []).length;
+  const closes = (raw.match(/^%endif/gm) || []).length;
+  return { opens, closes };
+}
+
+// ---------------------------------------------------------------------------
+// radio.liq -- version gating (the old box must boot byte-identically)
+// ---------------------------------------------------------------------------
+
+describe('radio.liq P3 #11 version gating', () => {
+  test('dj_transitions.liq is included unconditionally and self-gated', () => {
+    // The %include sits at top level (no %ifversion between the settings
+    // block and the include): nesting preprocessor directives is the
+    // uncertainty we deliberately avoided -- the gating lives INSIDE the
+    // included file.
+    const includeIdx = radio.indexOf('%include "dj_transitions.liq"');
+    assert.ok(includeIdx >= 0, 'include missing');
+    const before = radio.slice(0, includeIdx);
+    assert.doesNotMatch(before, /%ifversion/, 'include must not sit inside a %ifversion gate');
+  });
+
+  test('every gate is closed: %ifversion/%endif balance in both scripts', () => {
+    for (const [name, raw] of [['radio.liq', radioRaw], ['dj_transitions.liq', transitionsRaw]]) {
+      const { opens, closes } = gateBalance(raw);
+      assert.equal(opens, closes, `${name}: ${opens} gates vs ${closes} endifs`);
+    }
+  });
+
+  test('cross wiring exists only inside the >= 2.4.6 gate', () => {
+    const gate = /%ifversion >= 2\.4\.6\nradio = cross\(duration=dj_transition_buffer, persist_override=true, dj_transition, radio\)\n%endif/;
+    assert.match(radio, gate);
+    // Exactly one cross wiring, and it is the gated one.
+    assert.equal((radio.match(/radio = cross\(/g) || []).length, 1);
+  });
+
+  test('callback migrations: method forms on 2.4+, old forms preserved in %else', () => {
+    // scrobble: method form + old function form in %else
+    assert.match(radio, /%ifversion >= 2\.4\.0\nradio\.on_metadata\(synchronous=true, scrobble_on_metadata\)\n%else\nradio = source\.on_metadata\(radio, scrobble_on_metadata\)\n%endif/);
+    // ducker on_frame: method form + old function form in %else
+    assert.match(radio, /%ifversion >= 2\.4\.0\nradio\.on_frame\(duck_update\)\n%else\nradio = source\.on_frame\(radio, duck_update\)\n%endif/);
+    // blank.detect x2: zero-arg handler methods on 2.4+, positional+on_noise form on 2.2.4
+    assert.match(radio, /%ifversion >= 2\.4\.0\nradio = blank\.detect\(threshold=-40\., max_blank=20\., track_sensitive=true, radio\)\nradio\.on_blank\(synchronous=true, dead_air_program\)\nradio\.on_noise\(synchronous=true, sound_program\)\n%else\nradio = blank\.detect\(dead_air_program, on_noise=sound_program,\n  threshold=-40\., max_blank=20\., track_sensitive=true, radio\)\n%endif/);
+    assert.match(radio, /%ifversion >= 2\.4\.0\nradio = blank\.detect\(threshold=-40\., max_blank=20\., track_sensitive=false, radio\)\nradio\.on_blank\(synchronous=true, dead_air_total\)\nradio\.on_noise\(synchronous=true, sound_total\)\n%else\nradio = blank\.detect\(dead_air_total, on_noise=sound_total,\n  threshold=-40\., max_blank=20\., track_sensitive=false, radio\)\n%endif/);
+  });
+
+  test('scrobble registration sits ABOVE the cross (pre-cross handle)', () => {
+    const onMetadataIdx = radio.indexOf('radio.on_metadata(synchronous=true, scrobble_on_metadata)');
+    const crossIdx = radio.indexOf('radio = cross(');
+    assert.ok(onMetadataIdx >= 0 && crossIdx >= 0);
+    assert.ok(onMetadataIdx < crossIdx, 'post-cross registration fires twice per transition (initial_metadata replay)');
+  });
+
+  test('stingers and everything imaging attach ABOVE the cross (never blended)', () => {
+    const crossIdx = radio.indexOf('radio = cross(');
+    const stingerIdx = radio.indexOf('radio = fallback(track_sensitive=true, [stinger_timed, radio])');
+    const idIdx = radio.indexOf('radio = add([radio, switch([({0m0s}, id_source)])])');
+    const bedsIdx = radio.indexOf('beds_source = request.queue(id="beds")');
+    assert.ok(stingerIdx > crossIdx, 'stinger fallback must come after the cross wiring');
+    assert.ok(idIdx > crossIdx, 'hour ID overlay must come after the cross wiring');
+    assert.ok(bedsIdx > crossIdx, 'beds ducker must come after the cross wiring');
+  });
+
+  test('P2/P3 invariants survive the rewrite', () => {
+    assert.doesNotMatch(radio, /smooth_add/);
+    assert.match(radio, /show_source = fade\.in\(duration=0\., show_source\)/);
+    assert.match(radio, /requests_source = request\.queue\(id="requests"\)/);
+    assert.match(radio, /radio = amplify\(override="liq_amplify", 1\., radio\)/);
+    assert.match(radio, /radio = blank\.strip\(threshold=-40\., max_blank=20\., track_sensitive=true, radio\)/);
+    assert.match(radio, /radio = mksafe\(fallback\(track_sensitive=false, \[radio, emergency_source\]\)\)/);
+    assert.match(radio, /output\.icecast\(%mp3\(bitrate=config\.icecast\.bitrate\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dj_transitions.liq -- effects structure (SUB/WAVE-derived, our contract)
+// ---------------------------------------------------------------------------
+
+describe('dj_transitions.liq effects', () => {
+  test('whole file is inside the >= 2.4.6 gate', () => {
+    const codeLines = transitionsRaw
+      .split('\n')
+      .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+    assert.equal(codeLines[0].trim(), '%ifversion >= 2.4.6');
+    assert.equal(codeLines[codeLines.length - 1].trim(), '%endif');
+  });
+
+  test('buffer literal + honest sizing from what cross actually buffered', () => {
+    assert.match(transitions, /dj_transition_buffer = 3\.5/);
+    assert.match(transitions, /buffered = min\(source\.remaining\(a\.source\), source\.remaining\(b\.source\)\)/);
+    assert.match(transitions, /d = if buffered > 0\. and buffered < 600\. then buffered else dj_transition_buffer end/);
+  });
+
+  test('speech and jingle seams stay HARD CUTS (source_tag dispatch)', () => {
+    assert.match(transitions, /speech_out = a\.metadata\["source_tag"\] == "speech"/);
+    assert.match(transitions, /speech_in = b\.metadata\["source_tag"\] == "speech"/);
+    assert.match(transitions, /jingle_out = a\.metadata\["source_tag"\] == "jingle"/);
+    assert.match(transitions, /jingle_in = b\.metadata\["source_tag"\] == "jingle"/);
+    assert.match(transitions, /if speech_out or speech_in or jingle_out or jingle_in then\n\s*\(sequence\(\[a\.source, b\.source\]\) : source\)/);
+  });
+
+  test('arming precedence: washout > dissolve > sweep, flags from the right side', () => {
+    assert.match(transitions, /washing = a\.metadata\["liq_washout"\] == "1"/);
+    assert.match(transitions, /dissolving = b\.metadata\["liq_dissolve"\] == "1" and not washing/);
+    assert.match(transitions, /sweeping = b\.metadata\["liq_sweep"\] == "1" and not washing and not dissolving/);
+  });
+
+  test('fade shapes per effect: exp for washout, log for sweep, lin plain; spans = full buffer', () => {
+    assert.match(transitions, /fade\.out\(duration=d, type="exp", initial_metadata=a\.metadata, a\.source\)/);
+    assert.match(transitions, /fade\.out\(duration=d, type="log", initial_metadata=a\.metadata, a\.source\)/);
+    assert.match(transitions, /fade\.out\(duration=d, initial_metadata=a\.metadata, a\.source\)/);
+    assert.match(transitions, /b_source = fade\.in\(duration=d, initial_metadata=b\.metadata, b\.source\)/);
+  });
+
+  test('sweep: log-space dual lowpass choke, dry bleed, makeup; surfacing + subtract-HPF bass swap on the incoming side', () => {
+    assert.match(transitions, /9000\.0 \* pow\(1100\.0 \/ 9000\.0, depth\)/);
+    assert.match(transitions, /amplify\(sweep_gain, add\(normalize=false,\n\s*\[amplify\(0\.30, a_source\), amplify\(0\.75, swept\)\]\)\)/);
+    assert.match(transitions, /500\.0 \* pow\(9000\.0 \/ 500\.0, s\)/);
+    assert.match(transitions, /bs_low = filter\.rc\(frequency=160\., mode="low", wetness=1\., bs\)/);
+    assert.match(transitions, /add\(normalize=false, \[bs, amplify\(bass_amt, bs_low\)\]\)/);
+  });
+
+  test('washout: one-shot comb slapback, dB feedback envelope, darkening lowpass, late makeup', () => {
+    assert.match(transitions, /wd = float_of_string\(default=0\.30, a\.metadata\["liq_washout_delay"\]\)/);
+    assert.match(transitions, /washed = comb\(delay=wd, feedback=wash_fb, a_source\)/);
+    assert.match(transitions, /fb_max = -1\.0/);
+    assert.match(transitions, /9000\.0 \* pow\(3000\.0 \/ 9000\.0, s\)/);
+    assert.match(transitions, /amplify\(wash_gain, washed\)/);
+  });
+
+  test('dissolve: FOUR prime-tap combs, ONE dry-subtraction (performance), deeper damping', () => {
+    for (const delay of ['0.089', '0.113', '0.151', '0.181']) {
+      assert.match(transitions, new RegExp(`comb\\(delay=${delay.replace('.', '\\.')}, feedback=diss_fb, a_source\\)`));
+    }
+    // Exactly ONE subtraction for all four taps (#1565): per-tap subtraction
+    // stalled SUB/WAVE's clock on ~1 dissolve in 5.
+    assert.equal((transitions.match(/amplify\(-4\., a_source\)/g) || []).length, 1);
+    assert.match(transitions, /washed = amplify\(0\.7, washed\)/);
+    assert.match(transitions, /7000\.0 \* pow\(1200\.0 \/ 7000\.0, s\)/);
+  });
+
+  test('engine constraints honored: no echo, no iir, no mode="high", envelopes in audio time', () => {
+    assert.doesNotMatch(transitions, /echo|ping_pong/);
+    assert.doesNotMatch(transitions, /iir_filter|filter\.svf/);
+    assert.doesNotMatch(transitions, /mode="high"/);
+    // Every envelope closure clamps source.elapsed() (negative/infinity-safe)
+    const clamps = (transitions.match(/e = if e < 0\. then 0\. else e end/g) || []).length;
+    assert.ok(clamps >= 10, `expected >=10 elapsed clamps, got ${clamps}`);
+    assert.doesNotMatch(transitions, /smooth_add/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stampTransitionFlags.js -- behavioral, against real temp files
+// ---------------------------------------------------------------------------
+
+describe('stampFlagsOnLine', () => {
+  test('adds a flag to an annotate entry, preserving existing keys and the uri', () => {
+    const line = 'annotate:source_tag="music",liq_fade_in="2":/music/Nightcall.wav';
+    const { line: next, changed } = stampFlagsOnLine(line, { set: ['sweep'] });
+    assert.equal(changed, true);
+    assert.equal(next, 'annotate:source_tag="music",liq_fade_in="2",liq_sweep="1":/music/Nightcall.wav');
+  });
+
+  test('wraps a bare path when setting a flag', () => {
+    const { line: next, changed } = stampFlagsOnLine('/music/bare.wav', { set: ['dissolve'] });
+    assert.equal(changed, true);
+    assert.equal(next, 'annotate:liq_dissolve="1":/music/bare.wav');
+  });
+
+  test('idempotent: stamping twice changes nothing the second time', () => {
+    const once = stampFlagsOnLine('/music/x.wav', { set: ['washout'] });
+    const twice = stampFlagsOnLine(once.line, { set: ['washout'] });
+    assert.equal(twice.changed, false);
+    assert.equal(twice.line, once.line);
+  });
+
+  test('washout --delay stamps liq_washout_delay and updates it; clear removes both', () => {
+    const stamped = stampFlagsOnLine('/music/x.wav', { set: ['washout'], delay: '0.45' });
+    assert.equal(stamped.line, 'annotate:liq_washout="1",liq_washout_delay="0.45":/music/x.wav');
+    const updated = stampFlagsOnLine(stamped.line, { set: ['washout'], delay: '0.30' });
+    assert.equal(updated.line, 'annotate:liq_washout="1",liq_washout_delay="0.30":/music/x.wav');
+    const cleared = stampFlagsOnLine(updated.line, { clear: ['washout'] });
+    assert.equal(cleared.line, '/music/x.wav');
+    assert.equal(cleared.changed, true);
+  });
+
+  test('unknown effect name throws (a typo must be loud, not inert)', () => {
+    assert.throws(() => stampFlagsOnLine('/music/x.wav', { set: ['swep'] }), /Neznan učinek/);
+  });
+
+  test('--only filter leaves non-matching lines untouched; comments and blanks pass through', () => {
+    const comment = '#EXTM3U';
+    const blank = '   ';
+    const other = 'annotate:source_tag="music",liq_fade_in="2":/music/Other.wav';
+    for (const line of [comment, blank]) {
+      const { line: next, changed } = stampFlagsOnLine(line, { set: ['sweep'] });
+      assert.equal(changed, false);
+      assert.equal(next, line);
+    }
+    const { line: next, changed } = stampFlagsOnLine(other, { set: ['sweep'], only: 'Nightcall' });
+    assert.equal(changed, false);
+    assert.equal(next, other);
+  });
+
+  test('flag vocabulary matches the LS contract exactly', () => {
+    assert.deepEqual(TRANSITION_FLAGS, { sweep: 'liq_sweep', washout: 'liq_washout', dissolve: 'liq_dissolve' });
+  });
+});
+
+describe('stampTransitionFlags (file round-trip)', () => {
+  test('stamps, reports honestly, and a second run is a no-op that does not rewrite', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stamp-'));
+    const file = path.join(dir, 'filler.m3u');
+    fs.writeFileSync(file, [
+      '#EXTM3U',
+      'annotate:source_tag="music",liq_fade_in="2":/music/A.wav',
+      '/music/B.wav',
+      '',
+    ].join('\n'));
+
+    const first = stampTransitionFlags(file, { set: ['sweep'] });
+    assert.equal(first.ok, true);
+    assert.equal(first.entries, 2);
+    assert.equal(first.changed, 2);
+    const content = fs.readFileSync(file, 'utf8');
+    assert.match(content, /annotate:source_tag="music",liq_fade_in="2",liq_sweep="1":\/music\/A\.wav/);
+    assert.match(content, /annotate:liq_sweep="1":\/music\/B\.wav/);
+
+    const mtime = fs.statSync(file).mtimeMs;
+    const second = stampTransitionFlags(file, { set: ['sweep'] });
+    assert.equal(second.changed, 0);
+    assert.equal(fs.statSync(file).mtimeMs, mtime, 'no-op run must not touch the file (watch-reload churn)');
+
+    const cleared = stampTransitionFlags(file, { clear: ['all'] });
+    assert.equal(cleared.changed, 2);
+    assert.equal(fs.readFileSync(file, 'utf8'), [
+      '#EXTM3U',
+      'annotate:source_tag="music",liq_fade_in="2":/music/A.wav',
+      '/music/B.wav',
+      '',
+    ].join('\n'));
+  });
+
+  test('missing playlist is an honest refusal, not a throw', () => {
+    const result = stampTransitionFlags('/neobstaja/nikoli.m3u', { set: ['sweep'] });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /ne obstaja/);
+  });
+});

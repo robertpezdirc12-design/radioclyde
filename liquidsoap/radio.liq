@@ -30,6 +30,18 @@ settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set(config.liquidsoap.telnetHost)
 settings.server.telnet.port.set(config.liquidsoap.telnetPort)
 
+# DJ transition effects (P3 #11, liquidsoap/dj_transitions.liq). The file is
+# self-gated: its entire body sits behind %ifversion >= 2.4.6, so on this
+# 2.2.4 build the preprocessor strips it before parsing and this script is
+# byte-identical to the pre-#11 behavior (hard cuts + per-track liq_fade_in
+# shaping). Including it UNCONDITIONALLY (not nested inside another
+# %ifversion here) keeps the preprocessor picture simple -- both builds
+# handle %ifversion and %include in the same pass, verified in both tars'
+# tests/language/pp.liq. After the box upgrade the gate opens, the
+# cross() wiring block below activates, and transitions ride the flags
+# documented in dj_transitions.liq.
+%include "dj_transitions.liq"
+
 # mode="normal" plays the file's entries in order (this is a produced show,
 # not a shuffle playlist). loop=false: once an episode's segments are
 # exhausted, stay empty for whatever remains of the scheduled window rather
@@ -237,9 +249,112 @@ radio = fallback(track_sensitive=false, [show_source, filler_source])
 # ready, a listener's request outranks imaging.
 requests_source = request.queue(id="requests")
 radio = fallback(track_sensitive=true, [requests_source, radio])
+# --- DJ transition cross (P3 #11, docs/ready-made-scripts-analysis.md row 11)
+#
+# On 2.4.6+ the music chain (show + filler + requests -- everything above
+# this point) is wrapped in Liquidsoap's low-level cross(): the outgoing
+# tail and incoming head are handed to dj_transition (dj_transitions.liq),
+# which per seam either blends (plain equal-amplitude crossfade) or applies
+# the sweep/washout/dissolve gesture stamped on the tracks, and hard-cuts
+# every seam touching speech or a jingle (the 2026-07-28 lesson: the DJ is
+# never faded, never overlapped). On 2.2.4 the gate below stays closed and
+# the chain keeps its hard cuts -- the two builds differ ONLY here and in
+# the callback-form migrations gated further down.
+#
+# Why the low-level cross and not the crossfade() wrapper: crossfade() with
+# a custom transition routes through its internal simple_transition and
+# ignores the callback (SUB/WAVE-measured; their comment verbatim), so the
+# wrapper cannot carry effects at all.
+#
+# Why duration=dj_transition_buffer (3.5, defined in dj_transitions.liq
+# inside the same gate): it is the value the 2026-07-28 crossfade() attempt
+# tuned by offline RMS-envelope testing; the number survived, the wrapper
+# didn't. persist_override=true is SUB/WAVE's setting: with no
+# liq_cross_* stamps anywhere in our pipeline it is a no-op today, and if
+# an operator ever hand-stamps a track, it behaves the SUB/WAVE way instead
+# of silently resetting.
+#
+# Imaging stays OUT of the blend by construction: the stinger fallback (and
+# the ID overlay, beds, emergency bed) attach ABOVE this cross, so a
+# stinger seam is never handed to dj_transition -- SUB/WAVE needed an
+# explicit flag to protect their jingles from being washed out (#1565);
+# our layering gives the property for free, same as the speech hard-cut.
+#
+# The scrobble handler below is registered on the PRE-cross source on
+# purpose: the transition replays the outgoing track's metadata into its
+# fades (initial_metadata=), so a handler registered after the cross fires
+# TWICE per transition and strands now-playing one song behind
+# (SUB/WAVE-measured; #5360/#5379 are the 2.4.6 fixes in this area).
+# Pre-cross sees exactly one metadata event per track, same as the old
+# post-mksafe registration saw, because everything between (ID overlay,
+# beds, guards) passes metadata through untouched.
+#
+# --- Plex scrobble (moved here from below mksafe, P3 #11) --------------------
+# Plex never sees these plays otherwise -- playback here reads straight off
+# the filesystem, bypassing Plex entirely -- so this pings its scrobble
+# endpoint on every track boundary to keep view counts/history in sync with
+# what's actually broadcast. Fires optimistically at track start, not on
+# completion (see conversation with Alan, 2026-07-27).
+#
+# Deliberately on_metadata, not on_track: fires on every new file's metadata
+# regardless of whether a track mark accompanied it, so it's not sensitive to
+# how any given source graph handles track marks at a transition -- one
+# fewer thing to break if show_source's fade handling changes again.
+#
+# on_metadata handlers run in the main streaming thread and must stay fast,
+# so the actual work happens in thread.run(fast=false, ...); process.run's
+# command is itself backgrounded (trailing "&") so even that call returns as
+# soon as the shell has forked plex/scrobbleTrack.js, not waiting on the Plex
+# HTTP call. plex/scrobbleTrack.js resolves "filename" -- Liquidsoap's own
+# resolved path for whatever it's actually decoding -- against dataDir's
+# track_ratingkeys.json side index (written by director/index.js/
+# scheduler/generateFillerPlaylist.js); DJ speech clips aren't in that index.
+# Deliberately NOT "initial_uri": that's the raw playlist line as written,
+# so once director/playlist.js started wrapping tracks in annotate:liq_fade_in=...,
+# initial_uri became "annotate:liq_fade_in=...:/path" instead of a bare
+# path, silently breaking every track's ratingKeyIndex lookup (confirmed
+# live 2026-07-29 -- scrobbling, aired-history, and the web now-playing
+# display all quietly stopped updating). "filename" is unaffected by
+# annotate: wrapping either way -- confirmed live it resolves to the real
+# decoded file path for both plain and annotate:-wrapped entries.
+# `dj` is director/playlist.js's annotate: field naming who's speaking on a
+# speech clip (empty string for track entries and the jingle, which have no
+# such field) -- passed through so scrobbleTrack.js can tell "DJ talking"
+# apart from a genuinely unknown path instead of treating both as skips.
+def scrobble_on_metadata(m) =
+  p = m["filename"]
+  dj = m["dj"]
+  if p != "" then
+    thread.run(fast=false, fun () ->
+      ignore(process.run("node /home/ai/radioclyde/src/plex/scrobbleTrack.js " ^ process.quote(p) ^ " " ^ process.quote(dj) ^
+        " > /dev/null 2>&1 &"))
+    )
+  end
+end
+# Callback FORMS, gated per build. 2.4.0 moved stream callbacks to source
+# methods (doc/content/migrating.md) and REMOVED the source.on_metadata
+# function form; synchronous=true keeps the old in-stream-thread timing
+# (the handler itself only forks a background node process -- exactly what
+# the 2.2.4 function form did).
+%ifversion >= 2.4.0
+radio.on_metadata(synchronous=true, scrobble_on_metadata)
+%else
+radio = source.on_metadata(radio, scrobble_on_metadata)
+%endif
+
+%ifversion >= 2.4.6
+radio = cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)
+%endif
+
 # Stingers slot in between show/filler tracks (their own fallback with
 # track_sensitive=true re-selects at track starts; after the stinger ends,
 # delay() blocks it again and the next boundary returns to the program).
+# Sits ABOVE the transition cross (moved down from just above the requests
+# fallback, P3 #11) so a stinger seam is never handed to dj_transition --
+# a 3.5 s blend would eat most of a short stinger. The post-cross source
+# still emits a track mark at every crossing (cross fires on_track on every
+# crossing, fixed upstream in 2.4.6, #5379), so the track-sensitive
+# re-selection here keeps seeing music boundaries exactly as before.
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
@@ -320,16 +435,37 @@ def duck_update() =
   duck_coef = if duck_target < duck_gain() then duck_attack else duck_release end
   duck_gain := duck_gain() + duck_coef * (duck_target - duck_gain())
 end
+# Callback form, gated per build (same migration as the scrobble handler
+# above): the source.on_frame function form is a deprecated alias on 2.4.x
+# and the method form doesn't exist on 2.2.4. before=true is the method's
+# default and matches the old operator's timing (gain updated before the
+# frame is produced, the normalize() pattern this ducker copies).
+%ifversion >= 2.4.0
+radio.on_frame(duck_update)
+%else
 radio = source.on_frame(radio, duck_update)
+%endif
 radio = amplify(id="beds-duck", override=null(), {duck_gain()}, radio)
 radio = add(normalize=false, [radio, amplify(0.8, beds_rms)])
-# Dead-air guard, program layer: detect observes (first-positional handler is
-# blank.detect's unnamed first argument, on_noise named -- call shape matches
-# this build's src/libs/source.liq usage), strip reacts. strip wraps detect so
-# both see identical frames -- detect passes audio through untouched, and
-# strip's synthetic breaks stay invisible to the observer.
+# Dead-air guard, program layer: detect observes, strip reacts. strip wraps
+# detect so both see identical frames -- detect passes audio through
+# untouched, and strip's synthetic breaks stay invisible to the observer.
+# Callback forms, gated per build: 2.4.6 removed blank.detect's positional
+# on_noise handler argument ("could not be updated in a backward-compatible
+# way", migrating.md) -- the handlers became on_blank/on_noise source
+# methods, whose shape is verified against this target build's
+# src/core/base/operators/noblank.ml (~callbacks: arg_t=[], i.e. zero-arg
+# handlers, synchronous labeled param, exactly the same in-thread timing as
+# the old function form; src/libs/source.liq's own blank.skip registers its
+# skip hook this way). Handlers stay zero-arg, params stay literals.
+%ifversion >= 2.4.0
+radio = blank.detect(threshold=-40., max_blank=20., track_sensitive=true, radio)
+radio.on_blank(synchronous=true, dead_air_program)
+radio.on_noise(synchronous=true, sound_program)
+%else
 radio = blank.detect(dead_air_program, on_noise=sound_program,
   threshold=-40., max_blank=20., track_sensitive=true, radio)
+%endif
 radio = blank.strip(threshold=-40., max_blank=20., track_sensitive=true, radio)
 # R128 loudness alignment (docs/autocue-loudness.md): entries carrying
 # liq_amplify (written into the m3u by Node from the offline ebur128 index)
@@ -349,51 +485,19 @@ radio = mksafe(fallback(track_sensitive=false, [radio, emergency_source]))
 # the emergency bed. Only total failure (program silent AND emergency bed
 # dead) produces silence past mksafe, so these events mean "every layer of the
 # ladder just failed" -- the one thing the operator must know about.
+%ifversion >= 2.4.0
+radio = blank.detect(threshold=-40., max_blank=20., track_sensitive=false, radio)
+radio.on_blank(synchronous=true, dead_air_total)
+radio.on_noise(synchronous=true, sound_total)
+%else
 radio = blank.detect(dead_air_total, on_noise=sound_total,
   threshold=-40., max_blank=20., track_sensitive=false, radio)
+%endif
 
-# Plex scrobble: Plex never sees these plays otherwise -- playback here reads
-# straight off the filesystem, bypassing Plex entirely -- so this pings its
-# scrobble endpoint on every track boundary to keep view counts/history in
-# sync with what's actually broadcast. Fires optimistically at track start,
-# not on completion (see conversation with Alan, 2026-07-27).
-#
-# Deliberately on_metadata, not on_track: fires on every new file's metadata
-# regardless of whether a track mark accompanied it, so it's not sensitive to
-# how any given source graph handles track marks at a transition -- one
-# fewer thing to break if show_source's fade handling changes again.
-#
-# on_metadata handlers run in the main streaming thread and must stay fast,
-# so the actual work happens in thread.run(fast=false, ...); process.run's
-# command is itself backgrounded (trailing "&") so even that call returns as
-# soon as the shell has forked plex/scrobbleTrack.js, not waiting on the Plex
-# HTTP call. plex/scrobbleTrack.js resolves "filename" -- Liquidsoap's own
-# resolved path for whatever it's actually decoding -- against dataDir's
-# track_ratingkeys.json side index (written by director/index.js/
-# scheduler/generateFillerPlaylist.js); DJ speech clips aren't in that index.
-# Deliberately NOT "initial_uri": that's the raw playlist line as written,
-# so once director/playlist.js started wrapping tracks in annotate:liq_fade_in=...,
-# initial_uri became "annotate:liq_fade_in=...:/path" instead of a bare
-# path, silently breaking every track's ratingKeyIndex lookup (confirmed
-# live 2026-07-29 -- scrobbling, aired-history, and the web now-playing
-# display all quietly stopped updating). "filename" is unaffected by
-# annotate: wrapping either way -- confirmed live it resolves to the real
-# decoded file path for both plain and annotate:-wrapped entries.
-# `dj` is director/playlist.js's annotate: field naming who's speaking on a
-# speech clip (empty string for track entries and the jingle, which have no
-# such field) -- passed through so scrobbleTrack.js can tell "DJ talking"
-# apart from a genuinely unknown path instead of treating both as skips.
-def scrobble_on_metadata(m) =
-  p = m["filename"]
-  dj = m["dj"]
-  if p != "" then
-    thread.run(fast=false, fun () ->
-      ignore(process.run("node /home/ai/radioclyde/src/plex/scrobbleTrack.js " ^ process.quote(p) ^ " " ^ process.quote(dj) ^
-        " > /dev/null 2>&1 &"))
-    )
-  end
-end
-radio = source.on_metadata(radio, scrobble_on_metadata)
+# (The Plex scrobble handler lives above the transition cross now -- see the
+# P3 #11 block there for why: post-cross registration fires twice per
+# transition. The def + registration moved up wholesale, comments included;
+# nothing else in the chain below changed.)
 
 output.icecast(%mp3(bitrate=config.icecast.bitrate),
   host = config.icecast.sourceHost, port = config.icecast.port,
