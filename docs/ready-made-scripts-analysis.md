@@ -113,6 +113,8 @@ radio = smooth_add(delay=0.8, p=background_volume, normal=radio, special=microph
 
 `smooth_add` je uradni operator: `special` utiša `normal` na `p` (delež glasnosti) brez ffmpeg sidechaina, z `delay` pripravi mehko mejo. Za nas zanimivo za P3 »postelje« — bolj preprosto kot radio-dj-jev `sidechaincompress`, brez dodatnega procesa, deluje na 2.2.x. Omejitev: zahteva STROJNO ločena vira (special = govor), naš tok je ena m3u — torej šele po prehodu na `request.queue` vstavljanje (P2 #6).
 
+> **STATUS — IMPLEMENTIRANO (P3 #12, 2026-10-24).** Postelje v zraku: `radio.liq` meša `request.queue(id="beds")` čez program z **vgrajenim** `smooth_add` — preverjeno v tar 2.2.4 (`src/libs/extra/audio.liq`, vrstice 371–408 + regresijski test `tests/regression/115-2.liq`): medtem ko je v vrsti klip, normal utihne 1.0 → p (privzeto 0.2) prek `mkfade` v ~duration (privzeto 1 s), special pa se pojavi na `1-p` — vsota amplitud ostaja ~1.0, BREZ sidechain procesa; notranji `fallback(track_sensitive=false, [special, blank()])` pomeni, da potisnjen klip zaide TAKOJ, sredi skladbe (točno to je bistvo postelje), ob koncu isti fade teče nazaj. Bistveni odklon od gista: gist je zgodnja ročna varianta z `~delay`, 2.2.4 že IMA operator v stdlib — uporabimo vgrajenega (brez vdelane kopije, sicer bi se ob spremembi builda tiho forknil), parametra `duration=1.`/`p=0.2` sta dobesedna literala (isti politik kot interval stingerjev: json.parse tip nedotaknjen, starejši config še vedno zažene). Vodni sloj: `beds_source` podeduje P2 #8 stroj (`beds.push <pot>` → številski id, `beds.queue` → id-ji, `beds.skip` → »Done.« — vse verificirano v tar `src/libs/request.liq`; Node polovica `src/liquidsoap/bedQueue.js` z CLI push/queue/skip). Postavitev: NAD ID overlayjem in zahtevki (napoved prekaša vse glasbeno, tudi poslušalčev zahtevek), POD programskim dead-air opazovalcem — opazovalci vidijo MEŠANICO (isti razlog kot ID overlay nad njimi): klip čez tiho programsko verigo je slišan radio, ne mrli zrak; epizoda se zapiše šele, če tišina preživi tudi klip. Iskrene opombe: beda NI scrobblana (govor, ne glasba), `liq_amplify` nanjo ne deluje (gola pot brez annotate), samodejna pot »vreme kot postelja iz produkcije« je ločena prihodnja odločitev — danes potiska operater prek CLI-ja s produciranim klipom. Testi: `test/bedQueue.test.mjs` (10: ožičenje radio.liq po vrstnem redu, vgrajen operator brez inline kopije, lažni telnet strežnik z realnim protokolom za push/queue/skip, pot s presledki, relativna pot → absolutna, manjkajoča datoteka = napaka brez klica). npm test 248/248. Živa verifikacija na boxu (pred zrakom, kot vedno): `liquidsoap --check radio.liq`, potem `node src/liquidsoap/bedQueue.js push <klip.wav>` in poslušanje: glasba utiha, govor pride čez, po koncu nazaj — `--check` je tudi edina preverba, da `smooth_add` obstaja v boxovem buildu (2.2.4-1+dev; v tar 2.2.4 je, `@flag extra` libs so del standardne namestitve). Reverzibilno: izbriši dve vrstici v radio.liq.
+
 ## 3. Napovedovanje — uradni vzorci (canonical answer), v2 dobesedno verificirani
 
 Vir: `liquidsoap.info/doc-2.2.5/cookbook` + `doc-2.4.5/complete_case`. Vsi naslednji izvlečki so prebrani iz primarne strani v tej iteraciji:
@@ -230,7 +232,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | WRIT-FM | ○ | ○ (struktura da, vsebina LLM) | ○ (taksonomija tipov) | MIT | n/a | drobci (tipi, min-zaloga) |
 | radio-dj | ○ | — (LLM jedro) | ○ (skills, install, sidechain) | MIT | ● | drobci |
 | LibreTime Smart Blocks | ● | ● | ○ (kriteriji → rules.js) | AGPL | n/a | koncept |
-| `smooth_add` (gist) | ● (uradni operator) | ● | ○ (zahteva ločena vira) | — (dok) | ● | P3 postelje |
+| `smooth_add` (gist) | ● (uradni operator) | ● | ○ (zahteva ločena vira) | — (dok) | ● | **izposojeno** (P3 #12 ✓) |
 | Rivendell / OpenBroadcaster / EBU ostalo | ● | ● | — (težke platforme) | razne | n/a | ne uvajamo |
 | WRIT-FM / radio-dj LLM jedra | ● | — (stohastično) | — (proti brez-AI arhitekturi) | MIT | n/a | zavrženo |
 | Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | **izposojeno** (P3 #15 ✓) |
@@ -250,7 +252,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 ✓ |
 | 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2 ✓ |
 | 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 |
-| 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 |
+| 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 ✓ |
 | 13 | sidechaincompress »postelje« (natančnejše od 12) | radio-dj | srednja | glasba pod govorom | P3 |
 | 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 ✓ |
 | 15 | prehod TTS na piper1-gpl (v1.8.0, aktivno) | §4.7 | pol dneva | vzdrževan runtime, nove glasove | P3 ✓ |

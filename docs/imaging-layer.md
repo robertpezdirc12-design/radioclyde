@@ -1,8 +1,8 @@
-# Imaging sloj: ID ob polni uri, stingeri, emergency podlaga
+# Imaging sloj: ID ob polni uri, stingeri, emergency podlaga, postelje
 
 *Datum: 2026-10-24 · Radio Clyde main, Liquidsoap 2.2.4-1+dev · del P1/seznama izposojenih vzorcev (docs/ready-made-scripts-analysis.md, točke #1, #3, #9)*
 
-Imaging sloj doda tri radijske sloje, ki jih je programu do zdaj manjkalo: **ID postaje ob polni uri**, **periodne stingerje** in **emergency podlago**. Vse tri izvaja `liquidsoap/radio.liq`, Node pa vzdržuje njihove plejliste z isto pogodbo, ki jo že uporablja `now_playing.m3u`/`filler.m3u` (Node piše, Liquidsoap opazuje z `reload_mode="watch"`). Klipi so kratki proizvedeni posnetki (TTS/ffmpeg), ki jih operater polni v tri direktorije pod `dataDir/imaging/`.
+Imaging sloj doda tri radijske sloje, ki jih je programu do zdaj manjkalo: **ID postaje ob polni uri**, **periodne stingerje** in **emergency podlago**. Vse tri izvaja `liquidsoap/radio.liq`, Node pa vzdržuje njihove plejliste z isto pogodbo, ki jo že uporablja `now_playing.m3u`/`filler.m3u` (Node piše, Liquidsoap opazuje z `reload_mode="watch"`). Klipi so kratki proizvedeni posnetki (TTS/ffmpeg), ki jih operater polni v tri direktorije pod `dataDir/imaging/`. Četrti, mehanizemsko drugačen sloj — **postelje** (P3 #12) — ne živi v teh direktorijih: klip prileti po telnetu (`beds.push`), glasba pa utihne pod njim; razdelek pod tabelo.
 
 ## 1. Arhitektura treh slojev
 
@@ -13,6 +13,7 @@ filler_source (glasba)     ─┘
         │
         ├─ fallback(track_sensitive=true, [delay(1800., stingers), …])   ← stingeri
         ├─ add([…, switch([({0m0s}, id)])])                              ← ID overlay
+        ├─ smooth_add(p=0.2, …, special=beds_queue)                      ← postelje (P3 #12)
         ├─ blank.detect + blank.strip (max_blank=20.)                    ← dead-air stražar (P2 #9)
         ├─ amplify(override="liq_amplify")
         └─ mksafe(fallback(track_sensitive=false, […, emergency]))       ← emergency
@@ -23,11 +24,14 @@ Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se z
 
 **Dead-air stražar (P2 #9, popolnitev te lestvice, 2026-10-24):** emergency podlaga lovi samo vire, ki so *nedosegljivi* (prazna m3u) — ne vira, ki igra digitalno tišino (pokvarjen/tih encode ostane "available"). To zapre `blank.strip()` (uradni cookbook recept (5), semantika verificirana iz tega builda `noblank.ml`): po 20 s neprekinjene tišine postane program nedosegljiv, emergency zasede, ob zvoku program vrne. Dva opazovalca `blank.detect` (isti akumulator, pasivna) pišeta vsak prehod v `dataDir/history/deadair.jsonl` (`src/deadair/recordEvent.js`), Diagnostics pa parira epizode (`src/deadair/ledger.js`): `program_*` = "stražar je deloval", `air_*` = "odpovedal je tudi nujni vir". Parametri so literali v radio.liq (json.parse tip nedotaknjen); reverzibilno = izbriši tri vrstice + štiri handlerje. Live verifikacija: `liquidsoap --check` + nameravno tih WAV v now_playing.m3u.
 
+**Postelje (P3 #12, 2026-10-24) — napoved čEZ glasbo, ne na njeni meji:** četrti sloj mehanizemsko ne spada v m3u pogodbo zgoraj — njegov vir je `request.queue(id="beds")`, ki ga Node polni po telnetu (`src/liquidsoap/bedQueue.js`: `push <klip>` / `queue` / `skip`), program pa se zmeša z njim prek **vgrajenega** `smooth_add` (preverjeno v tar 2.2.4, `src/libs/extra/audio.liq`): ko vrsta drži klip, program utihne 1.0 → 0.2, klip zazveni na 0.8 — vsota ~1.0, brez sidechain procesa — in ob koncu klipa nazaj. Notranji `fallback(track_sensitive=false, …)` pomeni takojšnji vstop SREDI skladbe (bistvo postelje, nasprotje stingerjem na mejah). Postavljen NAD ID overlay in zahtevke (napoved prekaša vse glasbeno), POD programskim dead-air opazovalcem (opazovalci vidijo mešanico — klip čez tiho verigo je slišan radio, ne mrli zrak). Klip za posteljo je navaden producirani WAV/MP3 (npr. vremenska rubrika iz `dataDir/pre-generated/` ali produciran govor); potiska ga operater, samodejna produkcija → postelja je ločena prihodnja odločitev.
+
 | Sloj | Vir | Kdaj zazveni | Vedenje brez kliipov |
 |---|---|---|---|
 | ID postaje | `imaging/id.m3u` | overlay točno ob HH:00:00 (`{0m0s}`) | sloj ne obstaja |
 | Stingeri | `imaging/stingers.m3u` | na prvi meji skladb po preteku intervala | sloj ne obstaja |
 | Emergency | `imaging/emergency.m3u` | šele, ko sta show IN filler nedosegljiva | mksafe-ova tišina (kot prej) |
+| Postelje | `beds.push` prek telnet (ni m3u) | TAKOJ, sredi skladbe — glasba utihne na 20 % | prazna vrsta = sloj ne obstaja |
 
 ## 2. Verificirane semantike operatorjev (primarni viri)
 
@@ -73,6 +77,7 @@ Dodajanje klipov: copy v ustrezni direktorij; naslednji imaging tick (največ 30
 ## 5. Verifikacija
 
 - **Testi** (99/99, npm test): `test/imagingPlaylists.test.mjs` — nabor pripon, trd rez annotate, prazen/manjkajoč direktorij → prazen .m3u, iskren povzetek, praznjenje ob rescanu; `test/radioLiqImaging.test.mjs` — strukturna regresija nad radio.liq **brez komentarjev** (komentarji namenoma omenjajo pokvarjene konstrukte, zato se skenira samo koda): overlay switch prisoten, `predicate.activates` odsoten, `delay(1800., …)` + track_sensitive fallback prisotna, emergency kot playlist pod programom, mksafe zadnji, `crossfade(`/`fade.out(` in `single(` ne smejo priti nazaj.
+- **Postelje**: `test/bedQueue.test.mjs` — ožičenje radio.liq po vrstnem redu (smooth_add nad ID overlayjem, pod dead-air opazovalcem; vgrajen operator, brez inline kopije), telnet pogodba push/queue/skip proti lažnemu strežniku. Na boxu: `liquidsoap --check` je edina preverba, da `smooth_add` obstaja v buildu; potem `node src/liquidsoap/bedQueue.js push <klip.wav>` in poslušanje utihe/zaključka.
 - **Na produkcijski mašini** pred restartom: `liquidsoap --check liquidsoap/radio.liq` (parse-only) in posluš prve polne ure: ID točno ob :00, stinger na prvi meji po ~30 min, emergency slišati le, če programu nameravano odvzameš oba vira (test ročno: preimenuj začasno now_playing.m3u in filler.m3u).
 
 ## 6. Viri

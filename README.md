@@ -134,6 +134,7 @@ phases hand off through.
   only) and an emergency bed below the program sources — all three degrade
   gracefully: an empty/missing clip directory simply drops that layer off
   air, never the program — [design & asset production](docs/imaging-layer.md).
+- **Beds ("postelje", P3 #12)**: announcements OVER the music via the builtin `smooth_add` — the program ducks to 20% while a pushed clip plays on top (`beds.push` over telnet, CLI `src/liquidsoap/bedQueue.js`), no sidechain process. Verified against the 2.2.4 stdlib source.
 - **R128 loudness alignment (autocue gain layer)**: a budgeted offline scan
   measures every library track's integrated loudness with one ffmpeg ebur128
   pass; playlist entries then carry `liq_amplify` and radio.liq's

@@ -243,6 +243,41 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
+
+# --- Postelje (P3 #12, docs/ready-made-scripts-analysis.md §2.6, row 12) ----
+# An announcement OVER the music: while the beds queue holds a clip, the
+# program ducks to p of its amplitude and the clip fades in at (1-p) -- the
+# mix's total amplitude stays ~1.0 with NO sidechain/compressor process, and
+# when the clip ends the same fades run backwards. smooth_add is a BUILT-IN
+# of this build, verified against v2.2.4 src/libs/extra/audio.liq (and its
+# own regression test tests/regression/115-2.liq): the inner
+# fallback(track_sensitive=false, [special, blank()]) starts a pushed bed
+# IMMEDIATELY, mid-track -- that is the whole point of a bed -- while the
+# mkfade-shaped volume transitions keep both edges soft over ~duration
+# seconds. p=0.2 / duration=1. are the builtin defaults, kept as literals
+# here on purpose (same policy as the stingers interval and the blank guard
+# params: radio.liq's json.parse type stays untouched, so an older
+# config.json still boots). The two mixed sources ride this build's single
+# global frame format, exactly like the ID overlay add() above.
+#
+# beds_source = request.queue(id="beds") reuses the P2 #8 machinery (same
+# verified v2.2.4 src/libs/request.liq semantics as the requests layer):
+# telnet "beds.push <local-path>" queues a produced clip (Node side:
+# src/liquidsoap/bedQueue.js -- push/queue/skip CLI), push replies with the
+# numeric request id, and availability is exactly "queue non-empty", which
+# is what smooth_add's inner track_sensitive=false fallback needs to cut in
+# mid-track. Sits ABOVE the hour-ID overlay and the requests fallback on
+# purpose: an announcement outranks everything musical, including a
+# listener's request, and would ride over the ID if they ever collide. The
+# program dead-air observers below see the MIXED output (same reasoning as
+# the ID overlay above them): a bed playing over a silent program is audible
+# radio, not dead air -- an episode is recorded only if the silence survives
+# the bed too. Bare local path, no annotate: no liq_amplify metadata, so the
+# amplify below stays a 1.0 pass-through and the bed airs at its produced
+# loudness (scaled by smooth_add's own 1-p), same treatment as
+# stingers/IDs/requests.
+beds_source = request.queue(id="beds")
+radio = smooth_add(duration=1., p=0.2, normal=radio, special=beds_source)
 # Dead-air guard, program layer: detect observes (first-positional handler is
 # blank.detect's unnamed first argument, on_noise named -- call shape matches
 # this build's src/libs/source.liq usage), strip reacts. strip wraps detect so
