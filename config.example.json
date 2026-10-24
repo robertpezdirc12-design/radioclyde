@@ -107,6 +107,12 @@
   "imaging": {
     "checkIntervalMinutes": 30
   },
+  "autocue": {
+    "targetLufs": -16,
+    "maxGainDb": 6.0,
+    "checkIntervalMinutes": 60,
+    "maxAnalyzePerRun": 100
+  },
   "broadcast": {
     "tuneIn": null,
     "discordWebhook": null,

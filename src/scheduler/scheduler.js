@@ -23,6 +23,7 @@ import { cleanupOldShows } from './cleanupOldShows.js';
 import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
 import { writeImagingPlaylists } from './imagingPlaylists.js';
+import { runAutocueScan } from './autocueScan.js';
 import { sampleNow } from '../analytics/listenerSamples.js';
 
 const log = createLogger('station');
@@ -136,6 +137,13 @@ export function startScheduler() {
   // The rescan is cheap (three small dir listings); it runs at boot too via
   // every()'s immediate first tick, so the .m3u files exist from the start.
   every(Math.max(1, config.imaging?.checkIntervalMinutes ?? 30), 'imaging', writeImagingPlaylists);
+  // R128 loudness alignment (lib/autocue.js + radio.liq's amplify()): one
+  // pass over the library per tick, budgeted to maxAnalyzePerRun analyses so
+  // a first-ever sweep is spread across ticks. Optional-chained + defaulted
+  // like every other optional block: configs without an autocue block boot
+  // exactly as before, and a no-ffmpeg or empty-library box simply logs a
+  // zero-work scan each tick.
+  every(Math.max(1, config.autocue?.checkIntervalMinutes ?? 60), 'autocue', runAutocueScan);
 
   log('Scheduler started.');
 }

@@ -140,6 +140,16 @@ radio = fallback(track_sensitive=false, [show_source, filler_source])
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
+# R128 loudness alignment (docs/autocue-loudness.md): entries carrying
+# liq_amplify (written into the m3u by Node from the offline ebur128 index)
+# get their measured correction applied; everything else -- unscanned
+# tracks, speech, jingle, IDs, stingers -- has no such metadata and stays at
+# the 1.0 pass-through coefficient. Semantics verified against amplify.ml in
+# both 2.2.4 and 2.2.5 (byte-identical): " %f dB" is parsed off the frame
+# metadata at track start, and the override resets at every track boundary,
+# so no gain ever leaks between tracks. Placed BEFORE the emergency fallback
+# on purpose: the emergency bed plays at its produced loudness, untouched.
+radio = amplify(override="liq_amplify", 1., radio)
 # Emergency below everything (immediately preempts when the program sources
 # are both unavailable -- track_sensitive=false), then mksafe's blank stays
 # as the final net if even the emergency playlist is empty.

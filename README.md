@@ -134,6 +134,14 @@ phases hand off through.
   only) and an emergency bed below the program sources — all three degrade
   gracefully: an empty/missing clip directory simply drops that layer off
   air, never the program — [design & asset production](docs/imaging-layer.md).
+- **R128 loudness alignment (autocue gain layer)**: a budgeted offline scan
+  measures every library track's integrated loudness with one ffmpeg ebur128
+  pass; playlist entries then carry `liq_amplify` and radio.liq's
+  `amplify(override=)` applies the correction — no more loudness jumps
+  between tracks. Derived at read time from a configurable target
+  (−16 LUFS, the LS 2.2.5 default), positive gain clamped (no limiter in the
+  chain), speech/imaging untouched, and everything degrades to today's
+  behavior for any track without an analysis — [design](docs/autocue-loudness.md).
 
 ## Meet the DJs
 

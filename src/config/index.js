@@ -69,4 +69,10 @@ config.paths = {
   imagingIdPath: path.join(config.dataDir, 'imaging', 'id.m3u'),
   imagingStingerPath: path.join(config.dataDir, 'imaging', 'stingers.m3u'),
   imagingEmergencyPath: path.join(config.dataDir, 'imaging', 'emergency.m3u'),
+  // R128 loudness alignment (lib/autocue.js + scheduler/autocueScan.js +
+  // radio.liq's amplify(override="liq_amplify")): measured per-track LUFS
+  // side index. Path-keyed, mtimeMs+size-checked, rewritten atomically by
+  // the scan job; tracks without an entry annotate no liq_amplify and play
+  // unaligned, exactly as before the feature existed.
+  autocueIndexPath: path.join(config.dataDir, 'autocue_index.json'),
 };

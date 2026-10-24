@@ -5,6 +5,12 @@ function escapeAnnotateValue(value) {
   return String(value).replace(/["\\]/g, '\\$&');
 }
 
+// R128 loudness correction for music tracks (lib/autocue.js's side index):
+// the same module the scheduler's autocue scan job writes. An empty or
+// missing index simply yields no field for any track -- see the comment on
+// annotateTrackEntry below for the pass-through contract.
+import { amplifyAnnotate } from '../lib/autocue.js';
+
 // radio.liq wraps show_source/filler_source in fade.in(); this is the
 // per-track duration that operator uses unless a playlist entry's own
 // liq_fade_in metadata (set below) overrides it. Tuned by ear against real
@@ -54,6 +60,17 @@ export function annotateJingleEntry(filePath, showTitle, stationName) {
 
 // Real music tracks: fade up at the start. Left to end on radio.liq's
 // default (no fade-out) -- only the jingle overrides that.
+//
+// liq_amplify (when the track has a loudness-analysis entry, lib/autocue.js):
+// the R128 correction radio.liq's amplify(override="liq_amplify") applies.
+// Tracks without an entry annotate nothing here -- amplify() stays at its
+// 1.0 pass-through coefficient for them, so an unscanned library plays
+// exactly as it did before the loudness layer existed. Speech/jingle/imaging
+// entries below never carry the field: they're produced at fixed loudness
+// out-of-band and must not be touched by library measurement.
 export function annotateTrackEntry(filePath) {
-  return `annotate:liq_fade_in="${TRACK_FADE_IN_SECONDS}":${filePath}`;
+  const fields = [`liq_fade_in="${TRACK_FADE_IN_SECONDS}"`];
+  const amplify = amplifyAnnotate(filePath);
+  if (amplify) fields.push(`liq_amplify="${amplify}"`);
+  return `annotate:${fields.join(',')}:${filePath}`;
 }
