@@ -239,7 +239,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | Rivendell / OpenBroadcaster / EBU ostalo | ● | ● | — (težke platforme) | razne | n/a | ne uvajamo |
 | WRIT-FM / radio-dj LLM jedra | ● | — (stohastično) | — (proti brez-AI arhitekturi) | MIT | n/a | zavrženo |
 | Piper (rhasspy) → piper1-gpl | ● (Home Assistant privzeto) | ● (determinističen TTS) | ● (CLI iz Node) | MIT → GPL-3.0 | ● (CLI neodvisen) | **izposojeno** (P3 #15 ✓) |
-| SUB/WAVE dj_transition efekti (sweep/washout/dissolve) | ● (produkcijski radio.liq) | ● (čista signalna oblika, brez analize) | ● (stdlib operatorji na 2.4.6) | MIT | ● ( efekti za vrati `%ifversion`) | **izposojeno** (P3 #11 ✓ koda; box nadgradnja odprta) |
+| SUB/WAVE dj_transition efekti (sweep/washout/dissolve) | ● (produkcijski radio.liq) | ● (čista signalna oblika, brez analize) | ● (stdlib operatorji na 2.4.6) | MIT | ● ( efekti za vrati `%ifversion`) | **izposojeno** (P3 #11 ✓ koda + živvalidacija na pravih binarkah 2.2.4-1/2.4.6; boxova zamenjava runtime-a odprta) |
 
 ## 6. Končna razvrstitev in predlog integracije
 
@@ -255,7 +255,7 @@ Oznake: ● polno prileganje, ○ delno, — ne. »LS 2.2.4« = deluje na naši 
 | 8 | `request.queue` vstavljanje namesto reload | SUB/WAVE + defenestratexp | 1 dan | takojšnji ID/zahtevki brez tekmovalnosti z reload | P2 ✓ |
 | 9 | dead-air stražar: `blank.strip()` + nujni vir | cookbook §3 (5) + SUB/WAVE | ~2 h | jamski sloj pod mksafe | P2 ✓ |
 | 10 | Format ura (clockwheel): koraki → plejlisti, N skladb/korak, dayparts, zahtevkini sloti | AzuraCast PR #8433 dizajn | 2–4 dni (Node) | profesionalen spored, ki ga razume operator | P2 ✓ |
-| 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 ✓ (kodna polovica — boxova nadgradnja: docs/liquidsoap-upgrade.md) |
+| 11 | nadgradnja LS → 2.4.6 + dj_transition efekti | SUB/WAVE | velik projekt | sweep/washout/dissolve prehodi | P3 ✓ (koda + živvalidacija na pravih binarkah — boxova zamenjava runtime-a: docs/liquidsoap-upgrade.md) |
 | 12 | `smooth_add` »postelje« (napoved čez glasbo) | gist §2.6 | srednja, zahteva request.queue | glasba pod govorom brez sidechain procesa | P3 ✓ → nadomeščeno z 13 |
 | 13 | natančnejši ducking postelj — dejansko stdlib ducker (`rms.smooth` + `source.on_frame` + `amplify` getter), ker `sidechaincompress` kot LS operator NE obstaja (to je FFmpeg filter) | radio-dj → buildov `normalize` vzorec | srednja | glasba utihne po DEJANSKI ravni klipa (napad ~20 ms, spust ~0,5 s, histereza) | P3 ✓ |
 | 14 | deterministični Smart Blocki (kriteriji → rules.js) | LibreTime | srednja | kriterijski bloki | P3 ✓ |
