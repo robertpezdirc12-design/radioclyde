@@ -36,8 +36,18 @@ const AUDIO_EXTENSIONS = ['.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wav'];
 // they get the explicit "0" hard-cut annotate, exactly like DJ speech in
 // director/playlist.js -- they must never be faded by radio.liq's fade.in
 // fallback either way, but being explicit keeps the file self-describing.
-function entryLine(filePath) {
-  return `annotate:liq_fade_in="0":${filePath}`;
+// Each layer also carries its own source_tag (the cookbook dispatch pattern,
+// Node half -- director/playlist.js's SOURCE_TAG): one tag per layer, not a
+// blanket "imaging", so future rules can tell "the hour ID may ride over
+// music" apart from "a stinger must not". Nothing on LS 2.2.4 reads the
+// field yet; the m3u stays self-describing either way.
+const LAYER_TAGS = { id: 'id', stingers: 'stinger', emergency: 'emergency' };
+// Exported for the source_tag contract test (test/sourceTag.test.mjs) so the
+// allowed-tag set is pinned in exactly one place per family.
+export { LAYER_TAGS };
+
+function entryLine(filePath, tag) {
+  return `annotate:source_tag="${tag}",liq_fade_in="0":${filePath}`;
 }
 
 // Pure: absolute paths of audio files directly inside dir, sorted for stable
@@ -65,9 +75,9 @@ export function buildImagingEntries(dir) {
   return { entries, dirMissing: false };
 }
 
-function writeImagingPlaylistFile(entries, outPath) {
+function writeImagingPlaylistFile(entries, outPath, tag) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  const content = entries.length ? entries.map(entryLine).join('\n') + '\n' : '';
+  const content = entries.length ? entries.map((entry) => entryLine(entry, tag)).join('\n') + '\n' : '';
   fs.writeFileSync(outPath, content);
 }
 
@@ -83,7 +93,7 @@ export function writeImagingPlaylists() {
   const summary = {};
   for (const { name, dir, outPath } of layers) {
     const { entries, dirMissing } = buildImagingEntries(dir);
-    writeImagingPlaylistFile(entries, outPath);
+    writeImagingPlaylistFile(entries, outPath, LAYER_TAGS[name]);
     summary[name] = { count: entries.length, dirMissing, path: outPath };
     if (dirMissing) {
       log(`Imaging: ${dir} missing -> empty ${outPath} (layer unavailable on air, station unaffected)`);

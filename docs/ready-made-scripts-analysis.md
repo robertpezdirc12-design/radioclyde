@@ -70,6 +70,38 @@ radio = cross(duration=5., transition, radio)
 
 To je **generalizacija našega modela**: namesto implicitnega »govor ima annotate 0« explicitno označimo vire in razdelimo pravila. Naš Node writer že poznajo `dj` polje, torej je cena nizka: ena meta oznaka v m3u + ena funkcija v `radio.liq`. Prednost: prehod glasba→jingel→glasba postane enolično določen v enem mestu, namesto razpršenega po annotate vrednostih.
 
+**Status (2026-10-24): Node polovica IMPLEMENTIRANA, LS polovica čaka live verifikacijo.**
+Vsi m3u vnosi, ki jih piše repo, nosijo točno eno `source_tag` oznako — pogodbo pina `test/sourceTag.test.mjs`:
+
+| Vir | Oznaka | Piše |
+|---|---|---|
+| glasbene skladbe (show + filler) | `music` | `director/playlist.js` annotateTrackEntry |
+| DJ govor | `speech` | `director/playlist.js` annotateSpeechEntry |
+| oddajni jingle | `jingle` | `director/playlist.js` annotateJingleEntry (od zdaj VEDNO annotate vrstica, tudi brez title/station) |
+| ID ob polni uri | `id` | `scheduler/imagingPlaylists.js` (per-layer) |
+| stingeri | `stinger` | isti |
+| nujna podlaga | `emergency` | isti |
+
+Iskreni obseg: na 2.2.4 **nič ne bere** `source_tag` (kot liq_cue polja) — vrednost je samoopisen m3u in priprava, da bo LS polovica čisti potrošnik že obstoječih podatkov.
+
+**LS polovica — recept za radio.liq, OBVEZNA live verifikacija pred zrakom** (radio.liq zgodovina: crossfade() je dvakrat spodletel; pravilo »ne lovi parametrov znova, spremeni strukturo« je ravno tu):
+
+```liquidsoap
+# SAMO okoli programskega jedra (show+filler), NIKOLI okoli ID overlay-a
+core = fallback(track_sensitive=false, [show_source, filler_source])
+def dispatch(a, b)
+  if a.metadata["source_tag"] != "music" or b.metadata["source_tag"] != "music" then
+    sequence([a.source, b.source])   # govor/jingle/ID/stinger: trd rez = današnje vedenje
+  else
+    add([fade.initial(2., b.source), a.source])  # glasba→glasba: nov pride čez rep starega
+  end
+end
+core = cross(duration=4., dispatch, core)
+radio = fallback(track_sensitive=true, [stinger_timed, core])  # ← preveriti interakcijo!
+```
+
+Trije znani tveganji, ki jih NI mogoče verificirati brez poslušanja: (a) **stinger meja** — `fallback(track_sensitive=true)` lahko opazuje mejo na CROSS točki (do 4 s pred realnim koncem skladbe) in bi rezal rep starega skladbe; če se pokaže, se stinger sloj preseli znotraj/outside cross drugače ali pa cross pride samo na filler; (b) **ID overlay** ne sme biti znotraj cross() (rez na :00 bi pokvaril overlay semantiko — ID prične takoj, ne na meji); (c) cross() poveča zakasnitev ob meji za dolžino okna (buffering). Verifikacijski koraki: `liquidsoap --check`, poslušanje 3–5 realnih meja DJ↔skladba na boxu, šele potem commit na produkcijo.
+
 ### 2.6 NOVO: `smooth_add` — napoved ČEZ glasbo brez sidechaina (vzorčni gist)
 
 Vir: gist `9ebb70312419427cdb42a7170993faa6` (»Liquidsoap Radio System«), dobesedno:

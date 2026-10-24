@@ -20,6 +20,21 @@ import { amplifyAnnotate } from '../lib/autocue.js';
 // is baked into its audio instead of done live.)
 const TRACK_FADE_IN_SECONDS = 2;
 
+// Source-family tags (docs/ready-made-scripts-analysis.md §2.5 -- the
+// cookbook's source_tag dispatch pattern, Node half). Every m3u entry this
+// repo writes carries exactly one: the dispatcher's one rule is "either side
+// not music -> hard cut (sequence)", so the invariant that matters is
+// music-vs-everything-else. Nothing on Liquidsoap 2.2.4 reads the field yet
+// (verified from source: the metadata resolver needs 2.2.5+) -- it's what
+// makes the m3u self-describing and keeps the future radio.liq dispatcher a
+// pure consumer of data that's already there. Values are our constants,
+// never user data, so no escaping concerns.
+export const SOURCE_TAG = {
+  music: 'music',
+  speech: 'speech',
+  jingle: 'jingle',
+};
+
 // DJ speech clips carry no ID3/metadata tags of their own (they're raw
 // Chatterbox/ffmpeg output), so plain playlist entries leave Icecast's
 // now-playing display frozen on whatever track played last while the DJ is
@@ -40,7 +55,7 @@ const TRACK_FADE_IN_SECONDS = 2;
 // relying on fade.in's global default staying 0, so speech is protected even
 // if that default ever changes for tracks.
 export function annotateSpeechEntry(filePath, showTitle, stationName, personas) {
-  const fields = ['liq_fade_in="0"'];
+  const fields = [`source_tag="${SOURCE_TAG.speech}"`, 'liq_fade_in="0"'];
   if (showTitle) fields.push(`title="${escapeAnnotateValue(showTitle)}"`);
   if (stationName) fields.push(`artist="${escapeAnnotateValue(stationName)}"`);
   if (personas?.length) fields.push(`dj="${escapeAnnotateValue(personas.join(' & '))}"`);
@@ -51,11 +66,15 @@ export function annotateSpeechEntry(filePath, showTitle, stationName, personas) 
 // field (it isn't anyone talking) and minus any fade override -- its
 // fade-down is physically baked into the audio by director/index.js before
 // this ever runs, and it always plays first, so a hard start is fine.
+// Carries source_tag unconditionally, so the entry is ALWAYS an annotate
+// line now (previously a bare path when no title/station was set) --
+// scrobbleTrack.js resolves "filename" either way, nothing else read the
+// bare form.
 export function annotateJingleEntry(filePath, showTitle, stationName) {
-  const fields = [];
+  const fields = [`source_tag="${SOURCE_TAG.jingle}"`];
   if (showTitle) fields.push(`title="${escapeAnnotateValue(showTitle)}"`);
   if (stationName) fields.push(`artist="${escapeAnnotateValue(stationName)}"`);
-  return fields.length ? `annotate:${fields.join(',')}:${filePath}` : filePath;
+  return `annotate:${fields.join(',')}:${filePath}`;
 }
 
 // Real music tracks: fade up at the start. Left to end on radio.liq's
@@ -69,7 +88,7 @@ export function annotateJingleEntry(filePath, showTitle, stationName) {
 // entries below never carry the field: they're produced at fixed loudness
 // out-of-band and must not be touched by library measurement.
 export function annotateTrackEntry(filePath) {
-  const fields = [`liq_fade_in="${TRACK_FADE_IN_SECONDS}"`];
+  const fields = [`source_tag="${SOURCE_TAG.music}"`, `liq_fade_in="${TRACK_FADE_IN_SECONDS}"`];
   const amplify = amplifyAnnotate(filePath);
   if (amplify) fields.push(`liq_amplify="${amplify}"`);
   return `annotate:${fields.join(',')}:${filePath}`;

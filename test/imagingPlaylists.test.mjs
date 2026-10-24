@@ -97,7 +97,7 @@ describe('writeImagingPlaylists', () => {
     const idLines = fs.readFileSync(config.paths.imagingIdPath, 'utf8').trim().split('\n');
     assert.equal(idLines.length, 2);
     for (const line of idLines) {
-      assert.match(line, /^annotate:liq_fade_in="0":/);
+      assert.match(line, /^annotate:source_tag="id",liq_fade_in="0":/);
       assert.match(line, /imaging\/id\/id-[12]\.wav$/);
     }
 

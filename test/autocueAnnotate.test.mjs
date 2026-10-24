@@ -34,9 +34,9 @@ function writeTestIndex(tracks) {
 }
 
 describe('annotateTrackEntry loudness field', () => {
-  test('no index entry -> unchanged legacy annotate (pass-through contract)', () => {
+  test('no index entry -> legacy annotate plus the music source_tag (pass-through contract)', () => {
     const p = '/music/no-analysis.mp3';
-    assert.equal(annotateTrackEntry(p), `annotate:liq_fade_in="2":${p}`);
+    assert.equal(annotateTrackEntry(p), `annotate:source_tag="music",liq_fade_in="2":${p}`);
   });
 
   test('index entry -> liq_amplify joins the field list in dB format', () => {
@@ -44,7 +44,7 @@ describe('annotateTrackEntry loudness field', () => {
     // target -16 - (-12.3) = -3.7 dB
     assert.equal(
       annotateTrackEntry('/music/loud.mp3'),
-      'annotate:liq_fade_in="2",liq_amplify="-3.7 dB":/music/loud.mp3'
+      'annotate:source_tag="music",liq_fade_in="2",liq_amplify="-3.7 dB":/music/loud.mp3'
     );
   });
 
@@ -60,6 +60,9 @@ describe('annotateTrackEntry loudness field', () => {
     const jingle = annotateJingleEntry('/music/jingle.wav', 'Show', 'Station');
     assert.doesNotMatch(speech, /liq_amplify/);
     assert.doesNotMatch(jingle, /liq_amplify/);
+    // Both are speech-family for the dispatcher invariant.
+    assert.match(speech, /source_tag="speech"/);
+    assert.match(jingle, /source_tag="jingle"/);
   });
 
   test('the index read is cached per-mtime (two reads, one stat -- cheap playlist writers)', () => {
