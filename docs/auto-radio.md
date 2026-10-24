@@ -283,12 +283,14 @@ Vzorčni brief za ta način: `sample-data/show-descriptions/80s-rock-auto.md`.
 
 ## Tematske oddaje (P4 #18: katalog + tedenski special)
 
-Katalog desetih kuriranih tematskih oddaj (`src/auto/showCatalog.js`) izriše
-**prave** `show-descriptions/*.md` brife — z vsemi pravili izbire in vrstico
-`Rubrike:` — tako da za poljubno temo (»Zgodovina rocka«, »Zgodovina kitare«,
-»Veliki nastopi«, portreti desetletij, rock nekdanje Jugoslavije, punk in novi
-val, album v celoti) ni treba ročno pisati briefa. Vso mehaniko (izbira
-skladb, rubrike, zanimivosti, govor) nato opravi obstoječi cevovod, nespremenjen.
+Katalog štirinajstih kuriranih tematskih oddaj (`src/auto/showCatalog.js`)
+izriše **prave** `show-descriptions/*.md` brife — z vsemi pravili izbire in
+vrstico `Rubrike:` — tako da za poljubno temo (»Zgodovina rocka«, »Zgodovina
+kitare«, »Veliki nastopi«, portreti desetletij, rock nekdanje Jugoslavije,
+punk in novi val, »Blues korenine«, »Trdi rock in metal«, »Progresivni rock«,
+»Ženske v rocku«, album v celoti) ni treba ročno pisati briefa. Vso mehaniko
+(izbira skladb, rubrike, zanimivosti, govor) nato opravi obstoječi cevovod,
+nespremenjen.
 
 **Tedenski special slot** v `station.json`:
 

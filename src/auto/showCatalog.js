@@ -193,6 +193,75 @@ export const THEMED_SHOWS = [
     ],
   },
   {
+    id: 'blues-korenine',
+    emoji: '🎺',
+    title: 'Blues korenine',
+    tagline:
+      'Delta, Chicago in kralji kitare: blues je oblika, iz katere je rock ' +
+      'izraščel -- od Muddyja Watersa in B.B. Kinga do Stevieja Raya Vaughana. ' +
+      'Korpus zanimivosti pozna blues mejnike (Robert Johnson, Lucille, Sister ' +
+      'Rosetta Tharpe); izbor je vezan na to, da so ti izvajalci v knjižnici.',
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    trackSelection: [
+      '- artists: Muddy Waters, B.B. King, Howlin Wolf, Robert Johnson, John Lee Hooker, Buddy Guy, Eric Clapton, Stevie Ray Vaughan, John Mayall, Canned Heat',
+      '- No track longer than 6 minutes.',
+      NO_REPEAT_ARTIST,
+      FAVOR_WELL_KNOWN,
+    ],
+  },
+  {
+    id: 'trdi-rock-metal',
+    emoji: '💀',
+    title: 'Trdi rock in metal',
+    tagline:
+      'Od Led Zeppelinovih globočin do Metalličnih riffov: hard rock in heavy ' +
+      'metal, ki ga je odkril Black Sabbath, po njem pa več generacij ' +
+      'metalcev. Korpus zanimivosti pozna metal mejnike (preimenovanje iz ' +
+      'Earth, Album štirih simbolov, Master of Puppets); izbor je vezan na ' +
+      'to, da so te skupine v knjižnici.',
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    trackSelection: [
+      '- artists: Led Zeppelin, Deep Purple, Black Sabbath, AC/DC, Judas Priest, Iron Maiden, Motörhead, Metallica, Dio, Rainbow',
+      '- No track longer than 7 minutes.',
+      NO_REPEAT_ARTIST,
+      FAVOR_WELL_KNOWN,
+    ],
+  },
+  {
+    id: 'progresivni-rock',
+    emoji: '🔮',
+    title: 'Progresivni rock',
+    tagline:
+      'Suite, koncepti in virtuoznost: kako so King Crimson, Yes, Genesis in ' +
+      'Pink Floyd raztegnili rock čez okvire radijskega singla. Korpus ' +
+      'zanimivosti pozna prog mejnike (rojstvo žanra leta 1969, Tubular ' +
+      'Bells); izbor je vezan na to, da so te skupine v knjižnici.',
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    trackSelection: [
+      '- artists: Pink Floyd, King Crimson, Yes, Genesis, Rush, Emerson Lake & Palmer, Jethro Tull, Camel, Van der Graaf Generator, Mike Oldfield',
+      '- No track longer than 9 minutes.',
+      NO_REPEAT_ARTIST,
+      FAVOR_WELL_KNOWN,
+    ],
+  },
+  {
+    id: 'zenske-v-rocku',
+    emoji: '👩‍🎤',
+    title: 'Ženske v rocku',
+    tagline:
+      'Od Sestre Rosette Tharpe do grungerskih kitariark: oddaja o ženskah, ki ' +
+      'so rock pisale, igrale in prepevale vse od njegovih začetkov. Korpus ' +
+      'zanimivosti pozna te mejnike (Kate Bush, The Runaways, Heart); izbor je ' +
+      'vezan na to, da so ti izvajalci v knjižnici.',
+    rubrics: ['vreme', 'obzorje', 'zanimivosti', 'glasba'],
+    trackSelection: [
+      '- artists: Heart, The Runaways, Hole, The Bangles, Sleater-Kinney, Joan Jett and the Blackhearts, The Pretenders, The Go-Gos',
+      '- No track longer than 5 minutes.',
+      NO_REPEAT_ARTIST,
+      FAVOR_WELL_KNOWN,
+    ],
+  },
+  {
     id: 'album-v-celoti',
     emoji: '💿',
     title: 'Album v celoti',

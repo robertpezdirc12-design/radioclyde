@@ -27,7 +27,9 @@ implementacije, izhod je dokument + predlog P4.
 >   0 fail, 0 skip pod PIPER_LIVE=1).
 > - **#18 (generator tematskih oddaj) je prav tako IMPLEMENTIRAN** (isti dan,
 >   po uporabnikovem »odlično, nadaljuj« ob posredovanem GitHub žetonu):
->   katalog desetih kuriranih tematskih oddaj (`src/auto/showCatalog.js`) +
+>   katalog kuriranih tematskih oddaj (`src/auto/showCatalog.js`; ob širitvi
+>   P4 #21 jih je štirinajst: nove so »Blues korenine«, »Trdi rock in metal«,
+>   »Progresivni rock« in »Ženske v rocku«) +
 >   tedenski special slot v station.json (`"special": { "themes": [...],
 >   "personas": [...] }`), rotacija po ISO tednu, brifi se izrisujejo v
 >   `show-descriptions/themed/<tema>.md`, CLI `npm run themed-shows`.
