@@ -21,6 +21,7 @@
     "podcast-export": "node src/cli/podcastExport.js",
     "social-export": "node src/cli/socialExport.js",
     "asrun-export": "node src/cli/asrunExport.js",
+    "doctor": "node src/cli/doctorCli.js",
     "update-now-playing": "node src/scheduler/updateNowPlaying.js",
     "generate-filler-playlist": "node src/scheduler/generateFillerPlaylist.js",
     "cleanup-shows": "node src/scheduler/cleanupOldShows.js",

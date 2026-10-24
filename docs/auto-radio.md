@@ -440,6 +440,12 @@ nespremenjen.
   — P4 #27: izvajalno (as-run) poročilo za licenčno skladnost — CSV +
   povzetek iz `history/aired.jsonl` (podrobno v razdelku o P4 #27).
 
+- `npm run doctor [-- --net] [-- --json]`
+  — P4 #31: predvečerna diagnostika — EN ukaz pred terminirano uro, ki
+  pove, ali bo oddaja preživela: konfiguracija, podatkovna mapa, govor,
+  knjižnica, ledger, korpusi, (z `--net`) viri. Mrtvi vir je OPOZORILO,
+  ne napaka — točno tako kot v programu (podrobno v razdelku o P4 #31).
+
 - `npm run preview-auto-show -- <ime-oddaje> [--duration=<minute>] [--offline]`
   — celoten suhi preizkus producenta: razčleni brief, zgradi vrsto skladb z
   vsemi pravili, izriše skripto, jo preveri in zapiše `script.md` +
@@ -484,6 +490,7 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 | Licenčna skladnost (as-run logi) | izvajalno poročilo iz realnega
   predvajalnega ledgerja (P4 #27) |
 | Predogled oddaj | imagingPlaylists, preview-auto-show |
+| Predvečerna diagnostika | `npm run doctor` — 7 preverjanj (config, mapa, govor, knjižnica, ledger, korpusi, viri); mrtvi vir je opozorilo, nikoli napaka (P4 #31) |
 
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
 teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
@@ -492,6 +499,8 @@ spretnost, ki potrebuje zunanjega ponudnika. P4 #28/#29/#30 poleg tega
 zapirajo zadnjo luknjo odpornosti: radio preživi mrtev usmerjevalnik s
 CELOM programom — vse rubrike ostanejo na zraku (korpusi ali poštene
 offline vrstice), živi vremenski segment pa ne podrže več režije.
+P4 #31 to pogodbo še pokaže operaterju PRED oddajo: `npm run doctor` je
+en ukaz, ki pove, katere noge programa stojijo in katere so na zdravilih.
 
 ### P4 #25: raziskava v kodo -- teases, ankete, podcast, social
 
@@ -652,6 +661,58 @@ pretvarjamo). Rubrika ostane opt-in prek briefa: brez `novice`/
 - **Deterministika:** isti dan + isto seme = ista vrstica (FNV-1a kot
   povsod). Testi: 435 → 454 (`test/honestOffline.test.mjs`, 19 — varovalke
   poštenosti, obe zbirateljski veji, izris, scriptBuilder in taksonomija).
+
+### P4 #31: predvečerna diagnostika (`npm run doctor`) — krona odpornostnega loka
+
+Odpornostni lok P4 #28–#30 je naredil program, ki preživi mrtev
+usmerjevalnik — ampak do #31 ni obstajal način, da to ugotoviš vnaprej,
+brez čakanja prve režije. `npm run doctor` je en ukaz, ki operaterju
+pred terminirano uro pove, ali bo oddaja preživela in kaj je na
+zdravilih. Sedem preverjanj v stalnem vrstnem redu: konfiguracija,
+podatkovna mapa, govor (TTS), glasbena knjižnica, predvajalni ledger,
+korpusi in (z `--net`) dostopnost virov.
+
+Dogovori, ki jih diagnostika varuje — enaki kot program sama:
+
+- **skip-not-fail velja tudi za diagnostiko:** nobeno preverjanje ne sme
+  pasti; če se kljub temu sesuje, ga varovalka zamenja z opozorilom
+  ("preverjanje se je sesulo: …"). Doctor, ki pade, bi operaterja pustil
+  brez odgovora prav takrat, ko ga potrebuje.
+- **mrtvi vir = OPOZORILO, NIKOLI napaka** (testno pinano): to je točno
+  pogodba P4 #28–#30 — rubrika poje pošteno vrstico, radio igra dalje.
+  Kakršna koli HTTP odgovor (tudi 4xx/5xx) šteje kot dosegljiv vir:
+  merimo dostopnost, ne pravilnost. Diagnostika, ki bi umirala ob
+  mrtvem routerju, bi lagala o programu.
+- **iskrenost o TTS-u:** manjkajoč piper glas (ključna oblika) je
+  opozorilo z resnico ("naloži jo ob prvi sintezi — enkrat,
+  HuggingFace"), edge pa je označen kot spletna storitev, ki se
+  preverja v režiji — ne pretvarjamo se, da znamo preveriti nepreverljivo.
+- **korpusi so hrbtenica in so del kode:** njihove spodnje meje (kviz 40,
+  glasba 40 dejstev/40 dni, zanimivosti 20) zrcalijo integritetne teste;
+  če kdo skrči hrbtenico, doctor to pokrika PRED oddajo. Ker so del
+  kode, korpusi ostanejo OK tudi ob popolnoma zlomljenem config.json.
+- **fail je redka stvar:** NAPAKA je samo tisto, ob čemer program RES ne
+  more sestaviti oddaje — zlomljen config.json, dataDir, ki kaže na
+  datoteko, nič skladb v `local` načinu, poškodovani korpusi. Vse ostalo
+  je opozorilo ali preskok. Exit code: 1 le ob NAPAKI (zanesljiv za
+  cron/monitoring; `--json` vrne strojni izpis).
+
+Ledger se preverja z ISTIM branjem kot izvajalno poročilo (P4 #27
+`readAiredFile`) — bajtno ista štetja, ista toleranca. Pokvarjene
+vrstice so opozorilo (izgubljeni podatki za licenčno poročilo), tako
+kot ledger brez vnosa starejšega od 7 dni (morda ne piše
+`scrobbleTrack`).
+
+- **Odpornost doctorja samega:** CLI dinamično uvaža config v
+  try/catch — zlomljen config.json je NAPAKA v izpisu, ne crash pred
+  prvo vrstico. Slovensko števanje (1 vnos, 2 vnosa, 5 vnosov) skrbi
+  `slPlural`.
+- **Deterministika:** isti inputi → bajtno isti izpis (fiksni vrstni
+  red, statična razlaga; test potrjuje z dvema tekomema). Testi: 454 →
+  484 (`test/doctor.test.mjs`, 30 — vseh sedem preverjanj, obeh vej
+  config/ne-config, varovalka poštenosti za vire, determinizem,
+  exit-kodna preslikava). Demo: `node scripts/demo_doctor.mjs` (zdrav +
+  pokvarjen peskovnik + zlomljen config).
 
 ## Zapisi, ki ostajajo odprti (PoC)
 
