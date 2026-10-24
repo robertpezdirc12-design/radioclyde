@@ -124,20 +124,44 @@ const DEFAULT_TEMPLATES = {
     'Iz Slovenije in sveta: {headlines}',
   ],
   obzorje: {
-    birth: ['Na dana\u0161nji dan leta {year} se je rodil {name}.'],
-    birthF: ['Na dana\u0161nji dan leta {year} se je rodila {name}.'],
-    death: ['Na dana\u0161nji dan leta {year} je umrl {name}.'],
-    deathF: ['Na dana\u0161nji dan leta {year} je umrla {name}.'],
+    birth: [
+      'Na današnji dan leta {year} se je rodil {name}.',
+      'Na ta dan, {year}, se je rodil {name} -- datum je očitno izbral namenoma, ker so mu tako vsako leto skuhali torto.',
+    ],
+    birthF: [
+      'Na današnji dan leta {year} se je rodila {name}.',
+      'Na ta dan, {year}, se je rodila {name} -- svet se tisti dan ni karaval, je pa se dolgoročno spremenil na bolje.',
+    ],
+    death: [
+      'Na današnji dan leta {year} je umrl {name}.',
+      'Na ta dan leta {year} se je {name} poslovil -- zgodovina si je zapisa, mi pa zapomnili, po možnosti še na plošči.',
+    ],
+    deathF: [
+      'Na današnji dan leta {year} je umrla {name}.',
+      'Na ta dan leta {year} se je {name} poslovila -- zgodovina si je zapisa, mi pa zapomnili, po možnosti še na plošči.',
+    ],
   },
 
   // P4 #19: "Na dana\u0161nji dan v glasbi" -- same data shape as obzorje
   // (Wikidata births/deaths), but the people are musicians (P106/P279* ->
   // Q639669), so the sentences name the rubric. Same kindKey pools.
   obzorjeGlasba: {
-    birth: ['Na dana\u0161nji dan v glasbi se je leta {year} rodil {name}.'],
-    birthF: ['Na dana\u0161nji dan v glasbi se je leta {year} rodila {name}.'],
-    death: ['Na dana\u0161nji dan v glasbi je leta {year} umrl {name}.'],
-    deathF: ['Na dana\u0161nji dan v glasbi je leta {year} umrla {name}.'],
+    birth: [
+      'Na današnji dan v glasbi se je leta {year} rodil {name}.',
+      'Na ta dan v glasbi, {year}: rojil se je {name} -- svet še ni vedel, radioski spomin pa ga od takrat obeležuje vsako leto.',
+    ],
+    birthF: [
+      'Na današnji dan v glasbi se je leta {year} rodila {name}.',
+      'Na ta dan v glasbi, {year}: rojila se je {name} -- in enkrat za vselej dokazala, da mikrofon ni samo za moške basi.',
+    ],
+    death: [
+      'Na današnji dan v glasbi je leta {year} umrl {name}.',
+      'Na ta dan v glasbi, {year}, je {name} zapel zadnjič -- plošče pa od takrat molčijo le, ko jih mi izklopimo.',
+    ],
+    deathF: [
+      'Na današnji dan v glasbi je leta {year} umrla {name}.',
+      'Na ta dan v glasbi, {year}, je {name} zapela zadnjič -- njene pesmi pa od takrat pojejo namesto nje.',
+    ],
   },
 
   // P4 #17: "Zanimivosti" -- one deterministic fact before the track whose

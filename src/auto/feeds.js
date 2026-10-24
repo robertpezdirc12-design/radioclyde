@@ -22,6 +22,7 @@
 // {headlines}, {year}, {name}, ...) that renderSlot() can substitute.
 import { XMLParser } from 'fast-xml-parser';
 import { config } from '../config/index.js';
+import { pickOnThisDayMusic } from './onThisDayFacts.js';
 import { createLogger } from '../lib/logger.js';
 import { pickQuizQuestions } from './quizFacts.js';
 import { activePollSummary } from '../server/pollsStore.js';
@@ -477,6 +478,17 @@ export function collectListenerShout({ limit, windowHours } = {}) {
 export async function collectRubricData({ names = [], offline = false, date, seed } = {}) {
   const settings = rubricSettings();
   const quizSeed = seed ?? date ?? 'quiz';
+  // P4 #28: the local "na današnji dan v glasbi" corpus shares the Wikidata
+  // rubric's date window, so resolve month/day once here for both paths.
+  const [obzorjeYear, obzorjeMonth, obzorjeDay] = String(date ?? '').split('-').map((part) => parseInt(part, 10));
+  const obzorjeTarget = {
+    month: Number.isFinite(obzorjeMonth) ? obzorjeMonth : new Date().getMonth() + 1,
+    day: Number.isFinite(obzorjeDay) ? obzorjeDay : new Date().getDate(),
+  };
+  const localMusic = () =>
+    names.includes('onthisdaymusic')
+      ? pickOnThisDayMusic({ month: obzorjeTarget.month, day: obzorjeTarget.day, limit: settings.onThisDayMusicLimit, seed: quizSeed })
+      : null;
   const quiz = names.includes('quiz') && settings.quizCount > 0
     ? { questions: pickQuizQuestions(settings.quizCount, quizSeed) }
     : null;
@@ -487,8 +499,8 @@ export async function collectRubricData({ names = [], offline = false, date, see
   // P4 #26 "poslusalci": freshly approved requests/dedications, local file.
   const listeners = names.includes('listeners') ? collectListenerShout() : null;
   if (offline) {
-    log('feeds: rubrics skipped (offline mode).');
-    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: null, quiz, poll, listeners, offline: true };
+    log('feeds: rubrics skipped (offline mode); obzorjeGlasba falls back to the local corpus (P4 #28).');
+    return { weather: null, news: null, sport: null, onThisDay: null, onThisDayMusic: localMusic(), quiz, poll, listeners, offline: true };
   }
   const timeoutMs = settings.timeoutSeconds * 1000;
   const wants = (rubric) => names.includes(rubric);
@@ -499,5 +511,11 @@ export async function collectRubricData({ names = [], offline = false, date, see
     wants('onthisday') ? fetchOnThisDay({ date, limit: settings.onThisDayLimit, timeoutMs }) : null,
     wants('onthisdaymusic') ? fetchOnThisDayMusic({ date, limit: settings.onThisDayMusicLimit, timeoutMs }) : null,
   ]);
-  return { weather, news, sport, onThisDay, onThisDayMusic, quiz, poll, listeners, offline: false };
+  // P4 #28: Wikidata stays the primary source, but a dead router, a timeout
+  // or a legitimately empty date no longer kills the rubric -- the local
+  // corpus fills the gap with the same event shape. The network result wins
+  // whenever it actually has events.
+  const musicWithFallback =
+    onThisDayMusic?.events?.length ? onThisDayMusic : (wants('onthisdaymusic') ? localMusic() : null);
+  return { weather, news, sport, onThisDay, onThisDayMusic: musicWithFallback, quiz, poll, listeners, offline: false };
 }

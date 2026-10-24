@@ -200,7 +200,7 @@ Rubrike: vreme, novice, šport, obzorje, zanimivosti, glasba
 | `šport` | **RTV Slovenija** športni RSS — sveže naslovnice | `sportHeadlines` | `sportHeadlines` |
 | `novice` | **RTV Slovenija** novični RSS — naslovnice iz Slovenije in sveta | `newsHeadlines` | `newsHeadlines` |
 | `obzorje` | **Wikidata** — rojstva/smrti na današnji dan, samo entitete s slovensko oznako, spol iz P21 (rodil/rodila, umrl/umrla) | `obzorje` | `obzorje.birth`/`.birthF`/`.death`/`.deathF` |
-| `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi" | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
+| `glasba` | **Wikidata** — isto kot `obzorje`, a filtrirano na glasbenike (poklic P106, podrazredi Q639669 "glasbenik") — rubrika "Na današnji dan v glasbi". Od P4 #28 ima **lokalni korpus** (`src/auto/onThisDayFacts.js`, deluje brez omrežja) kot rezervo, ko Wikidata ni dosegljiva ali za ta dan nič vrne | `obzorjeGlasba` | `obzorjeGlasba.birth`/`.birthF`/`.death`/`.deathF` |
 | `zanimivosti` | **MusicBrainz** (leto nastanka, država, žanri za skupine) + **sl.wikipedia** povzetek kot rezerva + **lokalni korpus** splošnih rock zanimivosti (`src/auto/rockFacts.js`, deluje brez omrežja) | `triviaArtist` / `triviaGeneral` | `triviaArtist` / `triviaGeneral` |
 | `kviz` | **lokalni korpus vprašanj in odgovorov** (`src/auto/quizFacts.js`, 40 ročno kuriranih vprašanj z enim preverljivim odgovorom — deluje brez omrežja) | `quizIntro` / `quizReveal` (ob sredinski skladbi briefa z `quiz` segmentom) | `quizQuestion` / `quizAnswer` (letno ugibanje ostane kot rezerva) |
 | `anketa` | **lokalna datoteka ankete** (`dataDir/polls.json`, upravlja prek API `/api/polls` — brez omrežja, deluje tudi offline; brez aktivne ankete segment preprosto ni na sporedu) | `pollRunning` (brez glasov) / `pollResults` (pošteno trenutno stanje) | `pollRunning` / `pollResults` |
@@ -545,6 +545,29 @@ npm run asrun-export -- --from=2026-10-01 --to=2026-10-24
   ročnega popravljanja, da sploh nastane.
 - Okno je inkluzivno na obeh koncih (`--from`/`--to` ali privzeto današnji
   dan); izhodna mapa se preglasi z `--out`.
+
+### P4 #28: lokalni korpus "na današnji dan v glasbi" (rezerva za obzorjeGlasba)
+
+Rubrika `glasba` ("Na današnji dan v glasbi") je do P4 #28 živela izključno na
+Wikidatinih SPARQL poizvedbah -- brez omrežja (mrtev usmerjevalnik, timeout,
+prazni datum) je bila tiho spuščena, čeprav je prav ta rubrika najbolj
+"radijska" od vseh. Od P4 #28 za njo stoji **lokalni korpus**
+(`src/auto/onThisDayFacts.js`): 56 ročno kuriranih, sicer povsem dokumentiranih
+glasbenih rojstev in smrti prek 47 dni koledarja (od Louisa Armstronga do
+Slavka Avsenika, z Vlada Kreslinom), v ISTI obliki dogodka, ki jo vrača
+Wikidata (`year`/`name`/`sex`/`kind`) -- izris skozi iste predloge, brez
+napak v spolnih končavah.
+
+- **Primarnost ohranjena:** Wikidata ostane prvi vir; korpus stopi samo, ko
+  je mrežni odgovor nedosegljiv ali prazen. Ista dnevna deterministika:
+  isti datum + isto seme = isti dogodki v istem vrstnem redu (FNV-1a,
+  kot kviz).
+- **Offline branch:** v `--offline` načinu se rubrika zdaj ne umakne več,
+  ampak pokaže korpus -- kot kviz, anketa in poslušalci. Brez dejstev za
+  datum korpus vrne `null` in segment tiho spade (skip-not-fail).
+- **Tone pass:** bazena `obzorje` in `obzorjeGlasba` imata poleg osnovnega
+  stavka še po eno hecavno varianto na kindKey (rojstva igriva, smrti
+  tolažilno -- "plošče pa od takrat molčijo le, ko jih mi izklopimo").
 
 ## Zapisi, ki ostajajo odprti (PoC)
 
