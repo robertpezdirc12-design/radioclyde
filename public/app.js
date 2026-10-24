@@ -40,6 +40,10 @@ const els = {
   favEmpty: $('fav-empty'),
   weekGrid: $('week-grid'),
   scheduleTz: $('schedule-tz'),
+  topList: $('top-list'),
+  topEmpty: $('top-empty'),
+  topError: $('top-error'),
+  topWindow: $('top-window'),
   podList: $('pod-list'),
   podError: $('pod-error'),
   podRss: $('pod-rss'),
@@ -737,6 +741,7 @@ document.querySelectorAll('[data-retry]').forEach((btn) =>
   btn.addEventListener('click', () => {
     const what = btn.dataset.retry;
     if (what === 'history') fetchHistory();
+    if (what === 'toplistened') fetchTopListened();
     if (what === 'upcoming') fetchUpcoming();
     if (what === 'schedule') fetchSchedule();
     if (what === 'podcast') fetchPodcast();
@@ -845,6 +850,63 @@ els.podRssCopy.addEventListener('click', async () => {
   setTimeout(() => { els.podRssCopy.textContent = 'Kopiraj RSS'; }, 2000);
 });
 
+// ---------- najbolj poslusano ----------
+
+function topDeltaChip(delta) {
+  const d = Number(delta) || 0;
+  const rounded = Math.round(Math.abs(d) * 10) / 10;
+  const sign = d > 0 ? '\u25B2' : d < 0 ? '\u25BC' : '\u25CF';
+  const num = rounded.toLocaleString('sl-SI', { maximumFractionDigits: 1 });
+  return `${sign}${d > 0 ? '+' : d < 0 ? '\u2212' : '\u00B1'}${num}`;
+}
+
+function renderTopListened(data) {
+  els.topWindow.textContent = data.windowDays ? `-- ${data.windowDays} dni` : '';
+  els.topList.replaceChildren();
+  const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+  if (tracks.length === 0) {
+    els.topEmpty.textContent = data.note ?? 'Seznam je prazen.';
+    els.topEmpty.hidden = false;
+    return;
+  }
+  els.topEmpty.hidden = true;
+  tracks.forEach((t, i) => {
+    const li = document.createElement('li');
+    li.className = 'top-row';
+    const rank = document.createElement('span');
+    rank.className = 'top-rank';
+    rank.textContent = `${i + 1}.`;
+    const name = document.createElement('span');
+    name.className = 'top-name';
+    name.textContent = `${t.artist} -- ${t.title}`;
+    const meta = document.createElement('span');
+    meta.className = 'top-meta';
+    const plays = document.createElement('span');
+    plays.textContent = `${t.plays}\u00D7`;
+    plays.title = `${t.plays} predvajanj v oknu`;
+    const chip = document.createElement('span');
+    chip.className = `top-chip ${t.avgDelta > 0 ? 'top-up' : t.avgDelta < 0 ? 'top-down' : 'top-flat'}`;
+    chip.textContent = topDeltaChip(t.avgDelta);
+    chip.title = `V povpre\u010Dju ${t.listenersAvg} poslu\u0161alcev med skladbo`;
+    meta.append(plays, chip);
+    li.append(rank, name, meta);
+    els.topList.appendChild(li);
+  });
+}
+
+async function fetchTopListened() {
+  els.topError.hidden = true;
+  try {
+    const res = await fetch('/api/top-listened');
+    if (!res.ok) throw new Error(res.status);
+    renderTopListened(await res.json());
+  } catch {
+    els.topList.replaceChildren();
+    els.topEmpty.hidden = true;
+    els.topError.hidden = false;
+  }
+}
+
 // ---------- boot ----------
 
 els.form.addEventListener('submit', submitRequest);
@@ -853,6 +915,7 @@ els.checkButton.addEventListener('click', checkRequest);
 renderFavs();
 fetchNowPlaying();
 fetchHistory();
+fetchTopListened();
 fetchUpcoming();
 fetchWeather();
 fetchListeners();

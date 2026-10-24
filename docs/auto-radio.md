@@ -556,6 +556,18 @@ epizode in gumbom *Izdelaj današnjo epizodo* — kliče ISTI cevovod kot CLI
 (`POST /studio/api/podcast`). Današnja z zvokom = reuse (brez dela), `--force`
 izdela znova, sočasni klik dobi 409, napaka pa pošteno prvo vrstico vzroka.
 
+## Javna »najbolj poslušano« (P5)
+
+Analitika je bila samo admin — poslušalcu pa nič ne gre vzeti z malo kode:
+`GET /api/top-listened` vrne top 10 skladb tedna po povprečnem številu
+poslušalcev med predvajanjem (isti izračun kot studio Analytics —
+`listenerImpact.trackImpact` z istimi pragovi `minSamples`/`minCoverage`),
+plus pošten kazalec Δ (koliko poslušalcev je predvajanje pridobilo/izgubilo).
+Javna površina je namenoma ozka: samo agregati po skladbi — brez ratingKey,
+brez ležerja, brez vzorcev, brez IP. Prazno stanje je izpisano z razlogom,
+nikoli izumljeno. Kartica živi na poslušalski strani med »Nedavno
+predvajano« in priljubljenimi.
+
 ## Orodja
 
 - `npm run doctor [-- --cron] [--minutes-before=15]`

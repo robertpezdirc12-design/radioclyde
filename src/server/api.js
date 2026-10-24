@@ -3,6 +3,7 @@ import { getRecentHistory } from './historyApi.js';
 import { getUpcomingShows } from './upcoming.js';
 import { registerScheduleRoute } from './scheduleApi.js';
 import { registerRequestsRoutes } from './requestsApi.js';
+import { registerTopListenedRoutes } from './topListenedApi.js';
 import { registerPollsRoutes } from './pollsApi.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { readSamples } from '../analytics/listenerSamples.js';
@@ -22,6 +23,8 @@ export function registerApiRoutes(fastify) {
   });
 
   fastify.get('/api/upcoming', () => ({ shows: getUpcomingShows() }));
+
+  registerTopListenedRoutes(fastify);
 
   // Real listener count for the public page's chip. Honesty rule: a number
   // appears ONLY when Icecast actually answered -- a dead stream reports

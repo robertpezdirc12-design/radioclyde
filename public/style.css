@@ -500,3 +500,14 @@ body {
 .pod-chapters { margin: 8px 0 0; padding-left: 20px; color: var(--text-faint); font-size: 0.88rem; }
 .pod-chapters li { margin: 2px 0; }
 .pod-item summary { cursor: pointer; color: var(--text-dim); margin-top: 8px; }
+
+/* ---- najbolj poslusano ---- */
+.top-window { color: var(--text-faint); font-size: 0.84rem; font-weight: normal; }
+.top-row { display: flex; gap: 10px; align-items: baseline; }
+.top-rank { color: var(--text-faint); min-width: 1.6em; }
+.top-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-meta { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
+.top-chip { font-size: 0.8rem; }
+.top-up { color: #7fd88f; }
+.top-down { color: #e08f8f; }
+.top-flat { color: var(--text-faint); }

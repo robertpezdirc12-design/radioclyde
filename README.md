@@ -340,6 +340,11 @@ prose for humans. The selection section supports:
   a line without audio skips honestly, the episode still assembles. The
   studio's Shows view has the "build today's episode" button driving the
   SAME pipeline (auto/podcastPipeline.js) as the CLI.
+- **Public "most listened" (P5)**: `GET /api/top-listened` gives the
+  listener an anonymized weekly top-10 straight from the real sampling
+  ledger (same impact math as the studio view, same honesty thresholds) --
+  aggregate per track only: no rating keys, no samples, no IPs. Rendered
+  as a card on the listener page with an honest empty state.
 - **Public podcast address (P5 #3)**: the listener finally SEES the
   podcast -- a "Podkast" tab with an episode player, measured chapters and
   a copyable RSS link; a channel-level RSS 2.0 feed at `/podcast/feed.xml`
