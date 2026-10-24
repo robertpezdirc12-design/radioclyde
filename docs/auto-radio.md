@@ -65,7 +65,10 @@ Lokalni ponudnik (`auto/localLibrary.js`) rekurzivno pregleda mape, prebere
 prave ID3/Vorbis oznake (naslov, izvajalec, album, leto, žanr, trajanje) prek
 knjižnice `music-metadata` in tvori iste objekte skladb kot Plex — zato
 odvod zgodovine predvajanja, izločanje ponavljanj in trajanje oddaje delajo
-enako. `ratingKey` je stabilen zgoščen poti datoteke.
+enako. `ratingKey` je stabilen zgoščen poti datoteke. Izvajalci s poševnico
+v imenu (AC/DC) ostanejo cele: ID3v2.3 razglasi »/« za ločilo več vrednosti,
+zato se razdeljene dele znova združi z istim ločilom — oznaka je vir
+resnice, nič se ne izmisli (regresijski test v `test/localLibrary.test.mjs`).
 
 Omejitve lokalnega načina (jasno prijavljene, ne utišane):
 
@@ -491,7 +494,7 @@ oklepajev, brez okrajšav, največ trije stavki na varianto (lint v testih).
 
 - `npm run doctor [-- --cron] [--minutes-before=15]`
   — zdravstveni pregled pred terminirano uro: sonde, izstopna koda in
-  (z `--cron`) cron vzorec izpravljen iz station.json. Glej razdelek zgoraj.
+  (z `--cron`) cron vzorec izpeljan iz station.json. Glej razdelek zgoraj.
 - `npm run podcast-gen [-- --date --genre --tracks --out]`
   — petminutni Markec Podkast: skripta + načrt epizode v
   `<dataDir>/podcasts/`. Glej razdelek zgoraj.

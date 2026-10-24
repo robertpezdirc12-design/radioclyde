@@ -51,8 +51,25 @@ async function readTrackMeta(filePath) {
     // Track artists first (compilation-friendly, same reasoning as
     // trackFromMetadata's originalTitle-first check), album/directory artist
     // as fallback; filename "Artist - Title" as the last resort.
+    //
+    // Slash-artists stay whole: ID3v2.3 text frames declare "/" as the
+    // multiple-value separator, so a plain "AC/DC" tag comes back as
+    // artists: ["AC", "DC"] and common.artist degrades to "AC" -- the band
+    // loses half its name on air. The tag's own string is the source of
+    // truth for a radio (an artist is a NAME, not a query), so the split
+    // parts are rejoined with the exact separator music-metadata removed.
+    // A true multi-artist tag reads the same and renders "A/B" -- both
+    // names stay visible, nothing is invented. Titles/albums are untouched
+    // (music-metadata does not split those fields).
+    const artistParts = Array.isArray(common.artists)
+      ? common.artists.map((p) => String(p ?? '').trim()).filter(Boolean)
+      : [];
     const artist =
-      common.artists?.[0] ?? common.artist ?? common.albumartist ?? guessArtistFromFilename(filePath) ?? 'Unknown Artist';
+      (artistParts.length > 0 ? artistParts.join('/') : undefined) ??
+      common.artist ??
+      common.albumartist ??
+      guessArtistFromFilename(filePath) ??
+      'Unknown Artist';
     // Genre: prefer audio tags, but fall back to the parent directory name
     // (e.g. music/folk/...) so libraries without tags still get a usable genre.
     // Also merge in the directory name so selection by genre works even when

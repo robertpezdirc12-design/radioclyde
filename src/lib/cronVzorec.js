@@ -2,7 +2,7 @@
 // derivation from station.json plus check-result aggregation. Everything here
 // is PURE: no fs, no network, no config imports, so tests run in
 // microseconds and the functions can never fail on a broken environment --
-// the CLI (src/cli/doctor.js) owns all probing.
+// the CLI (src/cli/doctorCli.js) owns all probing.
 //
 // The agreed pattern (option c) is "dnevni doctor pred vsako terminirano
 // uro". Cron cannot read station.json, so we derive the timetable from the
@@ -110,7 +110,7 @@ export function cronVzorecText(schedule, { minutesBefore = 15, repoRoot = '.', l
     const before = slot.startTimes.join(', ');
     lines.push(`# termin: ${before}`);
     lines.push(
-      `${slot.minute} ${slot.hour} * * ${slot.dayField} /bin/bash -lc 'cd ${repoRoot} && node src/cli/doctor.js >> ${logFile} 2>&1'`
+      `${slot.minute} ${slot.hour} * * ${slot.dayField} /bin/bash -lc 'cd ${repoRoot} && node src/cli/doctorCli.js >> ${logFile} 2>&1'`
     );
   }
   if (slots.length === 0) lines.push('# urnik je prazen -- ni česa razporediti');

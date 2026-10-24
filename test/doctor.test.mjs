@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 import {
   STATUS,
@@ -37,6 +38,10 @@ import {
   runDoctor,
   slPlural,
 } from '../src/auto/doctor.js';
+
+// Repo root -- za preverjanje, da poti v cron vzorcu kažejo na obstoječe
+// datoteke (bramba proti preimenovanju CLI-ja brez posodobitve vzorca).
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-test-'));
@@ -481,8 +486,20 @@ describe('cronVzorecText', () => {
       { minutesBefore: 15, repoRoot: '/repo', logFile: '/data/doctor-cron.log' }
     );
     assert.match(text, /# termin: 20:00/);
-    assert.match(text, /45 19 \* \* 1 \/bin\/bash -lc 'cd \/repo && node src\/cli\/doctor\.js >> \/data\/doctor-cron\.log 2>&1'/);
+    assert.match(text, /45 19 \* \* 1 \/bin\/bash -lc 'cd \/repo && node src\/cli\/doctorCli\.js >> \/data\/doctor-cron\.log 2>&1'/);
     assert.match(text, /# Doctor pred vsako terminirano uro/);
+  });
+
+  test('vzorec kaže na doctor CLI, ki RES obstaja (varovalka proti preimenovanju)', () => {
+    // Polirni popravek: vzorec je enkrat kazal na izbrisan src/cli/doctor.js --
+    // crontab vrstica bi strmoglavila s "Cannot find module" TOČKO, ko jo
+    // operater najbolj potrebuje. Modul ostane čist (brez fs), test pa
+    // preveri, da pot v vzorcu dejansko kaže na datoteko v repozitoriju.
+    const text = cronVzorecText({ monday: [{ startTime: '20:00' }] }, { repoRoot: '/repo', logFile: '/l.log' });
+    const match = text.match(/node (src\/cli\/[\w.]+\.js)/);
+    assert.ok(match, 'vzorec mora vsebovati node <pot-do-cli>');
+    const referenced = path.resolve(REPO_ROOT, match[1]);
+    assert.ok(fs.existsSync(referenced), `vzorec kaže na neobstoječo datoteko: ${match[1]}`);
   });
 
   test('prazen urnik -> poštena opomba, ne prazna črna vrstica', () => {

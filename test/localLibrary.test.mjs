@@ -19,12 +19,37 @@ const config = setupTestConfig('local-library');
 //             covered by the filenames that DO carry metadata patterns)
 //   root   -- file directly in the library root: no directory genre to guess
 const musicDir = path.join(config.dataDir, 'music');
+
+// Minimal hand-crafted ID3v2.3 MP3 (no ffmpeg dependency): a valid tag with
+// TPE1 "AC/DC" + TIT2, followed by silent MPEG-1 Layer III frames long
+// enough for the ~2 s duration window the other tests assert.
+function id3v23TextFrame(id, value) {
+  const payload = Buffer.concat([Buffer.from([0x00]), Buffer.from(value, 'latin1')]);
+  const head = Buffer.alloc(10);
+  head.write(id, 0, 'latin1');
+  head.writeUInt32BE(payload.length, 4);
+  return Buffer.concat([head, payload]);
+}
+function synchsafe(n) {
+  return Buffer.from([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f]);
+}
+function writeTaggedMp3(filePath, { artist, title }) {
+  const frames = Buffer.concat([id3v23TextFrame('TPE1', artist), id3v23TextFrame('TIT2', title)]);
+  const tag = Buffer.concat([Buffer.from('ID3', 'latin1'), Buffer.from([0x03, 0x00, 0x00]), synchsafe(frames.length), frames]);
+  // 77 frames x 417 bytes @ 44100 Hz, 128 kbps ~= 2.01 s of MPEG-1 Layer III
+  const frame = Buffer.alloc(417, 0);
+  frame[0] = 0xff; frame[1] = 0xfb; frame[2] = 0x90; frame[3] = 0x00;
+  fs.writeFileSync(filePath, Buffer.concat([tag, ...Array.from({ length: 77 }, () => frame)]));
+  return filePath;
+}
+
 const files = [
   writeWav(path.join(musicDir, 'folk', 'Ansambel Veseljak - Na okencu.wav'), 2),
   writeWav(path.join(musicDir, 'folk', 'Ansambel Veseljak - Po julijanski cesti.wav'), 2),
   writeWav(path.join(musicDir, 'rock', '03 - Skupina Ogenj - Zadnji vlak.wav'), 2), // leading track number
   writeWav(path.join(musicDir, 'rock', 'Skupina Ogenj - Brez_naslova.wav'), 2), // underscores in filename
   writeWav(path.join(musicDir, 'Brez Imena - Samota.wav'), 2), // no genre folder
+  writeTaggedMp3(path.join(musicDir, 'rock', 'acdc-highway.mp3'), { artist: 'AC/DC', title: 'Highway to Hell' }), // ID3v2.3 slash-artist
 ];
 config.autoRadio.music.localDirs = [musicDir];
 fs.writeFileSync(path.join(repoRoot(), 'config.json'), JSON.stringify(config, null, 2));
@@ -85,5 +110,16 @@ describe('localLibrary (fixture-based)', () => {
     for (const t of tracks) {
       assert.ok(t.durationMs >= 1900 && t.durationMs <= 2200, `2s WAV should report ~2000ms, got ${t.durationMs}`);
     }
+  });
+
+  test('slash-artist stays whole: ID3v2.3 "AC/DC" is not split to "AC"', async () => {
+    // music-metadata splits v2.3 TPE1 on the spec's "/" separator, which used
+    // to leave the band on air as "AC". The tag string is the source of
+    // truth -- the split parts are rejoined with the same separator.
+    const tracks = await allLocalTracks();
+    const acdc = tracks.find((t) => t.localPath.endsWith('acdc-highway.mp3'));
+    assert.ok(acdc, 'tagged MP3 scanned');
+    assert.equal(acdc.artist, 'AC/DC');
+    assert.equal(acdc.title, 'Highway to Hell');
   });
 });
