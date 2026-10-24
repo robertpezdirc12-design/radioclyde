@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { startPodkastCard } from './podcast.js';
 
 const searchEl = document.getElementById('shows-search');
 const newShowButton = document.getElementById('new-show-button');
@@ -151,4 +152,5 @@ searchEl.addEventListener('input', renderTable);
 
 export function startShowsView() {
   loadShows();
+  startPodkastCard();
 }

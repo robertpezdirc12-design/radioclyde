@@ -333,3 +333,58 @@ describe('fakti in predloge se dogovarjajo', () => {
     assert.match(chat.text, /[.!?]/, 'klepet ima kon\u010dno lo\u010dilo');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regresija (studio gumb je bug pripeljal na plan): podcastDate BREZ --date
+// je vrtel weather.currentLocalDateString, ki govorí "Saturday, October 24"
+// (oblika za žive vrstice) -- buildPodcastEpisode ga je pošteno vrgel ven.
+// Torej: lokalni YYYY-MM-DD iz edelne lib/time.js implementacije.
+// ---------------------------------------------------------------------------
+describe('podcastDate (CLI datumski dogovor)', () => {
+  test('brez --date vrne LOKALNI YYYY-MM-DD, ne besedne oblike za žive vrstice', async () => {
+    const { podcastDate } = await import('../src/cli/podcastCommon.js');
+    const d = await podcastDate({}, 'Europe/Ljubljana');
+    assert.match(d, /^\d{4}-\d{2}-\d{2}$/, 'natančno YYYY-MM-DD');
+    assert.ok(!/[a-zA-Z]/.test(d.replace(/^[\d-]+$/, '')), 'brez črk');
+    const { toLocalISOString } = await import('../src/lib/time.js');
+    assert.equal(d, toLocalISOString(new Date(), 'Europe/Ljubljana').slice(0, 10), 'enaka resnica kot edelna implementacija');
+  });
+
+  test('eksplicitni --date gre skozi nespremenjen', async () => {
+    const { podcastDate } = await import('../src/cli/podcastCommon.js');
+    assert.equal(await podcastDate({ date: '2026-10-25' }, 'UTC'), '2026-10-25');
+  });
+
+  test('cevovod brez datuma tudi sam po sebi dobi YYYY-MM-DD (studio gumb pot)', async () => {
+    // producePodcastEpisode z genarrirano prazno knjižnico mora odnehati z
+    // pošteno napako o knjižnici -- NE z "Datum podkasta mora biti...".
+    // Tako je priklenjen pravi razred napake (knjižnica), ne datumski bug.
+    const { producePodcastEpisode } = await import('../src/auto/podcastPipeline.js');
+    await assert.rejects(
+      () => producePodcastEpisode({ genre: 'neobstojeci-zanr-za-test' }),
+      (err) => {
+        assert.ok(!/Datum podkasta/.test(err.message), 'datumski bug nazaj?');
+        assert.match(err.message, /knjižnici|žanrom/);
+        return true;
+      }
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regresija (smoke P5 #3 jo je ujel živo): `--out <mapa>` v presledkovni
+// obliky parseArgs razbere kot gol flag (out=true) + pozicijsko -- in je
+// path.resolve("true") tiho pisal v <repo>/true/. Zdaj: poštena napaka.
+// ---------------------------------------------------------------------------
+describe('podcastOutDir (--out footgun)', () => {
+  test('gol --out je poštena napaka', async () => {
+    const { podcastOutDir } = await import('../src/cli/podcastCommon.js');
+    assert.throws(() => podcastOutDir({ out: true }, { dataDir: '/d' }), /--out potrebuje vrednost/);
+  });
+  test('--out=<mapa> in privzeto dataDir/podcasts ostajata pravilna', async () => {
+    const { podcastOutDir } = await import('../src/cli/podcastCommon.js');
+    const path = await import('node:path');
+    assert.equal(podcastOutDir({ out: '/tmp/podkasti' }, { dataDir: '/d' }), '/tmp/podkasti');
+    assert.equal(podcastOutDir({}, { dataDir: '/d' }), path.join('/d', 'podcasts'));
+  });
+});

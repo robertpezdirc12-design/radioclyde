@@ -120,6 +120,69 @@ ${enclosure}    </item>
 `;
 }
 
+// -- H:MM:SS straight from SECONDS (the audio plan carries measured seconds,
+// not minutes; itunesDuration() rounds from minutes and would lie by up to
+// 30 s on a 5-minute episode -- honesty rule, same math, no invention).
+export function itunesDurationSeconds(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// ---------------------------------------------------------------------------
+// P5 #3: JAVNI KANALSKI RSS -- en kanal, VEČ epizod. buildPodcastFeed() zgoraj
+// je posameznepizodni XML (P4 #25 dogovor, ostaja kot je); podcast aplikacije
+// pa naročajo KANAL: en <channel>, več <item>. Čist gradnik: nič ne bere diska
+// ali ure -- vsak vnos pride iz skeniranih načrtov (podcastApi.js), zato so
+// bajti za isti vhod vedno enaki. lastBuildDate je iz najnovejše epizode, ne
+// Date.now() -- feed se spremeni natanko takrat, ko se spremeni arhiv.
+// ---------------------------------------------------------------------------
+export function buildPodcastChannelFeed({ station = 'Radio Markec', title = 'Markec Podkast', description, link, imageUrl, author, episodes = [] } = {}) {
+  const sorted = [...episodes].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const newest = sorted[0];
+  const safeTitle = xmlEscape(title);
+  const safeLink = xmlEscape(link ?? '');
+  const safeAuthor = xmlEscape(author ?? station);
+  const safeSummary = xmlEscape(description ?? `Podkast radijske postaje ${station}.`);
+  const lastBuild = newest
+    ? `    <lastBuildDate>${new Date(`${newest.date}T12:00:00Z`).toUTCString()}</lastBuildDate>\n`
+    : '';
+  const image = imageUrl ? `    <itunes:image href="${xmlEscape(imageUrl)}"/>\n` : '';
+
+  const items = sorted.map((ep) => {
+    const pubDate = new Date(`${ep.date}T12:00:00Z`).toUTCString();
+    const encUrl = xmlEscape(ep.audioUrl ?? '');
+    const size = Math.max(0, Math.round(Number(ep.sizeBytes) || 0));
+    const enc = encUrl && size > 0 ? `      <enclosure url="${encUrl}" length="${size}" type="audio/mpeg"/>\n` : '';
+    return `    <item>
+      <title>${xmlEscape(ep.title ?? `Epizoda ${ep.date}`)}</title>
+      <guid isPermaLink="false">${xmlEscape(ep.guid ?? `markec-podkast-${ep.date}`)}</guid>
+      <pubDate>${pubDate}</pubDate>
+      <itunes:duration>${itunesDurationSeconds(ep.seconds)}</itunes:duration>
+      <description>${xmlEscape(ep.description ?? '')}</description>
+${enc}    </item>
+`;
+  }).join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>${safeTitle}</title>
+    <link>${safeLink}</link>
+    <language>sl</language>
+    <itunes:type>episodic</itunes:type>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:author>${safeAuthor}</itunes:author>
+    <itunes:summary>${safeSummary}</itunes:summary>
+${image}${lastBuild}    <generator>radioclyde (deterministično, brez modelov)</generator>
+    <description>${safeSummary}</description>
+${items}  </channel>
+</rss>
+`;
+}
+
 export function buildShowNotes({ title, date, durationMinutes, station, chapters, tracks, rubricLines }) {
   const lines = [];
   lines.push(`# ${title}`);

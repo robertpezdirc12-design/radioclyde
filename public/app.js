@@ -40,6 +40,10 @@ const els = {
   favEmpty: $('fav-empty'),
   weekGrid: $('week-grid'),
   scheduleTz: $('schedule-tz'),
+  podList: $('pod-list'),
+  podError: $('pod-error'),
+  podRss: $('pod-rss'),
+  podRssCopy: $('pod-rss-copy'),
   scheduleError: $('schedule-error'),
   downtimeNote: $('downtime-note'),
   form: $('request-form'),
@@ -715,6 +719,7 @@ const TABS = [
   { tab: 'tab-now', panel: 'panel-now', onShow: null },
   { tab: 'tab-schedule', panel: 'panel-schedule', onShow: fetchSchedule },
   { tab: 'tab-requests', panel: 'panel-requests', onShow: null },
+  { tab: 'tab-podcast', panel: 'panel-podcast', onShow: fetchPodcast },
 ];
 
 function selectTab(id) {
@@ -734,8 +739,111 @@ document.querySelectorAll('[data-retry]').forEach((btn) =>
     if (what === 'history') fetchHistory();
     if (what === 'upcoming') fetchUpcoming();
     if (what === 'schedule') fetchSchedule();
+    if (what === 'podcast') fetchPodcast();
   })
 );
+
+// ---------- podkast ----------
+
+const POD_DATE_FMT = new Intl.DateTimeFormat('sl-SI', { day: 'numeric', month: 'long', year: 'numeric' });
+
+function podDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  return `${m}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function renderPodcast(data) {
+  els.podRss.value = data.feedUrl ?? '';
+  els.podList.innerHTML = '';
+  const episodes = Array.isArray(data.episodes) ? data.episodes : [];
+  if (episodes.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'Podkast \u0161e ni objavljen -- epizoda nastane z gumbom v studiu ali z ukazom podcast-audio. Kadarkoli bo, se pojavi tukaj.';
+    els.podList.appendChild(p);
+    return;
+  }
+  for (const ep of episodes) {
+    const item = document.createElement('article');
+    item.className = 'pod-item';
+    const meta = [POD_DATE_FMT.format(new Date(`${ep.date}T12:00:00`))];
+    const dur = podDuration(ep.seconds);
+    if (dur) meta.push(dur);
+
+    const head = document.createElement('div');
+    head.className = 'pod-item-head';
+    const h3 = document.createElement('h3');
+    h3.textContent = ep.title;
+    const span = document.createElement('span');
+    span.className = 'pod-meta';
+    span.textContent = meta.join(' -- ');
+    head.append(h3, span);
+    item.appendChild(head);
+
+    if (ep.hasAudio && ep.audioUrl) {
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'none';
+      audio.src = ep.audioUrl;
+      item.appendChild(audio);
+      // Poglavja (izmerjeni zamiki iz plana) -- samo kadar obstajajo; prazno
+      // stanje se ne izumlja.
+      if (Array.isArray(ep.chapters) && ep.chapters.length > 0) {
+        const det = document.createElement('details');
+        const sum = document.createElement('summary');
+        sum.textContent = `Poglavja (${ep.chapters.length})`;
+        det.appendChild(sum);
+        const ul = document.createElement('ul');
+        ul.className = 'pod-chapters';
+        for (const ch of ep.chapters) {
+          const li = document.createElement('li');
+          const mm = Math.floor((ch.startMs ?? 0) / 60000);
+          const ss = String(Math.floor(((ch.startMs ?? 0) % 60000) / 1000)).padStart(2, '0');
+          li.textContent = `${mm}:${ss} ${ch.title}`;
+          ul.appendChild(li);
+        }
+        det.appendChild(ul);
+        item.appendChild(det);
+      }
+    } else {
+      const note = document.createElement('p');
+      note.className = 'hint';
+      note.textContent = 'Epizoda \u0161e brez zvoka -- skripta obstaja, zvok pa se \u0161e ni izdelal.';
+      item.appendChild(note);
+    }
+    els.podList.appendChild(item);
+  }
+}
+
+async function fetchPodcast() {
+  els.podError.hidden = true;
+  try {
+    const res = await fetch('/api/podcast');
+    if (!res.ok) throw new Error(res.status);
+    renderPodcast(await res.json());
+  } catch {
+    els.podList.innerHTML = '';
+    els.podError.hidden = false;
+  }
+}
+
+els.podRssCopy.addEventListener('click', async () => {
+  const value = els.podRss.value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    els.podRssCopy.textContent = 'Kopirano';
+  } catch {
+    // clipboard API zahteva varni kontekst -- zanesljiv nadomestek: ro&ccaron;na izbira
+    els.podRss.focus();
+    els.podRss.select();
+    document.execCommand('copy');
+    els.podRssCopy.textContent = 'Kopirano';
+  }
+  setTimeout(() => { els.podRssCopy.textContent = 'Kopiraj RSS'; }, 2000);
+});
 
 // ---------- boot ----------
 

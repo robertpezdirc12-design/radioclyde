@@ -328,16 +328,26 @@ prose for humans. The selection section supports:
   15 min pred začetkom (za polnočjo termini premaknejo dan-of-teden nazaj;
   glej [docs/auto-radio.md](docs/auto-radio.md)).
 - **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
-- **Podcast audio (P5 #2)**: `npm run podcast-audio` turns the same episode
-  into a real MP3 -- Piper speaks every line (same voice as on-air), real
-  library files are the music, ffmpeg stitches + embeds measured chapters;
-  a line without audio skips honestly, the episode still assembles.
   deterministic standalone five-minute episode — talk, music, talk, music,
   talk — from the real library + the offline rock-facts corpus, in the
   zajebant persona (rock attitude in the WORDS, never in the voice: Piper
   flattens shouting). Writes `<dataDir>/podcasts/<date>-markec-podkast.md`
   + `.json`; `npm run podcast-export` (P4 #25) turns a PRODUCED show into
   the RSS feed + show notes.
+- **Podcast audio (P5 #2)**: `npm run podcast-audio` turns the same episode
+  into a real MP3 -- Piper speaks every line (same voice as on-air), real
+  library files are the music, ffmpeg stitches + embeds measured chapters;
+  a line without audio skips honestly, the episode still assembles. The
+  studio's Shows view has the "build today's episode" button driving the
+  SAME pipeline (auto/podcastPipeline.js) as the CLI.
+- **Public podcast address (P5 #3)**: the listener finally SEES the
+  podcast -- a "Podkast" tab with an episode player, measured chapters and
+  a copyable RSS link; a channel-level RSS 2.0 feed at `/podcast/feed.xml`
+  (enclosures ONLY for episodes with real audio on disk; lastBuildDate
+  follows the archive, never the clock) and range-enabled audio serving at
+  `/podcast/<file>.mp3` (traversal-proof, plans never public). Routes stay
+  behind Basic Auth by default; open them with
+  `web.publicPaths: ["/podcast", "/api/podcast"]`.
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
   wave, whole-album night) renders real briefs on demand — no hand-writing.

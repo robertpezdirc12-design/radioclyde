@@ -76,6 +76,7 @@
       <button class="tab" id="tab-now" role="tab" aria-selected="true" aria-controls="panel-now" type="button">Zdaj</button>
       <button class="tab" id="tab-schedule" role="tab" aria-selected="false" aria-controls="panel-schedule" type="button">Spored</button>
       <button class="tab" id="tab-requests" role="tab" aria-selected="false" aria-controls="panel-requests" type="button">Zahtevki</button>
+      <button class="tab" id="tab-podcast" role="tab" aria-selected="false" aria-controls="panel-podcast" type="button">Podkast</button>
     </nav>
 
     <!-- ============ PANEL: ZDAJ ============ -->
@@ -139,6 +140,23 @@
           <input id="req-check-id" autocomplete="off" placeholder="npr. m1abc2d-3f4a">
           <button class="btn-secondary" id="req-check" type="button">Preveri status</button>
           <div class="form-result" id="req-status" role="status"></div>
+        </div>
+      </div>
+    </section>
+    <section id="panel-podcast" class="panel" role="tabpanel" aria-labelledby="tab-podcast" hidden>
+      <div class="card">
+        <div class="podcast-head">
+          <h2>Markec Podkast</h2>
+          <div class="podcast-feed">
+            <input id="pod-rss" readonly aria-label="RSS naslov podkasta" placeholder="RSS naslov">
+            <button class="btn-secondary" id="pod-rss-copy" type="button">Kopiraj RSS</button>
+          </div>
+        </div>
+        <p class="hint">Kratke epizode: glasba iz prave knjižnice, pogovor brez modelov, smeh po dogovoru. Naslov RSS vpi&scaron;i v svojo podkast aplikacijo (Apple Podcasts, AntennaPod, &hellip;).</p>
+        <div id="pod-list" class="pod-list"></div>
+        <div id="pod-error" hidden>
+          <p>Arhiva podkasta trenutno ni mogo&ccaron;e prikazati.</p>
+          <button class="btn-secondary" data-retry="podcast" type="button">Poskusi znova</button>
         </div>
       </div>
     </section>

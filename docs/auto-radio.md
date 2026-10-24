@@ -511,6 +511,51 @@ izriše v **zvočni MP3** (44.1 kHz stereo, 128 kbps, `libmp3lame`):
 Zahteve: piper1-gpl (`pip install piper-tts`) + glas (ključ ali pot) +
 ffmpeg z libmp3lame.
 
+### Cevovod, ki ga dela OBE vrati (CLI + studio gumb)
+
+`src/auto/podcastPipeline.js` je skupno telo obeh podcast CLI-jev IN
+studijevega gumba — isti kandidati, ista epizoda, isti plan, isti skip-not-fail
+dogovor. Strežniku varen: nikoli `process.exit`, samo poštene napake.
+`podcastDate` (CLI brez `--date`) in reuse-check studia računata lokalni
+`YYYY-MM-DD` iz `lib/time.js` (`toLocalISOString`) — besedna oblika za žive
+vrstice ("Saturday, October 24") tu ne pride v poštev (regresija: živi gumb je
+ta bug pripeljal na dan; v CLI-ju je tiholec živel od P5 #1). Še en regresijski
+pripet: goli `--out <mapa>` (parseArgs pozna samo `--key=value`) je nekdaj tiho
+pisal v `<repo>/true/` — zdaj je to poštena napaka.
+
+## Javni naslov podkasta (P5 #3)
+
+Vsebina je do zdaj obstajala, ni pa imela NASLOVA za poslušalca — največja
+nesimetrija iz analize vmesnikov (`docs/ui-admin-vs-poslusalec.md`). Tri rute
+iz ene resnice na disku (`<dataDir>/podcasts/`):
+
+- `GET /api/podcast` — arhiv za stran: vse epizode (tudi še brez zvoka,
+  pošteno označene), poglavja z izmerjenimi zamiki, javni URL-ji. Osnova
+  povezav je `broadcast.publicStreamUrl` (origin) ali izpeljava — isti
+  precedens kot `/listen.m3u`.
+- `GET /podcast/feed.xml` — **kanalski** RSS 2.0 za podkast aplikacije (Apple
+  Podcasts, AntennaPod, …): en kanal, več itemov, enclosure SAMO za epizode z
+  zvokom na disku (enclosure brez datoteke bi bila laž). `lastBuildDate` je
+  od najnovejše epizode — feed se spremeni natanko takrat, ko se spremeni
+  arhiv. Čist gradnik: `buildPodcastChannelFeed` (bajtno determinističen).
+- `GET /podcast/<datoteka>.mp3` — zvok z podporo za **Range** (iskanje v
+  predvajalniku; 206 + content-range). Trojna obramba: beli seznam znakov v
+  imenu, samo `.mp3`, rešena pot ostaja znotraj podcastsDir — traversal
+  (`..%2F`) dobi 404, plan `.json` ni javen.
+
+**Objava na javni naslov**: rute so privzeto za Basic Auth (kot vse); lastnik
+jih odpre s config vzvodom `web.publicPaths`, npr.
+`"publicPaths": ["/podcast", "/api/podcast"]` — istega vzvoda kot `/embed`.
+
+**Stran »Podkast«** (poslušalski vmesnik): nov zavihek — seznam epizod z
+vgrajenim predvajalnikom, poglavja, RSS naslov s gumbom »Kopiraj RSS«.
+Prazno stanje je izpisano, ne izumljeno.
+
+**Studio gumb** (pogled Shows): kartica »Markec Podkast« z statusom zadnje
+epizode in gumbom *Izdelaj današnjo epizodo* — kliče ISTI cevovod kot CLI
+(`POST /studio/api/podcast`). Današnja z zvokom = reuse (brez dela), `--force`
+izdela znova, sočasni klik dobi 409, napaka pa pošteno prvo vrstico vzroka.
+
 ## Orodja
 
 - `npm run doctor [-- --cron] [--minutes-before=15]`

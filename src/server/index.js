@@ -23,6 +23,7 @@ import { registerStaticRoutes } from './staticFiles.js';
 import { registerStreamRoute } from './streamProxy.js';
 import { registerListenFiles } from './listenFiles.js';
 import { registerApiRoutes } from './api.js';
+import { registerPodcastRoutes } from './podcastApi.js';
 import { registerArtRoute } from './artProxy.js';
 import { registerShowLogoRoute } from './showLogoProxy.js';
 import { registerDjPhotoRoute } from './djPhotoProxy.js';
@@ -61,6 +62,7 @@ async function main() {
   registerStreamRoute(fastify);
   registerListenFiles(fastify);
   registerApiRoutes(fastify);
+  registerPodcastRoutes(fastify);
   registerArtRoute(fastify);
   registerShowLogoRoute(fastify);
   registerDjPhotoRoute(fastify);

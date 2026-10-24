@@ -7,46 +7,53 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../lib/args.js';
 
-// Fetches candidate tracks for a genre and turns BOTH failure shapes (local
-// library THROWS on zero matches, Plex returns []) into the same honest
-// Slovenian error with the tags that DO exist -- exit 1, never a silent
-// empty episode.
-export async function gatherCandidates(genre) {
+// Fetches candidate tracks for a genre. Throws the honest Slovenian error
+// (with the tags that DO exist as a hint) -- this is the shape the shared
+// pipeline (auto/podcastPipeline.js, studio gumb) can safely await; the CLI
+// wrapper below turns it into console.error + exit 1.
+async function genreHint(listGenreTagsAny) {
+  try {
+    const tags = await listGenreTagsAny();
+    return tags.length > 0 ? ` Razpoložljive oznake: ${tags.join(', ')}.` : '';
+  } catch {
+    return ''; // hint is optional -- main error carries the truth anyway
+  }
+}
+
+export async function fetchCandidatesOrThrow(genre) {
   const { fetchCandidateTracksAny, listGenreTagsAny } = await import('../auto/librarySource.js');
-  let candidates = [];
+  let candidates;
   try {
     candidates = await fetchCandidateTracksAny({ genre });
   } catch (err) {
-    let hint = '';
-    try {
-      const tags = await listGenreTagsAny();
-      hint = tags.length > 0 ? ` Razpoložljive oznake: ${tags.join(', ')}.` : '';
-    } catch {
-      // hint is optional
-    }
-    console.error(`Napaka pri poizvedbi po knjižnici: ${err.message.split('\n')[0]}${hint}`);
-    process.exit(1);
+    throw new Error(`Napaka pri poizvedbi po knjižnici: ${err.message.split('\n')[0]}${await genreHint(listGenreTagsAny)}`);
   }
   if (candidates.length === 0) {
-    let tags = [];
-    try {
-      tags = await listGenreTagsAny();
-    } catch {
-      // hint is optional -- fail without it rather than hiding the main error
-    }
-    console.error(
-      `V knjižnici ni skladb z žanrom "${genre}".` + (tags.length > 0 ? ` Razpoložljive oznake: ${tags.join(', ')}.` : '')
-    );
-    process.exit(1);
+    throw new Error(`V knjižnici ni skladb z žanrom "${genre}".${await genreHint(listGenreTagsAny)}`);
   }
   return candidates;
 }
 
+// CLI wrapper: same messages, same exit 1 -- but via the throwing core, so
+// the CLI and the studio button can never drift apart in WHAT they say.
+export async function gatherCandidates(genre) {
+  try {
+    return await fetchCandidatesOrThrow(genre);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
 // --date=YYYY-MM-DD or the station's local today (weather timezone contract).
-export function podcastDate(argv, timezone) {
+export async function podcastDate(argv, timezone) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(argv.date ?? ''))) return argv.date;
-  // dynamic import keeps the module leafy -- weather.js drags in config
-  return import('../director/weather.js').then(({ currentLocalDateString }) => currentLocalDateString(timezone));
+  // Lokalni YYYY-MM-DD iz lib/time.js (edelna implementacija) -- NE
+  // currentLocalDateString, ki govorí "Saturday, October 24" za žive vrstice.
+  // Ta vrstica je bila tiholeci bug: podcast-gen brez --date je vrgel
+  // validacijo datuma vse od P5 #1.
+  const { toLocalISOString } = await import('../lib/time.js');
+  return toLocalISOString(new Date(), timezone).slice(0, 10);
 }
 
 export function podcastCount(argv, fallback = 2) {
@@ -55,6 +62,12 @@ export function podcastCount(argv, fallback = 2) {
 }
 
 export function podcastOutDir(argv, config) {
+  // parseArgs pozna samo --key=value: gole `--out <mapa>` pusti out=true in
+  // "mapo" kot pozicijski -- kar bi path.resolve("true") poslal v <repo>/true.
+  // Poštena napaka takoj, ne tihočepač direktorij "true".
+  if (argv.out === true) {
+    throw new Error('--out potrebuje vrednost v obliki --out=<mapa> (z enačajem, npr. --out=/tmp/podkasti).');
+  }
   return argv.out ? path.resolve(String(argv.out)) : path.join(config.dataDir, 'podcasts');
 }
 

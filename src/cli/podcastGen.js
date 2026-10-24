@@ -15,14 +15,13 @@
 //
 // Skip-not-fail obrobje: prazen žanr = poštena slovenska napaka (exit 1),
 // manjkajoč fakt = epizoda s smešnim pogovorom namesto zgodovinske.
-import fs from 'node:fs';
-import path from 'node:path';
-import { ensureConfig, gatherCandidates, podcastCount, podcastDate, podcastOutDir, parseArgs } from './podcastCommon.js';
+import { ensureConfig, podcastCount, podcastDate, podcastOutDir, parseArgs } from './podcastCommon.js';
 
 const argv = parseArgs(process.argv.slice(2));
 ensureConfig();
 const { config } = await import('../config/index.js');
-const { buildPodcastEpisode, writePodcastEpisode, renderPodcastScript } = await import('../auto/podcast.js');
+const { renderPodcastScript } = await import('../auto/podcast.js');
+const { producePodcastEpisode } = await import('../auto/podcastPipeline.js');
 
 const timezone = config.weather?.timezone ?? 'UTC';
 const date = await podcastDate(argv, timezone);
@@ -30,10 +29,14 @@ const genre = String(argv.genre ?? 'rock');
 const count = podcastCount(argv);
 const outDir = podcastOutDir(argv, config);
 
-const candidates = await gatherCandidates(genre);
-
-const episode = buildPodcastEpisode({ date, tracks: candidates, count, station: config.autoRadio?.stationName ?? 'Radio Markec' });
-const { mdPath, jsonPath } = writePodcastEpisode(episode, outDir);
+try {
+  // Ista resnica kot studijev gumb: EN cevovod (auto/podcastPipeline.js), CLI
+  // je samo zastavice + izpis. Poštena napaka = console.error + exit 1.
+  var { episode, mdPath, jsonPath } = await producePodcastEpisode({ date, genre, count, outDir, synthesize: false });
+} catch (err) {
+  console.error(`Napaka: ${err.message}`);
+  process.exit(1);
+}
 
 console.log(`${episode.title} -- ${episode.date} (~${Math.round(episode.estimatedSeconds / 60)} min, zrno ${episode.seed})`);
 for (const t of episode.tracks) console.log(`  glasba: ${t.artist} -- ${t.title}`);

@@ -17,15 +17,14 @@
 // tudi samo-govorna. Če ne pride skozi NIČ, je to poštena napaka (exit 1).
 // Zahteva: piper1-gpl (pip install piper-tts) + glas v dataDir/piper
 // (ali pot v configu) + ffmpeg z libmp3lame.
-import fs from 'node:fs';
-import path from 'node:path';
-import { ensureConfig, gatherCandidates, podcastCount, podcastDate, podcastOutDir, parseArgs } from './podcastCommon.js';
+// Telo je EN cevovod (auto/podcastPipeline.js) -- istega kliče studijev
+// gumb; CLI je samo zastavice + izpis.
+import { ensureConfig, podcastCount, podcastDate, podcastOutDir, parseArgs } from './podcastCommon.js';
 
 const args = parseArgs(process.argv.slice(2));
 ensureConfig();
 const { config } = await import('../config/index.js');
-const { PODCAST_ID, buildPodcastEpisode, writePodcastEpisode } = await import('../auto/podcast.js');
-const { synthesizePodcastEpisodeAudio } = await import('../auto/podcastAudio.js');
+const { producePodcastEpisode } = await import('../auto/podcastPipeline.js');
 
 const timezone = config.weather?.timezone ?? 'UTC';
 const date = await podcastDate(args, timezone);
@@ -34,31 +33,11 @@ const count = podcastCount(args);
 const persona = String(args.persona ?? 'markec');
 const outDir = podcastOutDir(args, config);
 
-const candidates = await gatherCandidates(genre);
-const episode = buildPodcastEpisode({
-  date,
-  tracks: candidates,
-  count,
-  station: config.autoRadio?.stationName ?? 'Radio Markec',
-});
-const { jsonPath } = writePodcastEpisode(episode, outDir);
-
-const audio = await synthesizePodcastEpisodeAudio(episode, { outDir, persona });
-
-// Plan JSON gets the real audio truth: file, measured seconds, per-piece
-// offsets (chapter marks) and the honest skip list. Content-compare write --
-// rerunning without changes never touches the file's mtime.
-const plan = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-plan.audio = {
-  file: audio.mp3Path,
-  seconds: audio.seconds,
-  persona,
-  pieces: audio.pieces.map((p) => ({ kind: p.kind, slot: p.slot, title: p.title, seconds: p.seconds, startMs: p.startMs, endMs: p.endMs })),
-  skipped: audio.skipped,
-};
-const planJson = JSON.stringify(plan, null, 2) + '\n';
-if (fs.existsSync(jsonPath) && fs.readFileSync(jsonPath, 'utf8') !== planJson) {
-  fs.writeFileSync(jsonPath, planJson);
+try {
+  var { episode, jsonPath, audio } = await producePodcastEpisode({ date, genre, count, persona, outDir, synthesize: true });
+} catch (err) {
+  console.error(`Napaka: ${err.message}`);
+  process.exit(1);
 }
 
 console.log(`${episode.title} -- ${episode.date} (zvok: ~${audio.seconds} s, ${audio.pieces.length} delov, zrno ${episode.seed})`);
