@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sl">
+<html lang="sl" data-station-default="klasika">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,30 +7,40 @@
   <title>Radio Markec</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
-  <!-- theme-color ostaja Klasika (#0a0c12) za prvi MADEŽ -- app.js ga
+  <!-- theme-color: v DATOTEKI ostaja Klasika (#0a0c12) za prvi MADEŽ -- ko je
+       v config.json nastavljen themes.default, strežnik (staticFiles.js)
+       prav tako prerodi to vrednost na privzeto temo postaje; app.js jo nato
        uskladi z izbrano temo ob zagonu in ob vsaki menjavi. -->
   <meta name="theme-color" content="#0a0c12">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="stylesheet" href="/style.css">
   <!-- PRE-PAINT THEME INIT (constants-only): reads the listener's saved theme
        from localStorage and stamps it on <html> BEFORE the first paint, so a
-       non-default theme never flashes the Klasika look first. Mirrors
+       non-default theme never flashes the default look first. Mirrors
        SUB/WAVE's THEME_INIT_SCRIPT concept, freshly implemented for this
        repo's static page. try/catch because private mode / blocked storage
-       throws on access -- the fallback is Klasika. The saved id is validated
-       against this literal list so a stale or tampered value can never load
-       an unknown skin; anything invalid falls back to Klasika. It stays
-       CONSTANT-ONLY by design (no data, no config): keep the id list in step
-       with the [data-theme] blocks in style.css and THEMES in app.js. -->
+       throws on access -- the fallback is the station default. The saved id
+       AND the station default are both validated against this literal list
+       so a stale, tampered or misconfigured value can never load an unknown
+       skin; anything invalid falls back. The STATION DEFAULT (themes.default
+       in config.json) is stamped by the web server on the
+       <html data-station-default> attribute (src/server/staticFiles.js) --
+       'klasika' in the file itself, so the page stays correct even when
+       served without rewriting (file://, cached copy). Precedence: the
+       listener's saved choice, then the station default, then Klasika. Keep
+       the id list in step with the [data-theme] blocks in style.css, THEMES
+       in app.js and STATION_THEME_IDS in staticFiles.js. -->
   <script>
     (function () {
       var KEY = 'radioclyde-theme';
       var IDS = ['klasika', 'jutro', 'vinil', 'terminal'];
-      var id = 'klasika';
+      var station = document.documentElement.dataset.stationDefault || 'klasika';
+      if (IDS.indexOf(station) === -1) station = 'klasika';
+      var id = station;
       try {
         var saved = localStorage.getItem(KEY);
         if (saved && IDS.indexOf(saved) !== -1) id = saved;
-      } catch (err) { /* private mode / storage blocked -- Klasika */ }
+      } catch (err) { /* private mode / storage blocked -- station default */ }
       document.documentElement.dataset.theme = id;
     })();
   </script>

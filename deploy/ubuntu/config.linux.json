@@ -130,6 +130,9 @@
   "web": {
     "port": 3000
   },
+  "themes": {
+    "default": "klasika"
+  },
   "icecast": {
     "sourceHost": "127.0.0.1",
     "publicHost": "CHANGE_ME_PUBLIC_HOST_OR_IP",

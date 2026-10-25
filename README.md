@@ -507,11 +507,13 @@ prose for humans. The selection section supports:
   device in localStorage next to the volume, applied flash-free by a
   constants-only pre-paint script in `<head>`, with a JS-synced
   `theme-color` meta and WCAG-AA-checked palettes (no blue/indigo hues in
-  the new skins). Scope note, honestly: a station-wide default theme is
-  deliberately NOT offered this wave — the listener page is served as a
-  static file with no templating, so the per-listener choice (Klasika by
-  default) is the only choice that actually exists; `embed.html` stays
-  self-contained and unthemed.
+  the new skins). Station-wide default: `themes.default` in `config.json`
+  sets the look first-time visitors see — the server stamps it on the
+  listener shell before the first paint (`Klasika` when unset or invalid,
+  with an honest one-time warning in the log); a listener's saved choice
+  always wins. The PWA shell is cached stale-while-revalidate (`sw.js`),
+  so a changed default reaches returning visitors on their second load.
+  `embed.html` stays self-contained and unthemed.
 - **MCP server (stdio)**: `npm run mcp` starts a standalone JSON-RPC
   process (`src/mcp/server.js`) that lets an AI client such as Claude
   Desktop inspect and control the station — 29 tools (now-playing, history,

@@ -43,6 +43,9 @@
     "publicPaths": [],
     "publicWritePaths": []
   },
+  "themes": {
+    "default": "klasika"
+  },
   "studio": {
     "users": [
       {
