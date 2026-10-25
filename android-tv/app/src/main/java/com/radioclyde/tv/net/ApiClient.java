@@ -2,7 +2,6 @@ package com.radioclyde.tv.net;
 
 import com.radioclyde.tv.model.HistoryEntry;
 import com.radioclyde.tv.model.NowPlaying;
-import com.radioclyde.tv.model.UpcomingShow;
 import com.radioclyde.tv.model.Weather;
 import com.radioclyde.tv.settings.SettingsRepository;
 
@@ -51,19 +50,6 @@ public class ApiClient {
             for (int i = 0; i < entries.length(); i++) {
                 HistoryEntry entry = HistoryEntry.fromJson(entries.optJSONObject(i));
                 if (entry != null) result.add(entry);
-            }
-        }
-        return result;
-    }
-
-    public List<UpcomingShow> fetchUpcoming() throws IOException {
-        JSONObject json = getJsonObject("/api/upcoming");
-        JSONArray shows = json.optJSONArray("shows");
-        List<UpcomingShow> result = new ArrayList<>();
-        if (shows != null) {
-            for (int i = 0; i < shows.length(); i++) {
-                UpcomingShow show = UpcomingShow.fromJson(shows.optJSONObject(i));
-                if (show != null) result.add(show);
             }
         }
         return result;

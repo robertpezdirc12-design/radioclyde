@@ -47,10 +47,15 @@ public class CredentialsStepFragment extends GuidedStepSupportFragment {
                 .descriptionEditInputType(InputType.TYPE_CLASS_TEXT)
                 .build());
 
+        // Never echo the stored password back onto the screen: when one is
+        // saved, the editable description starts as a placeholder instead
+        // (see the save handler for the untouched-field semantics).
         actions.add(new GuidedAction.Builder(context)
                 .id(ACTION_ID_PASSWORD)
                 .title(getString(R.string.action_password))
-                .description(settings.getPassword())
+                .description(settings.getPassword().isEmpty()
+                        ? ""
+                        : getString(R.string.password_stored_hint))
                 .descriptionEditable(true)
                 .descriptionEditInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD)
                 .build());
@@ -70,6 +75,16 @@ public class CredentialsStepFragment extends GuidedStepSupportFragment {
 
         Context appContext = requireContext().getApplicationContext();
         SettingsRepository settings = new SettingsRepository(appContext);
+
+        // The password field shows a placeholder rather than the stored
+        // value, so an untouched field (still the placeholder text) or a
+        // deliberately emptied one both mean "keep what's stored";
+        // anything else replaces it. (A real password that literally
+        // equals the placeholder sentence can't be saved that way --
+        // accepted edge, not worth UI for.)
+        if (password.isEmpty() || password.equals(getString(R.string.password_stored_hint))) {
+            password = settings.getPassword();
+        }
         settings.saveCredentials(username, password);
 
         String hostForToast = settings.getHost();

@@ -96,7 +96,8 @@ the new profile's credentials.
 com.radioclyde.mobile/
   RadioMobileApplication.java   owns ProfileRepository + ActiveProfileResolver singletons
   model/                        JsonUtil, NowPlaying, Station, Show, Track, HistoryEntry --
-                                 near-verbatim copies of android-tv's (Weather/UpcomingShow dropped, unused)
+                                 near-verbatim copies of android-tv's (Weather/UpcomingShow dropped, unused;
+                                 the TV app later deleted its own dead UpcomingShow copy too)
   net/
     AuthHeader.java               shared Basic-auth header builder
     HttpUtil.java                 tiny shared response-body reader (ApiClient + ActiveProfileResolver's probe)
@@ -108,7 +109,8 @@ com.radioclyde.mobile/
     ProfileRepository.java         SharedPreferences wrapper, two profiles
     SettingsActivity.java          plain touch form, not GuidedStepSupportFragment
   playback/                      the foreground MediaSessionService
-    PlaybackService.java           ExoPlayer + MediaSession + metadata poller; reacts to profile changes
+    PlaybackService.java           ExoPlayer + MediaSession + metadata poller; reacts to profile changes;
+                                   picks the Opus mount out of station.streams when the station offers one
     AuthenticatedHttpDataSourceFactory.java   auth header only -- URI freshness is PlaybackService's job
     AuthArtBitmapLoader.java       session/notification art, resolved against the *current* active profile
     MetadataPoller.java            verbatim copy of android-tv's -- no settings dependency at all
@@ -145,6 +147,23 @@ reconnecting later (speaker or a new Bluetooth device) rejoins live too.
 system media notification's tap target does nothing; `MediaSessionService`
 doesn't default to reopening the app that owns the session. Points at
 `PlaybackActivity`.
+
+**Stream URL: MP3 floor, Opus re-based onto the active profile.**
+`buildLiveMediaItem()` doesn't blindly use `profile.getStreamUrl()`
+(`…/stream`, the MP3 mount): every `/api/now-playing` poll carries
+`station.streams`, and when the station has Opus enabled the service plays
+the sibling mount instead (ExoPlayer decodes Opus fine on Android). The
+catch: the entries' URLs are absolute, built from the *server's* notion of
+its public host — on the Internal profile that's typically the station's
+public domain, unreachable from the LAN the phone is on. So only the
+entry's **path** is kept, re-based onto the active profile's base URL (the
+sibling mounts are proxied on the same Fastify port as `/stream` itself,
+`src/server/streamProxy.js`), and the cached preference is validated
+against the profile's base at use time — a profile switch drops it, and
+the next poll re-derives it. A missing array, no Opus entry, or the
+station disabling Opus later leaves the MP3 floor standing, automatically,
+on the next poll. Same logic as android-tv's, where the re-basing hazard
+is a manually-edited host instead of a profile switch.
 
 **Why not the TV app's two-step settings wizard?** `GuidedStepSupportFragment`
 is Leanback-only, built for D-pad one-field-at-a-time input. A touch

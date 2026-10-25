@@ -111,9 +111,10 @@ Use `lib/logger.js`'s `createLogger(name)`, writing to
 `<dataDir>/logs/<name>.log`. There are exactly two names in use: `'station'`
 for everything under the scheduler daemon (producer, director, plex,
 scheduler jobs, CLI tools) and `'web'` for `src/server/`. Don't reach for a
-new logging approach or a third logger name — these two map onto the two
-systemd services (`radioclyde-scheduler`, `radioclyde-web`), which is the
-granularity that matters for reading/rotating logs.
+new logging approach or a third logger name — these two split the ONE systemd
+service that actually exists (`radioclyde`, web + scheduler in a single
+process; the only other unit is `liquidsoap-radioclyde`) into its two halves,
+which is the granularity that matters for reading/rotating logs.
 
 `logsDir` files rotate automatically: once `<name>.log` passes 10MB it's
 renamed to `<name>.log.1` (overwriting any previous one), so each logger

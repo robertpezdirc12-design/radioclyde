@@ -71,6 +71,12 @@ if ! sudo -u "$RADIO_USER" test -f "$PIPER_DATA_DIR/sl_SI-artur-medium.onnx" 2>/
 fi
 
 if [ -d "/tmp/radioclyde-app" ]; then
+  # Loud on purpose: a stale /tmp/radioclyde-app leftover from an old upload
+  # would otherwise silently overwrite (downgrade) the deployed code on
+  # every re-run.
+  if [ -f "$RADIO_HOME/app/package.json" ]; then
+    warn "Re-copying app code from /tmp/radioclyde-app over the existing $RADIO_HOME/app -- delete /tmp/radioclyde-app if this is NOT a fresh upload."
+  fi
   cp -r /tmp/radioclyde-app/* "$RADIO_HOME/app/"
   chown -R "$RADIO_USER:$RADIO_USER" "$RADIO_HOME/app"
   log "Code copied"
@@ -231,7 +237,15 @@ fi
 chown "$RADIO_USER:$RADIO_USER" "$RADIO_HOME"/config/radio.liq*
 
 log "Configuring Nginx..."
-cat > /etc/nginx/sites-available/radioclyde << 'NGINX_EOF'
+NGINX_SITE="/etc/nginx/sites-available/radioclyde"
+# Only on first install: certbot --nginx (step 9 below, guide Korak 5) edits
+# this exact file to add the 443/ssl server block, so an unconditional
+# overwrite on a re-run would silently revert the site to port-80-only and
+# kill HTTPS (audit 13-b). On re-runs the certbot-edited file is preserved
+# and the new template lands next to it as radioclyde.new for manual
+# diffing -- the same guard radio.liq uses above.
+write_nginx_site() {
+  cat > "$1" << 'NGINX_EOF'
 server {
     listen 80;
     server_name _;
@@ -263,12 +277,20 @@ server {
     }
 }
 NGINX_EOF
+}
+if [ -f "$NGINX_SITE" ]; then
+  write_nginx_site "$NGINX_SITE.new"
+  log "preserved your existing $NGINX_SITE (new default written to $NGINX_SITE.new -- diff them if you want the update; certbot's HTTPS edits live in the kept file)."
+else
+  write_nginx_site "$NGINX_SITE"
+fi
 ln -sf /etc/nginx/sites-available/radioclyde /etc/nginx/sites-enabled/radioclyde
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 log "Creating systemd services..."
-cat > /etc/systemd/system/radioclyde.service << 'SVC_EOF'
+write_radioclyde_unit() {
+  cat > "$1" << 'SVC_EOF'
 [Unit]
 Description=Radio Markec - Web Server + Scheduler
 After=network.target icecast2.service
@@ -292,8 +314,10 @@ Environment=NODE_ENV=production
 [Install]
 WantedBy=multi-user.target
 SVC_EOF
+}
 
-cat > /etc/systemd/system/liquidsoap-radioclyde.service << 'SVC_EOF'
+write_liquidsoap_unit() {
+  cat > "$1" << 'SVC_EOF'
 [Unit]
 Description=Liquidsoap - Radio Markec Playout
 After=network.target icecast2.service
@@ -312,6 +336,26 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 SVC_EOF
+}
+
+# Same first-install-only guard as radio.liq and the nginx site above: a
+# re-run must not clobber a unit the operator edited (or that systemd is
+# currently running); the fresh template lands next to it as <name>.new for
+# manual diffing.
+RCLYDE_UNIT="/etc/systemd/system/radioclyde.service"
+LIQ_UNIT="/etc/systemd/system/liquidsoap-radioclyde.service"
+if [ -f "$RCLYDE_UNIT" ]; then
+  write_radioclyde_unit "$RCLYDE_UNIT.new"
+  log "preserved your existing $RCLYDE_UNIT (new default written to $RCLYDE_UNIT.new -- diff them if you want the update)."
+else
+  write_radioclyde_unit "$RCLYDE_UNIT"
+fi
+if [ -f "$LIQ_UNIT" ]; then
+  write_liquidsoap_unit "$LIQ_UNIT.new"
+  log "preserved your existing $LIQ_UNIT (new default written to $LIQ_UNIT.new -- diff them if you want the update)."
+else
+  write_liquidsoap_unit "$LIQ_UNIT"
+fi
 
 systemctl daemon-reload
 systemctl enable icecast2.service
@@ -328,18 +372,11 @@ if command -v ufw &>/dev/null; then
   ufw allow 80/tcp
   ufw allow 443/tcp
   log "Firewall: only 22, 80, 443 exposed."
+else
+  # Loud, not silent: Node binds 0.0.0.0:3000 (src/server/index.js), so the
+  # firewall is the ONLY thing keeping port 3000 off the public interfaces.
+  warn "POZOR: ufw ni nameščen -- Node posluša na 0.0.0.0:3000 (avtentikacija s Basic auth, a port je odprt na vseh vmesnikih)."
 fi
-
-log "Creating .env template..."
-cat > "$RADIO_HOME/.env.template" << 'ENV_EOF'
-NODE_ENV=production
-DATA_DIR=/opt/radioclyde/data
-ICECAST_SOURCE_PASSWORD=CHANGE_ME
-ICECAST_RELAY_PASSWORD=CHANGE_ME
-ICECAST_ADMIN_PASSWORD=CHANGE_ME
-ENV_EOF
-chown "$RADIO_USER:$RADIO_USER" "$RADIO_HOME/.env.template"
-chmod 640 "$RADIO_HOME/.env.template"
 
 chown -R "$RADIO_USER:$RADIO_USER" "$RADIO_HOME"
 chmod 750 "$RADIO_HOME"
@@ -352,7 +389,7 @@ echo ""
 echo "Next steps:"
 echo "  1. Upload app code: scp code.tar.gz ubuntu@SERVER:/tmp/"
 echo "  2. Extract: sudo tar -xzf /tmp/code.tar.gz -C /opt/radioclyde/app"
-echo "  3. Re-run this installer so app dependencies get installed: sudo bash install.sh (safe to re-run; your icecast.xml and radio.liq edits are kept)"
+echo "  3. Re-run this installer so app dependencies get installed: sudo bash install.sh (safe to re-run; your icecast.xml, radio.liq, nginx site and systemd unit edits are kept -- new templates land as *.new next to them)"
 echo "  4. Upload data: scp data.tar.gz ubuntu@SERVER:/tmp/ && sudo tar -xzf /tmp/data.tar.gz -C /opt/radioclyde/"
 echo "  5. Copy config: sudo cp /opt/radioclyde/app/deploy/ubuntu/config.linux.json /opt/radioclyde/app/config.json"
 echo "  6. Put music in /opt/radioclyde/music/, then generate the filler playlist once: cd /opt/radioclyde/app && sudo -u radioclyde npm run generate-filler-playlist"

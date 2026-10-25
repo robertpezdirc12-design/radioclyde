@@ -8,11 +8,11 @@ Namestitev Radio Markec na brezplačnem Linuxovem strežniku (Ubuntu Server 24.0
 
 ```
 Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ← Liquidsoap
-                             └─ /     → Node.js (127.0.0.1:3000) [web + scheduler]
+                             └─ /     → Node.js (0.0.0.0:3000, javno ščiti ufw) [web + scheduler]
 ```
 
 - **Nginx**: javni reverse proxy (port 80/443), SSL prek Let's Encrypt
-- **Node.js**: web API + scheduler v enem procesu (port 3000, samo localhost)
+- **Node.js**: web API + scheduler v enem procesu (port 3000; veže na `0.0.0.0` — javnega dostopa ne zavaruje vezava, ampak požarni zid/ufw)
 - **Icecast2**: zvočni tok (port 8000, samo localhost)
 - **Liquidsoap**: playout (glasba + govor)
 - **Piper TTS**: slovenski govor (pred-generirani posnetki, brez izvajanja med oddajanjem) prek piper1-gpl runtime-a (`pip install piper-tts`; glas `sl_SI-artur-medium` se prenese med namestitvijo — `install.sh`, ~63 MB, enkrat)
@@ -22,7 +22,7 @@ Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ←
 | Komponenta | Namen | Port | Javno? |
 |------------|-------|------|--------|
 | Nginx | Reverse proxy, SSL | 80, 443 | ✅ |
-| Node.js (web+scheduler) | API, admin, urnik | 3000 | ❌ (samo localhost) |
+| Node.js (web+scheduler) | API, admin, urnik | 3000 | ❌ (veže 0.0.0.0; ufw blokira) |
 | Icecast2 | Zvočni tok | 8000 | ❌ (samo localhost) |
 | Liquidsoap | Playout | — | ❌ |
 | Piper TTS | Slovenski govor | — | ❌ |
@@ -30,10 +30,10 @@ Internet → Nginx (80/443) → ┌─ /stream → Icecast2 (127.0.0.1:8000) ←
 ## Varnostna pravila
 
 - Icecast2 veže se samo na `127.0.0.1:8000`
-- Node.js veže se samo na `127.0.0.1:3000`
+- Node.js se veže na `0.0.0.0:3000` (vse vmesnike) — port 3000 pred javnim dostopom ščiti izključno požarni zid: `install.sh` prek ufw odpre samo 22/80/443, a le, če je ufw nameščen (sicer glasno opozori; brez ufw je port 3000 javno odprt, vsebino pa ščiti Basic auth)
 - Javni dostop samo prek Nginx (port 80/443)
 - Gesla v `/etc/icecast2/icecast.xml` (chmod 640)
-- `.env` in `config.json` niso v Gitu
+- `config.json` ni v Gitu
 - Admin vmesnik Icecasta ni javno dostopen
 
 ## Korak 1: Ustvari strežnik v oblaku
@@ -89,12 +89,18 @@ sudo chown -R radioclyde:radioclyde /opt/radioclyde/music /opt/radioclyde/voices
 ### 3.4 Nastavi konfiguracijo
 ```bash
 sudo cp /opt/radioclyde/app/deploy/ubuntu/config.linux.json /opt/radioclyde/app/config.json
+sudo nano /opt/radioclyde/app/config.json
 sudo nano /etc/icecast2/icecast.xml
 sudo nano /opt/radioclyde/config/radio.liq
-sudo cp /opt/radioclyde/.env.template /opt/radioclyde/.env
 ```
 
 **Opozorilo — pred prvim zagonom dodajte gesla:** izposojeni `config.linux.json` namerno ne vsebuje blokov `web.listeners` (gesla za dostop poslušalcev do web UI/API) in `studio.users` (gesla za dostop do studia). Po kopiranju v `/opt/radioclyde/app/config.json` dodajte oba bloka ročno — obliko glejte v `config.example.json`. Brez njih web UI in studio po prijavnem oknu nista dosegljiva (401 — ni enega veljavnega uporabnika), medtem ko nginx `/stream` že oddaja javno. Basic auth geslo potuje v vsaki zahtevi (Base64, ne zgoščeno), zato izberite močno geslo.
+
+**Opozorilo — javni naslov toka (nastavite dve stvari v `config.json`):** privzeta izpeljava javnega URL-ja toka je `http://<icecast.publicHost>:<web.port><mount>` — v nginx obliki je to pokvarjeno (port 3000 ni javen, javna pot pa je `/stream`, ne `/stream.mp3`). Zato v `/opt/radioclyde/app/config.json` nastavite:
+- `icecast.publicHost`: `"yourdomain.com"` — gostitelj, iz katerega se URL izpelje (nadomesti `CHANGE_ME_PUBLIC_HOST_OR_IP`), in
+- `broadcast.publicStreamUrl`: `"https://yourdomain.com/stream"` — ta nastavitev ima prednost pred izpeljavo in je pravi javni URL toka za `/listen.m3u`, `/listen.pls` in push povezave.
+
+**Omejitev — želje poslušalcev ne gredo v eter na tej predlogi:** `radio.liq`, ki ga zapiše `install.sh`, nima vira `request.queue`, zato odobrena želja ostane odobrena, a ne zaigra (gumb »V vrsto« v studiu poroča, da Liquidsoap ni sprejel zahtevka). Predvajanje želj podpira referenčni `liquidsoap/radio.liq` iz repozitorija — vir `request.queue(id="requests")` in `fallback(track_sensitive=true, [requests_source, radio])` (~vrstice 243–269); če želite želje na etru, preberite ta blok in ga prenesite v `/opt/radioclyde/config/radio.liq` (Nodeova stran pričakuje ravno id `requests`, glej `src/liquidsoap/requestQueue.js`).
 
 ### 3.5 Namesti npm odvisnosti (že narejeno v install.sh)
 ```bash
@@ -229,6 +235,8 @@ sudo diff <(sort /tmp/gen1.m3u) <(sort /opt/radioclyde/data/filler.m3u) | grep -
 ```
 
 Znano omejitev: če je knjižnica manjša od `poolSize` (ali manjša od ene urne rotacije), se skladbe neizogibno vrnejo prek najstarejše rotacije — takrat dodajte glasbo ali povečajte knjižnico; arhitektura ne more rotirati, česar ni.
+
+**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`.
 
 ## .gitignore
 

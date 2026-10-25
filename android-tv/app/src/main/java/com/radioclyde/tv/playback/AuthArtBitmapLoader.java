@@ -26,6 +26,9 @@ import java.util.concurrent.Executors;
  * Service context, not a scrolling card grid, so Glide's lifecycle/caching
  * machinery isn't needed here, and album art still needs the same Basic
  * auth header as everything else on the station server.
+ *
+ * Owned by PlaybackService, which shuts the executor down in onDestroy()
+ * once the MediaSession (the only submitter of fetches) is released.
  */
 @UnstableApi
 public class AuthArtBitmapLoader implements BitmapLoader {
@@ -86,5 +89,16 @@ public class AuthArtBitmapLoader implements BitmapLoader {
             }
         });
         return future;
+    }
+
+    /**
+     * Retires the single-thread fetch executor -- lets an in-flight fetch
+     * finish, rejects new ones. Called from PlaybackService.onDestroy(),
+     * after the MediaSession is released so no live consumer can still
+     * submit work (a post-release submit would hit
+     * RejectedExecutionException instead of failing the future quietly).
+     */
+    public void shutdown() {
+        executor.shutdown();
     }
 }

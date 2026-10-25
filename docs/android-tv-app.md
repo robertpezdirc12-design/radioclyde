@@ -37,8 +37,9 @@ Basic-auth gate as everything else on that server — see `src/server/auth.js`):
 
 | Endpoint | Used for |
 |---|---|
-| `GET /stream` | the actual Icecast-proxied audio, played by ExoPlayer |
-| `GET /api/now-playing` | show/track/dj state, polled every 12s |
+| `GET /stream` | the actual Icecast-proxied audio, played by ExoPlayer — the always-there MP3 floor |
+| `GET /stream.opus` | the Opus sibling mount, preferred over `/stream` whenever `station.streams` (from `/api/now-playing`) advertises one — same proxy, same auth; see the stream-URL design note below |
+| `GET /api/now-playing` | show/track/dj state, polled every 12s; its `station.streams` array drives the codec choice above |
 | `GET /api/history?limit=N` | "Recently Played" list |
 | `GET /api/art/:ratingKey` | album art (needs the same auth header) |
 | `GET /api/show-logo/:showId` | station/show logo, see below |
@@ -56,7 +57,7 @@ com.radioclyde.tv/
   RadioTvApplication.java       trivial Application subclass
   model/                        hand-written fromJson(JSONObject) POJOs, no reflection
     JsonUtil.java                shared null-safe string reader (see gotcha below)
-    NowPlaying, Station, Show, Track, HistoryEntry, UpcomingShow, Weather
+    NowPlaying, Station (also parses station.streams), Show, Track, HistoryEntry, Weather
   net/
     AuthHeader.java               builds the Basic auth header value
     ApiClient.java                blocking HTTP client for the 5 GETs above
@@ -83,6 +84,10 @@ browse screen, no `PlaybackSupportFragment` — all of that existed in earlier
 iterations and was deliberately removed once `PlaybackActivity` grew to
 cover everything they did. `androidx.leanback` is still a dependency, but
 only for `GuidedStepSupportFragment` (Settings) at this point.
+`ApiClient.fetchUpcoming()` + `model/UpcomingShow.java` (the
+`/api/upcoming` client) were likewise dead code with zero callers and were
+deleted — the mobile app had already dropped its copy; bring them back
+only alongside a real caller.
 
 ## Key design decisions
 
@@ -100,6 +105,35 @@ controls work via the platform's normal MediaSession routing — no custom key
 handling needed. `PlaybackService` owns the single `ExoPlayer` instance and
 `MediaSession`; `PlaybackActivity` only ever talks to it through a
 `MediaController`.
+
+**Stream URL: MP3 floor, Opus when the station offers it.**
+`buildLiveMediaItem()` doesn't blindly use `http://host:port/stream` —
+`PlaybackService` watches `station.streams` in every `/api/now-playing`
+poll and, when the station has Opus enabled, plays the sibling mount
+instead (ExoPlayer decodes Opus fine on Android TV). The mount URLs in
+`streams` are absolute and built from the *server's* notion of its public
+host, which is not necessarily reachable from this TV (a LAN device
+talking to a private host:port while the station publishes its public
+domain) — so only the entry's **path** is trusted, re-based onto the
+configured host:port (the sibling mounts are proxied on the same Fastify
+port as `/stream` itself, `src/server/streamProxy.js`). A missing array,
+a malformed URL, or the station later disabling Opus all fall back to the
+MP3 mount on the next poll with no special-casing. A codec change
+mid-session (upgrade once the first poll lands, downgrade after a config
+flip) reconnects the player once — there's no position to preserve on a
+live stream anyway.
+
+**Host/port edits rebuild the live MediaItem.** ExoPlayer keeps
+connecting to whatever URI the current `MediaItem` was built with; only
+the `Authorization` header re-reads per connection
+(`AuthenticatedHttpDataSourceFactory`). So `SettingsRepository` notifies
+listeners after every save (all its instances share one prefs file —
+that's what lets the service hear a save made through a fragment's own
+instance), and `PlaybackService` re-reads the stream URL, compares it
+with the current MediaItem's URI, and `replaceMediaItem`s when it
+actually changed — a credentials-only save resolves to the same URI and
+is a no-op. Before this existed, changing the host in Settings left the
+service reconnecting to the *old* URI until force-stop.
 
 **Always-on metadata polling.** `MetadataPoller` used to start/stop with
 `Player.isPlaying()`. Once `PlaybackActivity` became the always-shown
@@ -131,9 +165,10 @@ separate `apiClient.fetchNowPlaying()` call inside `PlaybackActivity.poll()`,
 not a flag set asynchronously from the service's independently-timed
 `MediaMetadata` push (that was tried first and produced a visible race: the
 duplicate flashed on screen when the history fetch won the race against the
-metadata listener catching up). `public/app.js` (the web player) and
-`MainBrowseFragment`-equivalent logic follow the same pattern for the same
-reason.
+metadata listener catching up). `public/app.js` (the web player) is looser
+here: a module-level `trackIsPlaying` flag set by its now-playing render
+drives the skip, accepting the lag this app avoids by fetching both in
+one background tick.
 
 **No Retrofit/Gson/OkHttp.** The API surface is five small, flat, stable
 JSON shapes — plain `HttpURLConnection` + `org.json` (already inside
@@ -222,6 +257,10 @@ Solid Explorer) that can install directly from SMB.
 
 ## Config not derivable from git
 
-Basic auth username/port/host are entered on-device via Settings, backed by
-`SharedPreferences` — nothing hardcoded, nothing in this repo. The device
+Host/port + Basic auth username/password are entered on-device via
+Settings, backed by `SharedPreferences` — nothing hardcoded, nothing in
+this repo. The stored password is never echoed back onto the Settings
+screen (a placeholder stands in for it; an untouched or emptied field
+keeps the stored value on save) — plain `SharedPreferences`, not
+`EncryptedSharedPreferences`, is a deliberate scope choice. The device
 used for testing was a Google TV Streamer at a static LAN IP.

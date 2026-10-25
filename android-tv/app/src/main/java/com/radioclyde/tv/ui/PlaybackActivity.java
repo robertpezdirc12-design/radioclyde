@@ -263,7 +263,7 @@ public class PlaybackActivity extends FragmentActivity {
                 // Fetched together (not derived from the service's
                 // independently-polled MediaMetadata) so the "is a track
                 // currently playing" check below can't race against it --
-                // same reasoning as MainBrowseFragment's combined poll.
+                // see the "History dedup" note in docs/android-tv-app.md.
                 NowPlaying nowPlaying = apiClient.fetchNowPlaying();
                 List<HistoryEntry> entries = apiClient.fetchHistory(HISTORY_LIMIT);
                 // The currently-playing track is also entries.get(0) -- skip

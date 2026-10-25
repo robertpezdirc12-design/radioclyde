@@ -11,9 +11,26 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG_PATH = path.join(REPO, 'config.json');
+const BACKUP_PATH = `${CONFIG_PATH}.demo-backup`;
+
+// --restore: undo the demo takeover below -- put the backed-up config.json
+// back and exit before anything else is touched (the demo dataDir stays on
+// disk; delete it yourself when you are done looking at the demo).
+if (process.argv.includes('--restore')) {
+  if (fs.existsSync(BACKUP_PATH)) {
+    fs.writeFileSync(CONFIG_PATH, fs.readFileSync(BACKUP_PATH, 'utf8'));
+    fs.rmSync(BACKUP_PATH);
+    console.log(`RESTORED: ${CONFIG_PATH} <- ${BACKUP_PATH}`);
+    console.log(`  demo dataDir left on disk: ${path.join(REPO, 'data', 'demo')}`);
+  } else {
+    console.error(`Nothing to restore: ${BACKUP_PATH} does not exist.`);
+    process.exitCode = 1;
+  }
+  process.exit(process.exitCode || 0);
+}
 
 const backup = fs.existsSync(CONFIG_PATH) ? fs.readFileSync(CONFIG_PATH, 'utf8') : null;
-if (backup) fs.writeFileSync(`${CONFIG_PATH}.demo-backup`, backup);
+if (backup) fs.writeFileSync(BACKUP_PATH, backup);
 
 const dataDir = path.join(REPO, 'data', 'demo');
 fs.rmSync(dataDir, { recursive: true, force: true });
@@ -203,6 +220,7 @@ const config = {
 fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 
 console.log('DEMO READY');
-console.log(`  config: ${CONFIG_PATH}${backup ? ' (original backed up to config.json.demo-backup)' : ' (new)'}`);
+console.log(`  config: ${CONFIG_PATH}${backup ? ` (original backed up to ${BACKUP_PATH})` : ' (new)'}`);
+if (backup) console.log(`  restore: node scripts/demo-setup.mjs --restore`);
 console.log(`  dataDir: ${dataDir}`);
 console.log(`  URL: http://127.0.0.1:8123/  studio: demo / demo123`);

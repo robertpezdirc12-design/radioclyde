@@ -1,7 +1,8 @@
 [Unit]
 Description=Radioclyde (web server, studio admin, and scheduling daemon)
-After=network.target icecast2.service liquidsoap.service
-Wants=icecast2.service liquidsoap.service
+# liquidsoap-radioclyde in After= only: Node needs Icecast up, not Liquidsoap -- a Wants= here could pull-start the stock Debian liquidsoap.service.
+After=network.target icecast2.service liquidsoap-radioclyde.service
+Wants=icecast2.service
 
 [Service]
 Type=simple

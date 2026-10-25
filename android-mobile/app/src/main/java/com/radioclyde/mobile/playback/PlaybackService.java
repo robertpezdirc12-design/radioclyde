@@ -19,12 +19,15 @@ import androidx.media3.session.MediaSessionService;
 import com.radioclyde.mobile.R;
 import com.radioclyde.mobile.RadioMobileApplication;
 import com.radioclyde.mobile.model.NowPlaying;
+import com.radioclyde.mobile.model.Station;
 import com.radioclyde.mobile.model.Track;
 import com.radioclyde.mobile.net.ActiveProfileResolver;
 import com.radioclyde.mobile.net.ApiClient;
 import com.radioclyde.mobile.settings.ServerProfile;
 import com.radioclyde.mobile.ui.PlaybackActivity;
 
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Locale;
 
 /**
@@ -33,10 +36,12 @@ import java.util.Locale;
  * MediaSession routing (lock-screen controls, headset buttons) to the same
  * Player -- no custom key handling needed.
  *
- * Unlike android-tv's PlaybackService (one fixed server), this one reacts to
- * ActiveProfileResolver switching between Internal/External: when the
- * resolved profile's stream URL changes, the live MediaItem is rebuilt so
- * ExoPlayer reconnects at the new host. See rebuildMediaItemForProfile().
+ * Unlike android-tv's PlaybackService (one configured server, changed
+ * manually through its Settings wizard), this one follows
+ * ActiveProfileResolver switching between Internal/External on its own:
+ * when the resolved profile's stream URL changes, the live MediaItem is
+ * rebuilt so ExoPlayer reconnects at the new host. See
+ * onActiveProfileChanged().
  */
 @UnstableApi
 public class PlaybackService extends MediaSessionService implements ActiveProfileResolver.Listener {
@@ -65,7 +70,16 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
     private ExoPlayer player;
     private MediaSession mediaSession;
     private MetadataPoller metadataPoller;
+    private AuthArtBitmapLoader artLoader;
     private ActiveProfileResolver resolver;
+
+    // The Opus sibling mount the station last advertised in
+    // station.streams, re-based onto the ACTIVE profile's base URL -- see
+    // updatePreferredStreamUrl(). Null (the MP3 floor) until a poll
+    // surfaces one, and again whenever the base it was re-based onto no
+    // longer matches the active profile.
+    private String preferredStreamUrl;
+    private String preferredStreamBaseUrl;
 
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
@@ -127,8 +141,9 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
                 this, 0, new Intent(this, PlaybackActivity.class),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
+        artLoader = new AuthArtBitmapLoader(resolver);
         mediaSession = new MediaSession.Builder(this, player)
-                .setBitmapLoader(new AuthArtBitmapLoader(resolver))
+                .setBitmapLoader(artLoader)
                 .setCallback(new RestrictSkipCallback())
                 .setSessionActivity(sessionActivity)
                 .build();
@@ -146,11 +161,65 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
     private MediaItem buildLiveMediaItem(ServerProfile profile) {
         return new MediaItem.Builder()
                 .setMediaId(LIVE_MEDIA_ID)
-                .setUri(Uri.parse(profile.getStreamUrl()))
+                .setUri(Uri.parse(resolveStreamUrl(profile)))
                 .setMediaMetadata(new MediaMetadata.Builder()
                         .setTitle(getString(R.string.app_name))
                         .build())
                 .build();
+    }
+
+    /**
+     * The URI the live MediaItem should carry for this profile right now:
+     * the Opus mount the station last advertised, re-based onto this
+     * profile's base, or the profile's own MP3 mount when it hasn't. The
+     * base check is what makes a cached preference safe across profile
+     * switches -- a URL re-based onto the previous profile's host is
+     * exactly as stale as that host.
+     */
+    private String resolveStreamUrl(ServerProfile profile) {
+        return preferredStreamUrl != null && profile.getBaseUrl().equals(preferredStreamBaseUrl)
+                ? preferredStreamUrl
+                : profile.getStreamUrl();
+    }
+
+    /**
+     * Re-derives the preferred (Opus) stream URL from station.streams,
+     * once per poll, re-based onto the active profile's base URL. The
+     * entries' URLs are absolute, built from the SERVER's notion of its
+     * own public host (config.icecast.publicHost, or the owner-declared
+     * broadcast.publicStreamUrl -- see src/server/streamUrls.js) -- on the
+     * Internal profile that host is typically the station's public
+     * domain, unreachable from the LAN this phone is on, so only the PATH
+     * of the entry is trusted, prefixed with the profile base we are
+     * actually talking to (the sibling mounts are proxied on the same
+     * Fastify port as /stream itself, src/server/streamProxy.js). A
+     * missing array, no opus entry, or an unparseable URL leaves the MP3
+     * floor in place; when the station later disables Opus the entry
+     * disappears and the next poll falls back to MP3 on its own.
+     */
+    private void updatePreferredStreamUrl(Station station, @Nullable ServerProfile profile) {
+        preferredStreamUrl = null;
+        preferredStreamBaseUrl = null;
+        if (station == null || profile == null) return;
+        for (Station.StreamEntry entry : station.streams) {
+            if (!"opus".equals(entry.format) || entry.url == null) continue;
+            String path = pathOf(entry.url);
+            if (path != null) {
+                preferredStreamBaseUrl = profile.getBaseUrl();
+                preferredStreamUrl = preferredStreamBaseUrl + path;
+            }
+            break; // the server lists at most one opus mount (streamEntries())
+        }
+    }
+
+    /** Path-only part of an absolute stream-entry URL, or null when unparseable/empty. */
+    private static String pathOf(String url) {
+        try {
+            String path = new URL(url).getPath();
+            return path.isEmpty() ? null : path;
+        } catch (MalformedURLException e) {
+            return null;
+        }
     }
 
     /**
@@ -162,12 +231,15 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
      * audible gap on failover is expected and correct: there's no
      * "position" to preserve across two different live servers. If nothing
      * is playing yet, this is a silent no-op -- Play just connects to the
-     * right place next time it's pressed.
+     * right place next time it's pressed. The rebuild lands on the new
+     * host's MP3 mount first; the preferred Opus mount, if that host also
+     * advertises one, is re-derived by the next poll (see
+     * updatePreferredStreamUrl) and swapped in within one poll cycle.
      */
     @Override
     public void onActiveProfileChanged(@Nullable ServerProfile profile) {
         if (profile == null) return;
-        String newUri = profile.getStreamUrl();
+        String newUri = resolveStreamUrl(profile);
         MediaItem current = player.getCurrentMediaItem();
         if (current != null && newUri.equals(current.localConfiguration != null ? current.localConfiguration.uri.toString() : null)) {
             return; // only credentials changed -- header refreshes on next reconnect, no rebuild needed
@@ -183,6 +255,9 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
     private void onNowPlaying(NowPlaying nowPlaying) {
         MediaItem current = player.getCurrentMediaItem();
         if (current == null) return;
+
+        ServerProfile profile = resolver.getActiveProfile();
+        updatePreferredStreamUrl(nowPlaying.station, profile);
 
         MediaMetadata.Builder metadata = new MediaMetadata.Builder();
         if (nowPlaying.dj != null) {
@@ -220,8 +295,15 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
         metadata.setExtras(extras);
 
         int index = player.getCurrentMediaItemIndex();
-        MediaItem updated = current.buildUpon().setMediaMetadata(metadata.build()).build();
-        player.replaceMediaItem(index, updated);
+        MediaItem.Builder rebuilt = current.buildUpon().setMediaMetadata(metadata.build());
+        if (profile != null) {
+            // Same-URI replacement is free (this replaceMediaItem already
+            // runs every poll); a CHANGED URI -- the Opus mount first
+            // advertised, or dropped by a config flip -- is what makes the
+            // player reconnect at the new mount on the spot.
+            rebuilt.setUri(Uri.parse(resolveStreamUrl(profile)));
+        }
+        player.replaceMediaItem(index, rebuilt.build());
     }
 
     @Nullable
@@ -247,6 +329,9 @@ public class PlaybackService extends MediaSessionService implements ActiveProfil
             mediaSession.getPlayer().release();
             mediaSession.release();
         }
+        // After the session is released nothing can still submit an art
+        // fetch, so this is the safe point to retire the loader's thread.
+        if (artLoader != null) artLoader.shutdown();
         super.onDestroy();
     }
 

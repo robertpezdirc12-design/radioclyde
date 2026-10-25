@@ -11,11 +11,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Polls /api/now-playing every 12s (matching public/app.js's cadence) while
- * playback is active, and only while active -- started/stopped by
- * PlaybackService in response to Player.Listener#onIsPlayingChanged, so
- * "now playing" metadata stays fresh in the system notification/lock screen
- * even with no app UI visible.
+ * Polls /api/now-playing every 12s (matching public/app.js's cadence) for
+ * the whole lifetime of PlaybackService -- started unconditionally in the
+ * service's onCreate() and only shut down in onDestroy(), never gated on
+ * Player.Listener#onIsPlayingChanged. That gating existed once and was
+ * deliberately removed: the app's screen shows what's on air before the
+ * user presses Play (and the system notification/lock screen metadata
+ * should be ready the moment they do), so polling must run while idle too
+ * -- see docs/android-tv-app.md's "Always-on metadata polling". Do not
+ * "restore" play-state gating here. stop() remains for a caller that
+ * genuinely wants a pause; today the only caller is shutdown() itself.
  */
 public class MetadataPoller {
 

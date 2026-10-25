@@ -16,10 +16,13 @@ import androidx.media3.session.MediaSessionService;
 
 import com.radioclyde.tv.R;
 import com.radioclyde.tv.model.NowPlaying;
+import com.radioclyde.tv.model.Station;
 import com.radioclyde.tv.model.Track;
 import com.radioclyde.tv.net.ApiClient;
 import com.radioclyde.tv.settings.SettingsRepository;
 
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Locale;
 
 /**
@@ -27,9 +30,15 @@ import java.util.Locale;
  * Keeps audio playing in the background and wires the TV remote's
  * transport keys / the lock-screen media controls to the same Player via
  * the platform's MediaSession routing -- no custom key handling needed.
+ *
+ * Reacts to Settings saves (SettingsRepository.Listener, the TV-side
+ * counterpart of the mobile app's ActiveProfileResolver.Listener): when the
+ * configured host/port change while the service is alive, the live
+ * MediaItem is rebuilt so ExoPlayer reconnects at the new server. See
+ * onServerConfigChanged().
  */
 @UnstableApi
-public class PlaybackService extends MediaSessionService {
+public class PlaybackService extends MediaSessionService implements SettingsRepository.Listener {
 
     private static final String LIVE_MEDIA_ID = "live-stream";
 
@@ -56,12 +65,22 @@ public class PlaybackService extends MediaSessionService {
     private ExoPlayer player;
     private MediaSession mediaSession;
     private MetadataPoller metadataPoller;
+    private AuthArtBitmapLoader artLoader;
     private SettingsRepository settings;
+
+    // The Opus sibling mount the station last advertised in
+    // station.streams, re-based onto OUR base URL -- see
+    // updatePreferredStreamUrl(). Null (the MP3 floor) until a poll
+    // surfaces one, and again whenever the base it was re-based onto no
+    // longer matches the configured server.
+    private String preferredStreamUrl;
+    private String preferredStreamBaseUrl;
 
     @Override
     public void onCreate() {
         super.onCreate();
         settings = new SettingsRepository(this);
+        settings.addListener(this);
 
         AuthenticatedHttpDataSourceFactory dataSourceFactory = new AuthenticatedHttpDataSourceFactory(settings);
         player = new ExoPlayer.Builder(this)
@@ -73,8 +92,9 @@ public class PlaybackService extends MediaSessionService {
         // lands, regardless of whether the user has pressed play yet.
         player.setMediaItem(buildLiveMediaItem());
 
+        artLoader = new AuthArtBitmapLoader(settings);
         mediaSession = new MediaSession.Builder(this, player)
-                .setBitmapLoader(new AuthArtBitmapLoader(settings))
+                .setBitmapLoader(artLoader)
                 .setCallback(new RestrictSkipCallback())
                 .build();
 
@@ -89,16 +109,100 @@ public class PlaybackService extends MediaSessionService {
     private MediaItem buildLiveMediaItem() {
         return new MediaItem.Builder()
                 .setMediaId(LIVE_MEDIA_ID)
-                .setUri(Uri.parse(settings.getStreamUrl()))
+                .setUri(Uri.parse(resolveStreamUrl()))
                 .setMediaMetadata(new MediaMetadata.Builder()
                         .setTitle(getString(R.string.app_name))
                         .build())
                 .build();
     }
 
+    /**
+     * The URI the live MediaItem should carry right now: the Opus mount the
+     * station last advertised, re-based onto the configured host, or the
+     * always-present MP3 mount when it hasn't. The base-URL check is what
+     * keeps a cached preference honest across settings changes -- a URL
+     * re-based onto the previous host is exactly as stale as that host.
+     */
+    private String resolveStreamUrl() {
+        return preferredStreamUrl != null && settings.getBaseUrl().equals(preferredStreamBaseUrl)
+                ? preferredStreamUrl
+                : settings.getStreamUrl();
+    }
+
+    /**
+     * Re-derives the preferred (Opus) stream URL from station.streams, once
+     * per poll. The entries' URLs are absolute and built from the SERVER's
+     * notion of its own public host (config.icecast.publicHost, or the
+     * owner-declared broadcast.publicStreamUrl -- see src/server/
+     * streamUrls.js), which is not necessarily a host this TV can reach:
+     * the station may publish its public domain while the device talks to
+     * a private host:port on the LAN. So only the PATH of the entry is
+     * trusted, re-based onto the base URL this app is actually configured
+     * with -- the sibling mounts are proxied on the same Fastify port as
+     * /stream itself (src/server/streamProxy.js), so base + path is
+     * reachable by exactly the route /stream already is. A missing array,
+     * no opus entry, or an unparseable URL all fall back to the MP3 floor;
+     * when the station later disables Opus the entry disappears and the
+     * next poll drops back to MP3 on its own.
+     */
+    private void updatePreferredStreamUrl(Station station) {
+        preferredStreamUrl = null;
+        preferredStreamBaseUrl = null;
+        if (station == null) return;
+        for (Station.StreamEntry entry : station.streams) {
+            if (!"opus".equals(entry.format) || entry.url == null) continue;
+            String path = pathOf(entry.url);
+            if (path != null) {
+                preferredStreamBaseUrl = settings.getBaseUrl();
+                preferredStreamUrl = preferredStreamBaseUrl + path;
+            }
+            break; // the server lists at most one opus mount (streamEntries())
+        }
+    }
+
+    /** Path-only part of an absolute stream-entry URL, or null when unparseable/empty. */
+    private static String pathOf(String url) {
+        try {
+            String path = new URL(url).getPath();
+            return path.isEmpty() ? null : path;
+        } catch (MalformedURLException e) {
+            return null;
+        }
+    }
+
+    /**
+     * A settings save landed while the service is alive (every
+     * SettingsRepository instance shares one prefs file, so the
+     * notification reaches the service no matter which wizard step saved).
+     * Mirrors the mobile app's onActiveProfileChanged(): when the resolved
+     * stream URI actually changed -- host/port edited; a credentials-only
+     * edit resolves to the same URI, and the Authorization header already
+     * re-reads on every reconnect (AuthenticatedHttpDataSourceFactory) --
+     * replaceMediaItem tears the old connection down so ExoPlayer
+     * reconnects at the new server instead of retrying the stale URI
+     * until force-stop. A brief audible gap is expected and correct:
+     * there is no position to preserve across two different live servers.
+     */
+    @Override
+    public void onServerConfigChanged() {
+        String newUri = resolveStreamUrl();
+        MediaItem current = player.getCurrentMediaItem();
+        if (current != null && newUri.equals(current.localConfiguration != null ? current.localConfiguration.uri.toString() : null)) {
+            return; // only credentials changed -- header refreshes on next reconnect, no rebuild needed
+        }
+        MediaItem updated = buildLiveMediaItem();
+        if (current == null) {
+            player.setMediaItem(updated);
+        } else {
+            player.replaceMediaItem(player.getCurrentMediaItemIndex(), updated);
+        }
+    }
+
     private void onNowPlaying(NowPlaying nowPlaying) {
         MediaItem current = player.getCurrentMediaItem();
         if (current == null) return;
+
+        updatePreferredStreamUrl(nowPlaying.station);
 
         MediaMetadata.Builder metadata = new MediaMetadata.Builder();
         if (nowPlaying.dj != null) {
@@ -136,7 +240,14 @@ public class PlaybackService extends MediaSessionService {
         metadata.setExtras(extras);
 
         int index = player.getCurrentMediaItemIndex();
-        MediaItem updated = current.buildUpon().setMediaMetadata(metadata.build()).build();
+        // Same-URI replacement is free (this replaceMediaItem already runs
+        // every poll); a CHANGED URI -- the Opus mount first advertised, or
+        // dropped by a config flip -- is what makes the player reconnect
+        // at the new mount on the spot.
+        MediaItem updated = current.buildUpon()
+                .setUri(Uri.parse(resolveStreamUrl()))
+                .setMediaMetadata(metadata.build())
+                .build();
         player.replaceMediaItem(index, updated);
     }
 
@@ -157,11 +268,15 @@ public class PlaybackService extends MediaSessionService {
 
     @Override
     public void onDestroy() {
+        if (settings != null) settings.removeListener(this);
         if (metadataPoller != null) metadataPoller.shutdown();
         if (mediaSession != null) {
             mediaSession.getPlayer().release();
             mediaSession.release();
         }
+        // After the session is released nothing can still submit an art
+        // fetch, so this is the safe point to retire the loader's thread.
+        if (artLoader != null) artLoader.shutdown();
         super.onDestroy();
     }
 

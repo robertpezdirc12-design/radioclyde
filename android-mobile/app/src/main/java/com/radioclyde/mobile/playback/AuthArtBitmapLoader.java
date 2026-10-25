@@ -32,6 +32,9 @@ import java.util.concurrent.Executors;
  * active at the moment the fetch actually runs, not whatever was active when
  * the metadata was built. Otherwise a profile switch landing between poll
  * and fetch would pair a stale host with the new profile's credentials.
+ *
+ * Owned by PlaybackService, which shuts the executor down in onDestroy()
+ * once the MediaSession (the only submitter of fetches) is released.
  */
 @UnstableApi
 public class AuthArtBitmapLoader implements BitmapLoader {
@@ -100,5 +103,16 @@ public class AuthArtBitmapLoader implements BitmapLoader {
             }
         });
         return future;
+    }
+
+    /**
+     * Retires the single-thread fetch executor -- lets an in-flight fetch
+     * finish, rejects new ones. Called from PlaybackService.onDestroy(),
+     * after the MediaSession is released so no live consumer can still
+     * submit work (a post-release submit would hit
+     * RejectedExecutionException instead of failing the future quietly).
+     */
+    public void shutdown() {
+        executor.shutdown();
     }
 }

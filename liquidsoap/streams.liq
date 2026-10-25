@@ -1,20 +1,30 @@
-# streams.liq — optional mounts + hourly archive (GENERATED, do not edit)
+# streams.liq -- optional mounts + hourly archive (GENERATED, do not edit)
 #
-# This file is REGENERATED at every radioclyde-web boot by
-# src/liquidsoap/streamsLiqWriter.js from config.json's icecast.opus /
-# icecast.flac / archive blocks, with LITERAL values (host, port, password,
-# bitrate rungs) — parse-time constants on purpose: the encoders' bitrate
-# arguments cannot come from a runtime config read, and radio.liq's typed
-# json.parse of config.json stays untouched so older configs keep booting.
+# Regenerated at every radioclyde boot by src/liquidsoap/streamsLiqWriter.js
+# from config.json's icecast.opus / icecast.flac / archive blocks, with LITERAL
+# values (host, port, password, bitrate rungs): the encoders' bitrate
+# arguments are parse-time constants in Liquidsoap, so they cannot come from a
+# runtime config read, and radio.liq's typed json.parse of config.json stays
+# untouched so older configs keep booting. radio.liq %includes this file right
+# after the primary MP3 output -- the `radio` variable is in scope there, and
+# every block below feeds it to one more encoder (SUB/WAVE's
+# make_stream_outputs fans one source to N outputs; no crossfeed wiring).
 #
-# The committed default below is the all-disabled shape: comment-only, so a
-# fresh clone, a config.json without the new blocks, and the pre-2.4.6 box
-# all boot byte-identically to the pre-streams state. Hand edits survive
-# only until the next web restart overwrites the file — change config.json
-# instead and restart radioclyde-web + liquidsoap (docs/stream-mounts.md).
-#
-# Provenance: SUB/WAVE's make_stream_outputs (liquidsoap/radio.liq,
-# perminder-klair/subwave, MIT — analyzed in the SUB/WAVE portability
-# review): %opus(samplerate=48000, vbr="constrained") bitrate ladders,
-# %ogg(%flac) with send_icy_metadata=false, and the hourly archive's
-# output.file(reopen_when={0m0s}) + {time.string(...)} path getter.
+# Provenance: SUB/WAVE's make_stream_outputs (liquidsoap/radio.liq in
+# perminder-klair/subwave, MIT): %opus(samplerate=48000, channels=2,
+# application="audio", vbr="constrained") on the [96,128,192,256,320] ladder,
+# %ogg(%flac(samplerate=44100, channels=2, compression=5,
+# bits_per_sample=16)) with send_icy_metadata=false, and the hourly archive's
+# output.file(reopen_when={0m0s}) fed by the {time.string(...)} path getter
+# (the GETTER re-runs strftime at every reopen; a bare string writes one
+# literal "%Y-%m-%d/%H-00.mp3" file, truncated hourly). The archive block is
+# gated %ifversion >= 2.4.6 because that getter form needs 2.4.6+; the
+# opus/flac encoders exist on every supported build. Toggle by editing
+# config.json, then restarting radioclyde and liquidsoap-radioclyde
+# (docs/stream-mounts.md).
+
+# All optional outputs are OFF (icecast.opus.enabled, icecast.flac.enabled,
+# archive.enabled are not exactly true in config.json): this file is
+# comment-only, the primary MP3 output in radio.liq stays the only encoder,
+# and every supported Liquidsoap build parses it identically. Hand edits
+# survive only until the next web restart -- change config.json instead.

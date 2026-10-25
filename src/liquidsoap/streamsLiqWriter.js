@@ -93,7 +93,7 @@ function liqString(value) {
 const HEADER = [
   '# streams.liq -- optional mounts + hourly archive (GENERATED, do not edit)',
   '#',
-  '# Regenerated at every radioclyde-web boot by src/liquidsoap/streamsLiqWriter.js',
+  '# Regenerated at every radioclyde boot by src/liquidsoap/streamsLiqWriter.js',
   '# from config.json\'s icecast.opus / icecast.flac / archive blocks, with LITERAL',
   '# values (host, port, password, bitrate rungs): the encoders\' bitrate',
   '# arguments are parse-time constants in Liquidsoap, so they cannot come from a',
@@ -113,7 +113,7 @@ const HEADER = [
   '# literal "%Y-%m-%d/%H-00.mp3" file, truncated hourly). The archive block is',
   '# gated %ifversion >= 2.4.6 because that getter form needs 2.4.6+; the',
   '# opus/flac encoders exist on every supported build. Toggle by editing',
-  '# config.json, then restarting radioclyde-web and liquidsoap',
+  '# config.json, then restarting radioclyde and liquidsoap-radioclyde',
   '# (docs/stream-mounts.md).',
 ].join('\n');
 

@@ -14,8 +14,13 @@ import java.util.Map;
  * Wraps DefaultHttpDataSource.Factory and re-reads the Basic auth header
  * from SettingsRepository on every createDataSource() call -- ExoPlayer
  * calls this each time it opens a new upstream connection to /stream, so
- * changing host/credentials in Settings while the service is alive is
- * picked up on the *next* reconnect with no explicit invalidation plumbing.
+ * changing credentials in Settings while the service is alive is picked up
+ * on the *next* reconnect with no explicit invalidation plumbing. The URI
+ * is NOT this factory's to refresh: ExoPlayer keeps connecting to whatever
+ * host the current MediaItem was built with, so a host/port change only
+ * takes effect because PlaybackService rebuilds the MediaItem (its
+ * SettingsRepository.Listener does exactly that) -- re-reading the header
+ * here merely makes sure the right credentials ride the connection.
  */
 @UnstableApi
 public class AuthenticatedHttpDataSourceFactory implements HttpDataSource.Factory {

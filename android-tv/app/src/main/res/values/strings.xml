@@ -16,6 +16,10 @@
     <string name="guidance_credentials_description">Enter your listener username and password</string>
     <string name="action_username">Username</string>
     <string name="action_password">Password</string>
+    <!-- Shown instead of echoing the stored password back onto the screen
+         (CredentialsStepFragment); an untouched or emptied field keeps the
+         stored value on save. -->
+    <string name="password_stored_hint">Geslo je shranjeno — vpiši novo, če ga želiš zamenjati</string>
     <string name="action_save">Save &amp; Connect</string>
 
     <string name="toast_connected">Connected to %1$s</string>
