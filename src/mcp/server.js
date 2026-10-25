@@ -7,7 +7,7 @@
 //
 // It imports the station's existing store/service modules DIRECTLY (never
 // the Fastify route registrars as routes, never src/server/index.js, never
-// the scheduler loop) and answers 25 tools -- see src/mcp/tools.js for the
+// the scheduler loop) and answers 29 tools -- see src/mcp/tools.js for the
 // catalog and docs/mcp-server.md (Slovenian) for the operator contract.
 //
 // STDOUT PURITY is this file's entire correctness contract: the JSON-RPC

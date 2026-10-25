@@ -7,9 +7,16 @@
 // MCP layer ON TOP of the same stores: honest empties, business failures as
 // thrown ToolFailure messages, provenance (ip 'mcp'), and the
 // allowWriteTools kill-switch.
+//
+// One exception to the injected-fakes rule, honest and loopback-only: the
+// request_queue happy path below exercises the REAL telnetClient (the ctx
+// seam cannot reach queueRequest's statically imported telnet call) against
+// a fake Liquidsoap speaking the real wire protocol on 127.0.0.1 -- the
+// requestQueue.test.mjs:114-127 pattern; no external network is touched.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,6 +44,7 @@ const { TOOLS, toolByName } = await import('../src/mcp/tools.js');
 const { createMcpServer } = await import('../src/mcp/protocol.js');
 const pollsStore = await import('../src/server/pollsStore.js');
 const requestsStore = await import('../src/server/requestsStore.js');
+const { lookupRatingKey } = await import('../src/plex/ratingKeyIndex.js');
 const { config } = await import('../src/config/index.js');
 
 const WAV = path.join(MUSIC_DIR, 'Ansambel Markec - Testna Pesem.wav');
@@ -63,10 +71,10 @@ function noTmpLeftovers() {
 }
 
 describe('catalog shape', () => {
-  test('25 tools: 17 read + 8 write, unique names, object schemas', () => {
-    assert.equal(TOOLS.length, 25);
-    assert.equal(TOOLS.filter((t) => t.write).length, 8);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 25);
+  test('29 tools: 17 read + 12 write, unique names, object schemas', () => {
+    assert.equal(TOOLS.length, 29);
+    assert.equal(TOOLS.filter((t) => t.write).length, 12);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 29);
     for (const t of TOOLS) {
       assert.equal(typeof t.name, 'string');
       assert.equal(typeof t.description, 'string');
@@ -445,6 +453,395 @@ describe('on-air controls (sendCommand injected)', () => {
     };
     await assert.rejects(tool('force_next_show').handler({}, { sendCommand: send }), /No directed show/);
     assert.deepEqual(sent, []);
+  });
+});
+
+// Placement note: these describes deliberately run AFTER the two above --
+// they rewrite station.json (which the 'unproduced lineup' refusal and the
+// read-tool empties depend on being schedule-less) and create
+// now_playing_state.json / running/ artifacts nothing later reads. The
+// no-.tmp-leftover sweep below still covers every write they perform.
+describe('schedule & station-meta writes', () => {
+  const stationFile = config.paths.stationFile;
+
+  function writeBriefs() {
+    const dir = config.paths.showDescriptionsDir;
+    fs.mkdirSync(dir, { recursive: true });
+    for (const id of ['jutranji', 'rock-vecer', 'vecerni']) {
+      fs.writeFileSync(path.join(dir, `${id}.md`), `# ${id}\n\n## Description\n\nTestni povzetek.\n`);
+    }
+  }
+
+  function writeStation(schedule) {
+    fs.writeFileSync(stationFile, JSON.stringify({ station: { name: 'Test Station' }, schedule }, null, 2));
+  }
+
+  function readStation() {
+    return JSON.parse(fs.readFileSync(stationFile, 'utf8'));
+  }
+
+  test('schedule_add_occurrence: happy add returns the whole day; a conflicting start repacks gapless', async () => {
+    writeBriefs();
+    writeStation({
+      monday: [
+        { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+        { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 },
+      ],
+    });
+    // 08:30 collides with jutranji's 08:00-09:00 slot: insert + repack, never reject.
+    const res = await tool('schedule_add_occurrence').handler(
+      { weekday: 'monday', occurrence: { id: 'vecerni', startTime: '08:30', durationMinutes: 30 } },
+      {}
+    );
+    assert.equal(res.weekday, 'monday');
+    assert.deepEqual(res.occurrences, [
+      { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+      { id: 'vecerni', startTime: '09:00', durationMinutes: 30 },
+      { id: 'rock-vecer', startTime: '09:30', durationMinutes: 60 },
+    ]);
+    assert.deepEqual(readStation().schedule.monday, res.occurrences, 'persisted atomically');
+    assert.ok(
+      fs.existsSync(path.join(DATA_DIR, '.station_hash')),
+      'invalidateSoon ran (the studioScheduleApi.js:27-33 mirror)'
+    );
+  });
+
+  test('schedule_add_occurrence: writer validation passes through as ToolFailure (bad time, unknown show)', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    await assert.rejects(
+      tool('schedule_add_occurrence').handler(
+        { weekday: 'monday', occurrence: { id: 'vecerni', startTime: '25:00', durationMinutes: 30 } },
+        {}
+      ),
+      /Invalid startTime "25:00" -- expected HH:MM/
+    );
+    await assert.rejects(
+      tool('schedule_add_occurrence').handler(
+        { weekday: 'monday', occurrence: { id: 'ne-obstaja', startTime: '22:00', durationMinutes: 30 } },
+        {}
+      ),
+      /No show "ne-obstaja" found under show-descriptions/
+    );
+    assert.equal(readStation().schedule.monday.length, 1, 'refused writes change nothing');
+  });
+
+  test('schedule_add_occurrence: missing weekday is the handler-side requireString refusal', async () => {
+    await assert.rejects(
+      tool('schedule_add_occurrence').handler(
+        { occurrence: { id: 'vecerni', startTime: '22:00', durationMinutes: 30 } },
+        {}
+      ),
+      /Manjka "weekday"/
+    );
+  });
+
+  test('schedule_update_occurrence: a resize repacks the day', async () => {
+    writeBriefs();
+    writeStation({
+      monday: [
+        { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+        { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 },
+      ],
+    });
+    const res = await tool('schedule_update_occurrence').handler(
+      { weekday: 'monday', time_key: '08-00', patch: { durationMinutes: 90 } },
+      {}
+    );
+    assert.equal(res.weekday, 'monday');
+    assert.deepEqual(res.occurrences, [
+      { id: 'jutranji', startTime: '08:00', durationMinutes: 90 },
+      { id: 'rock-vecer', startTime: '09:30', durationMinutes: 60 },
+    ]);
+  });
+
+  test('schedule_update_occurrence: a plain move onto another slot swaps in place', async () => {
+    writeBriefs();
+    writeStation({
+      monday: [
+        { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+        { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 },
+      ],
+    });
+    const res = await tool('schedule_update_occurrence').handler(
+      { weekday: 'monday', time_key: '08-00', patch: { startTime: '09:00' } },
+      {}
+    );
+    assert.deepEqual(res.occurrences, [
+      { id: 'rock-vecer', startTime: '08:00', durationMinutes: 60 },
+      { id: 'jutranji', startTime: '09:00', durationMinutes: 60 },
+    ]);
+  });
+
+  test('schedule_update_occurrence: unknown time_key and missing time_key are honest refusals', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    await assert.rejects(
+      tool('schedule_update_occurrence').handler(
+        { weekday: 'monday', time_key: '07-07', patch: { durationMinutes: 30 } },
+        {}
+      ),
+      /No occurrence at monday 07-07 to update/
+    );
+    await assert.rejects(
+      tool('schedule_update_occurrence').handler({ weekday: 'monday', patch: { durationMinutes: 30 } }, {}),
+      /Manjka "time_key"/
+    );
+  });
+
+  test('schedule_remove_occurrence: returns the removed occurrence and closes the gap on disk', async () => {
+    writeBriefs();
+    writeStation({
+      monday: [
+        { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+        { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 },
+        { id: 'vecerni', startTime: '10:00', durationMinutes: 30 },
+      ],
+    });
+    const res = await tool('schedule_remove_occurrence').handler({ weekday: 'monday', time_key: '09-00' }, {});
+    assert.deepEqual(res, { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 }, 'the route body is the removed occurrence itself');
+    assert.deepEqual(readStation().schedule.monday, [
+      { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+      { id: 'vecerni', startTime: '09:00', durationMinutes: 30 },
+    ], 'the gap closed');
+  });
+
+  test('schedule_remove_occurrence: unknown time_key refuses honestly', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    await assert.rejects(
+      tool('schedule_remove_occurrence').handler({ weekday: 'monday', time_key: '12-00' }, {}),
+      /No occurrence at monday 12-00 to remove/
+    );
+  });
+
+  test('update_station_meta: name change + downtime set, omitted keys untouched', async () => {
+    writeBriefs();
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify(
+        {
+          station: { name: 'Test Station', filler: { excludeKeywords: ['stari'] } },
+          downtime: { start: '02:00', end: '05:00' },
+          schedule: { monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] },
+        },
+        null,
+        2
+      )
+    );
+    const res = await tool('update_station_meta').handler(
+      { station: { name: 'Radio Markec 2' }, downtime: { start: '01:00', end: '06:00' } },
+      {}
+    );
+    assert.equal(res.station.name, 'Radio Markec 2');
+    assert.deepEqual(res.downtime, { start: '01:00', end: '06:00' });
+    assert.deepEqual(res.station.filler.excludeKeywords, ['stari'], 'omitted keys are left unchanged');
+    const raw = readStation();
+    assert.equal(raw.station.name, 'Radio Markec 2');
+    assert.deepEqual(raw.downtime, { start: '01:00', end: '06:00' });
+  });
+
+  test('update_station_meta: neverPlay replaces wholesale and syncs filler.excludeKeywords', async () => {
+    writeBriefs();
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify(
+        {
+          station: {
+            name: 'Test Station',
+            neverPlay: { keywords: ['prvi'], artists: [] },
+            filler: { excludeKeywords: ['prvi'] },
+          },
+          schedule: {},
+        },
+        null,
+        2
+      )
+    );
+    const res = await tool('update_station_meta').handler(
+      { station: { neverPlay: { keywords: ['novomesto', 'dežela'], artists: ['Nekdo Slaven'] } } },
+      {}
+    );
+    assert.deepEqual(res.station.neverPlay, { keywords: ['novomesto', 'dežela'], artists: ['Nekdo Slaven'] });
+    assert.deepEqual(
+      res.station.filler.excludeKeywords,
+      ['novomesto', 'dežela'],
+      'neverPlay.keywords mirrors into filler.excludeKeywords (stationWriter.js:257-262)'
+    );
+  });
+
+  test('update_station_meta: downtime null clears the window; an omitted station block is untouched', async () => {
+    writeBriefs();
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify({ station: { name: 'Test Station' }, downtime: { start: '02:00', end: '05:00' }, schedule: {} }, null, 2)
+    );
+    const res = await tool('update_station_meta').handler({ downtime: null }, {});
+    assert.equal(res.downtime, null);
+    assert.equal(res.station.name, 'Test Station');
+    assert.equal(readStation().downtime, null);
+  });
+
+  test('a shared weekday key splits into plain per-weekday keys on write', async () => {
+    writeBriefs();
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify(
+        {
+          station: { name: 'Test Station' },
+          schedule: { 'monday,tuesday': [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] },
+        },
+        null,
+        2
+      )
+    );
+    const res = await tool('schedule_add_occurrence').handler(
+      { weekday: 'monday', occurrence: { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 } },
+      {}
+    );
+    assert.equal(res.occurrences.length, 2);
+    const raw = readStation();
+    assert.deepEqual(
+      Object.keys(raw.schedule).sort(),
+      ['monday', 'tuesday'],
+      'comma-joined compression never survives a write (stationWriter.js:141-149)'
+    );
+    assert.equal(raw.schedule.monday.length, 2);
+    assert.equal(raw.schedule.tuesday.length, 1, 'the untouched day keeps the shared lineup verbatim');
+  });
+});
+
+describe('force_next_show happy path (directed occurrence fixture)', () => {
+  const FIXTURE_DATE = '2026-10-19'; // arbitrary valid dateKey; the weekday comes from the schedule keys, not this date
+
+  // State-driven and wall-clock-independent (updateNowPlaying.js:218-250):
+  // a stale state pointing at the FIRST monday show makes the 40-walk purely
+  // schedule-driven, so the result never depends on what day it really is.
+  function prepareForceNextFixture() {
+    // 1) two-show monday lineup (replaces the schedule-less station.json)
+    fs.writeFileSync(
+      config.paths.stationFile,
+      JSON.stringify(
+        {
+          station: { name: 'Test Station' },
+          schedule: {
+            monday: [
+              { id: 'jutranji', startTime: '08:00', durationMinutes: 60 },
+              { id: 'rock-vecer', startTime: '09:00', durationMinutes: 60 },
+            ],
+          },
+        },
+        null,
+        2
+      )
+    );
+    // 2) stale state pointing at the FIRST show (the current one, per
+    // currentShowEntry -- updateNowPlaying.js:122-126)
+    fs.writeFileSync(
+      config.paths.nowPlayingStatePath,
+      JSON.stringify({
+        weekday: 'monday',
+        id: 'jutranji',
+        date: FIXTURE_DATE,
+        timeKey: '08-00',
+        estimatedEndAt: 1,
+        confirmed: true,
+      })
+    );
+    // 3) directed occurrence dir for the SECOND show (playlist.m3u +
+    // context.json -- isDirected, updateNowPlaying.js:128-133). No brief
+    // files needed: nothing on this path reads show-descriptions.
+    const occDir = path.join(config.paths.runningDir, 'monday', 'rock-vecer', FIXTURE_DATE, '09-00');
+    fs.mkdirSync(occDir, { recursive: true });
+    fs.writeFileSync(path.join(occDir, 'playlist.m3u'), `${WAV}\n`);
+    fs.writeFileSync(path.join(occDir, 'context.json'), JSON.stringify({ durationSeconds: 3600 }));
+  }
+
+  test('loads the next directed occurrence, then reloads and skips', async () => {
+    prepareForceNextFixture();
+    const sent = [];
+    const send = async (command) => {
+      sent.push(command);
+      return 'ok';
+    };
+    const res = await tool('force_next_show').handler({}, { sendCommand: send });
+    assert.deepEqual(sent, ['show_source.reload', '/stream.skip'], 'route order: studioOnAirApi.js:81-87');
+    assert.equal(res.state.id, 'rock-vecer');
+    assert.equal(res.state.weekday, 'monday');
+    assert.equal(res.state.date, FIXTURE_DATE);
+    assert.equal(res.state.timeKey, '09-00');
+    assert.equal(res.state.confirmed, false);
+    assert.ok(res.state.estimatedEndAt > Date.now(), 'durationSeconds 3600 from context.json');
+    assert.equal(fs.readFileSync(config.paths.nowPlayingPath, 'utf8'), `${WAV}\n`, 'now_playing.m3u carries the raw playlist');
+  });
+
+  test('a skip failure after a successful load surfaces the telnet error (the load already happened)', async () => {
+    prepareForceNextFixture();
+    let calls = 0;
+    const send = async () => {
+      calls += 1;
+      if (calls === 1) return 'ok'; // show_source.reload (best-effort)
+      throw new Error('connection reset'); // the mandatory skip
+    };
+    await assert.rejects(
+      tool('force_next_show').handler({}, { sendCommand: send }),
+      /telnet ukaz ni uspel: connection reset/
+    );
+    assert.equal(fs.readFileSync(config.paths.nowPlayingPath, 'utf8'), `${WAV}\n`, 'the switch itself already landed');
+  });
+});
+
+describe('request_queue happy path (fake Liquidsoap telnet on loopback)', () => {
+  // copy of requestQueue.test.mjs:114-127 -- the real wire protocol
+  // (command -> <reply>\nEND\n). The tool handler does NOT route through
+  // ctx.sendCommand (queueRequest statically imports telnetClient), so the
+  // happy path has to speak real TCP to a loopback fake and point the LIVE
+  // config object's telnetPort at it -- telnetClient reads host/port at call
+  // time (telnetClient.js:27-30).
+  function startFakeLiquidsoap(responder) {
+    return new Promise((resolve) => {
+      const server = net.createServer((socket) => {
+        socket.on('data', (chunk) => {
+          for (const cmd of chunk.toString('utf8').split('\n')) {
+            const line = cmd.trim();
+            if (!line || line === 'quit') continue;
+            socket.write(`${responder(line)}\nEND\n`);
+          }
+        });
+      });
+      server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    });
+  }
+
+  test('approved request, real local library, fake telnet: queued, noted, scrobble-registered', async () => {
+    const added = await tool('request_add').handler(
+      { type: 'request', title: 'Testna Pesem', artist: 'Ansambel Markec', from: 'Ana' },
+      {}
+    );
+    await tool('request_moderate').handler({ id: added.id, status: 'approved' }, {});
+
+    let seen = null;
+    const fake = await startFakeLiquidsoap((cmd) => {
+      seen = cmd;
+      return cmd.startsWith('requests.push ') ? '42' : 'ERROR: unknown command';
+    });
+    const prevPort = config.liquidsoap.telnetPort;
+    config.liquidsoap.telnetPort = fake.port; // live config object -> telnetClient reads it per call
+    try {
+      const res = await tool('request_queue').handler({ id: added.id }, {});
+      assert.equal(res.ok, true);
+      assert.equal(res.requestId, '42');
+      assert.deepEqual(res.track, { artist: 'Ansambel Markec', title: 'Testna Pesem' });
+      assert.equal(seen, `requests.push ${WAV}`);
+      const stored = requestsStore.getRequest(added.id);
+      assert.equal(stored.status, 'approved', 'queueing never implies moderation');
+      assert.match(stored.note, /predvajalni vrsti/);
+      assert.match(stored.note, /#42/);
+      assert.equal(lookupRatingKey(WAV), ratingKeyForFile(WAV), 'scrobble index registered');
+    } finally {
+      config.liquidsoap.telnetPort = prevPort;
+      fake.server.close();
+    }
   });
 });
 

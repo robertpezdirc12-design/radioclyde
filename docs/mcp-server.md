@@ -24,7 +24,7 @@ vsako orodje je bodisi čisto branje obstoječih datotek bodisi klic obstoječe
 funkcije, ki jo že poganjajo HTTP poti (npr. `POST /studio/api/on-air/skip`).
 Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 
-## Orodja (25: 17 bralnih, 8 pisalnih)
+## Orodja (29: 17 bralnih, 12 pisalnih)
 
 | Orodje | B/P | Ena vrstica |
 |---|---|---|
@@ -53,6 +53,10 @@ Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 | `poll_close` | P | Zapre aktivno anketo in zamrzne števec v zgodovino. |
 | `skip_track` | P | Preskoči skladbo, ki se dejansko predvaja na izhodu. |
 | `force_next_show` | P | Naloži naslednjo usmerjeno oddajo in takoj prekine trenutni file. |
+| `schedule_add_occurrence` | P | Doda oddajo v dnevni urnik; dan se preuredi brez lukenj (oglas oddaje mora obstajati). |
+| `schedule_update_occurrence` | P | Premakne/prevelja/predi obstoječi termin (zamenjava na mestu ali preureditev dneva). |
+| `schedule_remove_occurrence` | P | Odstrani termin iz urnika in zapre nastalo luknjo. |
+| `update_station_meta` | P | Ime postaje, izvzete ključnice/izvajalce (neverPlay) in okno mirovanja. |
 
 B = branje, P = pisanje (spremeni skupno stanje).
 
@@ -135,3 +139,9 @@ potrebnih.
   modulov) pošilja na stderr — stdout nosi IZKLJUČNO JSON-RPC odgovore.
 - **Ni aktivne ankete:** `poll_vote` / `poll_close` odklonita pošteno
   (»Trenutno ni aktivne ankete.«).
+- **Urejanje urnika:** `schedule_*` in `update_station_meta` poganjajo isto
+  razveljavitev zastarele produkcije kot studio mreža (scheduleWatch): če je
+  bil termin že produciran (skripta/usmerjen predvajalni seznam), se
+  obstareli artefakti pobrišejo in nadgrajeni. Vsa validacija (ura HH:MM,
+  trajanje, obstoj oglasa oddaje) je pisalne plasti — zavrnitve so poštene
+  besedile napak, ne napake protokola.

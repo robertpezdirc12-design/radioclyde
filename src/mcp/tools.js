@@ -1,4 +1,4 @@
-// The MCP tool catalog for Radio Markec (25 tools: 17 read, 8 write) --
+// The MCP tool catalog for Radio Markec (29 tools: 17 read, 12 write) --
 // the surface an AI client (Claude Desktop & friends) drives through
 // src/mcp/server.js over stdio JSON-RPC. See docs/mcp-server.md (Slovenian)
 // for the operator-facing contract.
@@ -27,6 +27,8 @@
 //   api.js:41-56              listener count + 24 h peak
 //   studioLibraryApi.js:68-83 case-insensitive substring library filter
 //   studioShowsApi.js         listShowSummaries() (shared with GET /api/shows)
+//   studioScheduleApi.js:75-113 schedule add/update/remove/meta route
+//                             composition (+ invalidateSoon :27-33)
 //
 // STDOUT PURITY: logger.js's log() console.log's (logger.js:34) and several
 // backend paths call it (scheduleUtil.js:56, updateNowPlaying.js:170,
@@ -70,6 +72,8 @@ function loadBackend() {
         upcomingMod,
         scheduleGridMod,
         scheduleUtilMod,
+        stationWriterMod,
+        scheduleWatchMod,
         showsApiMod,
         briefWriterMod,
         requestsStoreMod,
@@ -96,6 +100,12 @@ function loadBackend() {
         import('../server/upcoming.js'),
         import('../server/scheduleGrid.js'),
         import('../scheduler/scheduleUtil.js'),
+        // Schedule/station-meta write levers (stationWriter) + the stale-
+        // production invalidation check the studio routes run inline after
+        // every write (scheduleWatch). Both inert at import (verified: no
+        // fs.watch, no timers; createLogger computes a path only).
+        import('../scheduler/stationWriter.js'),
+        import('../scheduler/scheduleWatch.js'),
         import('../server/studioShowsApi.js'),
         import('../producer/showBriefWriter.js'),
         import('../server/requestsStore.js'),
@@ -127,6 +137,11 @@ function loadBackend() {
         buildWeeklyGrid: scheduleGridMod.buildWeeklyGrid,
         loadSchedule: scheduleUtilMod.loadSchedule,
         loadStation: scheduleUtilMod.loadStation,
+        addOccurrence: stationWriterMod.addOccurrence,
+        updateOccurrence: stationWriterMod.updateOccurrence,
+        removeOccurrence: stationWriterMod.removeOccurrence,
+        updateStationMeta: stationWriterMod.updateStationMeta,
+        checkScheduleChanged: scheduleWatchMod.checkScheduleChanged,
         listShowSummaries: showsApiMod.listShowSummaries,
         readShowBriefForEditing: briefWriterMod.readShowBriefForEditing,
         validateSubmission: requestsStoreMod.validateSubmission,
@@ -620,6 +635,28 @@ const componentHealthTool = {
 // WRITE TOOLS (all mutate shared state through the existing atomic writers;
 // config.mcp.allowWriteTools: false hides them from tools/list and refuses
 // direct calls server-side)
+
+// studioScheduleApi.js:27-33 mirror: run scheduleWatch's invalidation check
+// inline right after a schedule/meta write, instead of waiting for the station
+// process's next scheduleWatch tick. Best-effort by design -- a throw here
+// must never fail an already-successful atomic write (route comment :26).
+// Cross-process notes: the route's "both processes are the same one now"
+// comment (studioScheduleApi.js:22-24) is about web+scheduler; this MCP
+// server is a separate process, but the mechanism is fully file-mediated
+// (station.json's sha256 vs .station_hash, atomic tmp+rename writes, and
+// rmSync({ recursive, force }) sweeps that are idempotent), so calling it
+// from here is equally safe. Even if it throws or is skipped, the station
+// process's own scheduleWatchIntervalMinutes tick picks the change up. The
+// log() calls inside scheduleWatch console.log onto stderr here (server.js's
+// console.log redirect), never onto the JSON-RPC stream.
+function invalidateSoon(be) {
+  try {
+    be.checkScheduleChanged();
+  } catch {
+    // the station process's next scheduleWatch tick picks it up
+  }
+}
+
 const requestAddTool = {
   name: 'request_add',
   description:
@@ -847,6 +884,212 @@ const forceNextShowTool = {
   },
 };
 
+const scheduleAddOccurrenceTool = {
+  name: 'schedule_add_occurrence',
+  description:
+    'Add a show occurrence to one weekday\'s lineup (the same write POST /api/schedule/:weekday performs). The day is one ordered, gapless sequence: a start time that conflicts with existing slots reorders and repacks the rest of the day instead of being rejected. The show brief must already exist under show-descriptions/. Returns the whole day as written.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      weekday: {
+        type: 'string',
+        enum: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      },
+      occurrence: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+          durationMinutes: { type: 'number', exclusiveMinimum: 0 },
+          description: { type: 'string' },
+        },
+        required: ['id', 'startTime', 'durationMinutes'],
+        additionalProperties: false,
+      },
+    },
+    required: ['weekday', 'occurrence'],
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args) => {
+    const be = await loadBackend();
+    const weekday = requireString(args, 'weekday', 'Manjka "weekday" (sunday..saturday).');
+    // studioScheduleApi.js:75-83 route composition: the nested occurrence
+    // passes through verbatim, exactly like request.body ?? {} (:77) -- zero
+    // field-list duplication, writer-side validation is the single source of
+    // truth. durationMinutes is a plain number (not integer), mirroring the
+    // writer's Number.isFinite && > 0 check (stationWriter.js:73);
+    // description is optional because the studio UI sends it only on
+    // cross-day moves (public/studio/js/schedule.js:429) and no src code
+    // reads it.
+    let day;
+    try {
+      day = await be.addOccurrence(weekday, args?.occurrence ?? {});
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    invalidateSoon(be);
+    be.audit(`schedule_add_occurrence: ${weekday} ${args?.occurrence?.id} @ ${args?.occurrence?.startTime}`);
+    return { weekday, occurrences: day };
+  },
+};
+
+const scheduleUpdateOccurrenceTool = {
+  name: 'schedule_update_occurrence',
+  description:
+    'Change an existing occurrence -- start time, duration, or show reassignment (the same write PATCH /api/schedule/:weekday/:timeKey performs). A plain start-time move landing on another occurrence\'s slot swaps the two in place; a resize, reassignment, or move into empty space repacks the day. time_key addresses the occurrence by its CURRENT start time with ":" replaced by "-" (e.g. "08-00"). An id-changing patch requires the new show\'s brief to exist.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      weekday: {
+        type: 'string',
+        enum: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      },
+      time_key: { type: 'string', pattern: '^([01][0-9]|2[0-3])-[0-5][0-9]$' },
+      patch: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', minLength: 1 },
+          startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+          durationMinutes: { type: 'number', exclusiveMinimum: 0 },
+          description: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+    },
+    required: ['weekday', 'time_key', 'patch'],
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args) => {
+    const be = await loadBackend();
+    const weekday = requireString(args, 'weekday', 'Manjka "weekday" (sunday..saturday).');
+    const timeKey = requireString(args, 'time_key', 'Manjka "time_key" obstoječega termina (npr. "08-00").');
+    // studioScheduleApi.js:85-93 route composition: the patch passes through
+    // verbatim (request.body ?? {}, :87) with zero pre-validation. A
+    // malformed time_key is NOT rejected handler-side -- it honestly fails
+    // inside the writer (`No occurrence at monday xx-xx to update.`),
+    // mirroring the route's passthrough; the schema pattern above is
+    // advisory documentation for clients only.
+    let day;
+    try {
+      day = await be.updateOccurrence(weekday, timeKey, args?.patch ?? {});
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    invalidateSoon(be);
+    be.audit(`schedule_update_occurrence: ${weekday} ${timeKey}`);
+    return { weekday, occurrences: day };
+  },
+};
+
+const scheduleRemoveOccurrenceTool = {
+  name: 'schedule_remove_occurrence',
+  description:
+    'Remove one occurrence from the weekday lineup (the same write DELETE /api/schedule/:weekday/:timeKey performs) and close the gap it leaves behind. Returns the removed occurrence. time_key is the occurrence\'s current start time with ":" replaced by "-" (e.g. "08-00").',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      weekday: {
+        type: 'string',
+        enum: ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      },
+      time_key: { type: 'string', pattern: '^([01][0-9]|2[0-3])-[0-5][0-9]$' },
+    },
+    required: ['weekday', 'time_key'],
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args) => {
+    const be = await loadBackend();
+    const weekday = requireString(args, 'weekday', 'Manjka "weekday" (sunday..saturday).');
+    const timeKey = requireString(args, 'time_key', 'Manjka "time_key" obstoječega termina (npr. "08-00").');
+    // studioScheduleApi.js:95-103 route composition: the writer's throw (no
+    // such occurrence) maps to an honest ToolFailure; the route returns the
+    // removed occurrence object as the whole response body (:99) -- so does
+    // this tool.
+    let removed;
+    try {
+      removed = await be.removeOccurrence(weekday, timeKey);
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    invalidateSoon(be);
+    be.audit(`schedule_remove_occurrence: ${weekday} ${timeKey} (${removed?.id})`);
+    return removed;
+  },
+};
+
+const updateStationMetaTool = {
+  name: 'update_station_meta',
+  description:
+    'Edit station.json\'s station block and downtime window (the same write PUT /api/schedule/meta performs): station name, neverPlay keyword/artist bans (mirrored into filler.excludeKeywords on save), and the daily downtime window -- pass downtime null to clear it. Omitted keys are left unchanged. Returns the full station block and downtime after the merge.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      station: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          jingle: { type: 'string' },
+          neverPlay: {
+            type: 'object',
+            properties: {
+              keywords: { type: 'array', items: { type: 'string' } },
+              artists: { type: 'array', items: { type: 'string' } },
+            },
+            additionalProperties: false,
+          },
+          filler: {
+            type: 'object',
+            properties: {
+              excludeKeywords: { type: 'array', items: { type: 'string' } },
+            },
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: false,
+      },
+      downtime: {
+        type: ['object', 'null'],
+        properties: {
+          start: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+          end: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+        },
+        required: ['start', 'end'],
+        additionalProperties: false,
+      },
+    },
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args) => {
+    const be = await loadBackend();
+    // studioScheduleApi.js:105-113 route composition: the patch passes
+    // through verbatim (request.body ?? {}, :107). The writer's own comment
+    // documents the accepted set as "name/downtime/neverPlay/
+    // filler.excludeKeywords" (stationWriter.js:253) -- downtime is top-level
+    // (:263), neverPlay sits under station (:257-262), arrays are replaced
+    // wholesale, downtime:null clears, omitting leaves. The route/writer
+    // perform NO validation and the tool invents none either -- the HH:MM
+    // patterns above are client-side documentation of the documented
+    // contract (scheduleUtil.js:97-99).
+    let result;
+    try {
+      result = await be.updateStationMeta(args ?? {});
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    invalidateSoon(be);
+    be.audit(
+      `update_station_meta: ${Object.keys(args?.station ?? {}).join(',') || '-'}${
+        args?.downtime !== undefined ? ' +downtime' : ''
+      }`
+    );
+    return result; // { station, downtime } -- the route's exact body (:109)
+  },
+};
+
 export const TOOLS = [
   nowPlayingTool,
   playHistoryTool,
@@ -873,6 +1116,10 @@ export const TOOLS = [
   pollCloseTool,
   skipTrackTool,
   forceNextShowTool,
+  scheduleAddOccurrenceTool,
+  scheduleUpdateOccurrenceTool,
+  scheduleRemoveOccurrenceTool,
+  updateStationMetaTool,
 ];
 
 export function toolByName(name) {
