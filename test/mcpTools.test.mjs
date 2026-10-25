@@ -141,8 +141,13 @@ describe('read tools: honest empties on a fresh dataDir', () => {
     assert.equal(res.layers.id.tag, 'id');
     assert.equal(res.layers.stingers.dirMissing, true);
     assert.equal(res.layers.emergency.dirMissing, true);
+    // Paket B2: the promo layer rides the same inventory (generated and
+    // operator clips are indistinguishable here -- read-only either way).
+    assert.equal(res.layers.promos.dirMissing, true);
+    assert.equal(res.layers.promos.tag, 'promo');
     // read-only: no .m3u was written for any layer
     assert.ok(!fs.existsSync(config.paths.imagingIdPath));
+    assert.ok(!fs.existsSync(config.paths.imagingPromosPath));
   });
 });
 

@@ -4,7 +4,7 @@ Rules for authoring a `.script.md` file — the deliverable of a **producer** se
 **director** consumes this file mechanically to turn it into a broadcast-ready show: it
 does not make creative decisions, pick tracks, write DJ lines, or research facts.
 Everything is already decided by the time this file is finished, with one exception —
-live weather/time segments — see `type: live` below.
+live weather/time/next-show segments — see `type: live` below.
 
 ## File structure
 
@@ -103,16 +103,16 @@ name at production time.
 ### `type: live`
 
 The only segment the director doesn't just play back verbatim. Used for anything that
-would be stale if written ahead of air — currently: current time and/or current
-weather. At production time the director fetches real data and generates the actual
-line, using `brief` as tone/length direction — nothing here is spoken as literally
-written.
+would be stale if written ahead of air — currently: current time, current weather, and
+the next show on the schedule. At production time the director fetches real data and
+generates the actual line, using `brief` as tone/length direction — nothing here is
+spoken as literally written.
 
 ```
 ## Weather Check — Elena
 type: live
 persona: elena
-kind: time | weather | time-weather
+kind: time | weather | time-weather | nextShow
 brief: <free text: tone, length, angle — direction, not content>
 ```
 
@@ -121,9 +121,26 @@ brief: <free text: tone, length, angle — direction, not content>
 - `kind: weather` — current conditions for the station's fixed location
   (`config.json` → `weather.latitude`/`longitude`), via Open-Meteo.
 - `kind: time-weather` — both, in one line.
+- `kind: nextShow` — the closing "what's next" announcement: the next show on
+  `station.json`'s schedule after this one (name, host, day, start time).
 - `brief` is *instruction*, not content — write it like direction to a DJ, not like the
   line itself. Good: `"20s casual check-in, drivetime energy"`. Bad: `"It's sunny and
   75 degrees"` (you don't know that yet — that's the director's job).
+
+`kind: nextShow` is stamped by the builders (`src/auto/scriptBuilder.js`,
+`src/producer/boundaryWalk.js`) right before the closing `dj` segment — it is part of
+the grammar so a script round-trips through parse/render, not something to author by
+hand. Its data is resolved at **direct time** (about 15 minutes before air) from
+`station.json`'s schedule, never at script time — same-day repeats share one
+`script.md` and one dj-audio cache, so a script-time "next show" would name a show
+that already aired on the re-run. When the next show can't be resolved (no occurrence
+identity, the schedule was edited after direction, nothing programmed in the next 7
+days), the segment degrades to an honest offline line that invents no day, time or
+show name. In clips/pregenerated voice modes live segments are skipped by
+construction: those providers key files by slot name (`src/auto/voice.js`'s
+`resolveClipPath` and the pre-generated slot map), and a pre-recorded clip could
+never know the direct-time answer — a `live:nextShow` slot can never honestly match
+a file, same as live weather today.
 
 ## Segment taxonomy
 

@@ -25,6 +25,7 @@ import { cleanupOldShows } from './cleanupOldShows.js';
 import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
 import { writeImagingPlaylists } from './imagingPlaylists.js';
+import { producePromoClips } from './promoProducer.js';
 import { runAutocueScan } from './autocueScan.js';
 import { pushDispatchTick } from './pushDispatch.js';
 import { sampleNow } from '../analytics/listenerSamples.js';
@@ -224,9 +225,20 @@ export function startScheduler() {
   // Optional-chained + defaulted like every other optional block, so configs
   // without an imaging block boot exactly as before (the F2 class of defect
   // caught by the chatterbox regression on 2026-10-24 -- must not come back).
-  // The rescan is cheap (three small dir listings); it runs at boot too via
+  // The rescan is cheap (four small dir listings); it runs at boot too via
   // every()'s immediate first tick, so the .m3u files exist from the start.
   every(cadence(config.imaging?.checkIntervalMinutes, 30), 'imaging', writeImagingPlaylists);
+  // Promo layer (Paket B2): auto-produce schedule-driven promo clips (Edge
+  // TTS, loudness-aligned) into imaging/promos/ and refresh promos.m3u.
+  // OPT-IN: imaging.promos.enabled === true -- a layer that SPEAKS on air
+  // must never appear unannounced on an existing install (degradation
+  // ladder stays "layer absent"). ?. + ?? like every optional block (F2).
+  // every() receives the job function directly, exactly like the imaging
+  // registration above (the job's own seams keep it testable without a
+  // wrapper).
+  if (config.imaging?.promos?.enabled === true) {
+    every(cadence(config.imaging?.promos?.checkIntervalMinutes ?? 30), 'promo_producer', producePromoClips);
+  }
   // R128 loudness alignment (lib/autocue.js + radio.liq's amplify()): one
   // pass over the library per tick, budgeted to maxAnalyzePerRun analyses so
   // a first-ever sweep is spread across ticks. Optional-chained + defaulted

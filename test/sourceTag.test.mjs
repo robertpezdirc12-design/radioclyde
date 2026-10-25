@@ -29,8 +29,8 @@ const { LAYER_TAGS, writeImagingPlaylists } = await import('../src/scheduler/ima
 const ALL_TAGS = [...Object.values(SOURCE_TAG), ...Object.values(LAYER_TAGS)];
 
 describe('closed tag set', () => {
-  test('the allowed tags are exactly the documented six', () => {
-    assert.deepEqual([...ALL_TAGS].sort(), ['emergency', 'id', 'jingle', 'music', 'speech', 'stinger']);
+  test('the allowed tags are exactly the documented seven', () => {
+    assert.deepEqual([...ALL_TAGS].sort(), ['emergency', 'id', 'jingle', 'music', 'promo', 'speech', 'stinger']);
   });
 
   test('only "music" is music-family (the dispatcher invariant)', () => {
@@ -38,7 +38,7 @@ describe('closed tag set', () => {
     // The one rule the dispatcher will ever apply: anything that is not
     // exactly "music" must hard-cut. If someone adds a new music-family tag
     // (e.g. "jingle-music"), this test forces a conversation.
-    assert.ok(nonMusic.length >= 5, 'speech family must stay explicitly enumerated');
+    assert.ok(nonMusic.length >= 6, 'speech family must stay explicitly enumerated');
     for (const tag of nonMusic) {
       assert.notEqual(tag, SOURCE_TAG.music);
     }
@@ -77,18 +77,21 @@ describe('every writer tags its entries', () => {
     assert.match(full, /^annotate:source_tag="jingle",title="Show",artist="Station":/);
   });
 
-  test('imaging playlists carry their per-layer tags (id/stinger/emergency)', () => {
+  test('imaging playlists carry their per-layer tags (id/stinger/promo/emergency)', () => {
     fs.mkdirSync(config.paths.imagingIdDir, { recursive: true });
     fs.mkdirSync(config.paths.imagingStingerDir, { recursive: true });
+    fs.mkdirSync(config.paths.imagingPromosDir, { recursive: true });
     fs.mkdirSync(config.paths.imagingEmergencyDir, { recursive: true });
     writeWav(path.join(config.paths.imagingIdDir, 'id1.wav'));
     writeWav(path.join(config.paths.imagingStingerDir, 'st1.wav'));
+    writeWav(path.join(config.paths.imagingPromosDir, 'promo1.wav'));
     writeWav(path.join(config.paths.imagingEmergencyDir, 'em1.wav'));
     writeImagingPlaylists();
 
     const cases = [
       { file: config.paths.imagingIdPath, tag: LAYER_TAGS.id },
       { file: config.paths.imagingStingerPath, tag: LAYER_TAGS.stingers },
+      { file: config.paths.imagingPromosPath, tag: LAYER_TAGS.promos },
       { file: config.paths.imagingEmergencyPath, tag: LAYER_TAGS.emergency },
     ];
     for (const { file, tag } of cases) {

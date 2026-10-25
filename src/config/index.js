@@ -74,9 +74,13 @@ config.paths = {
   stationLockPath: path.join(config.dataDir, '.station.lock'),
   // Imaging layer (scheduler/imagingPlaylists.js + liquidsoap/radio.liq):
   // short produced clips layered over the program. Node scans the clip
-  // directories and writes the three .m3u files radio.liq watches; the clip
+  // directories and writes the four .m3u files radio.liq watches; the clip
   // audio itself is produced out-of-band (TTS / ffmpeg), see
-  // docs/imaging-layer.md. A missing clip directory yields an empty .m3u,
+  // docs/imaging-layer.md -- the one exception is the promos layer, whose
+  // schedule-driven clips are AUTO-produced by scheduler/promoProducer.js
+  // when imaging.promos.enabled is true (operator-placed clips are equally
+  // at home there; the rescan treats generated and operator clips
+  // identically). A missing clip directory yields an empty .m3u,
   // which makes that Liquidsoap source fallible-empty -- the layer simply
   // drops off air instead of breaking anything.
   imagingIdDir: path.join(config.dataDir, 'imaging', 'id'),
@@ -85,6 +89,12 @@ config.paths = {
   imagingIdPath: path.join(config.dataDir, 'imaging', 'id.m3u'),
   imagingStingerPath: path.join(config.dataDir, 'imaging', 'stingers.m3u'),
   imagingEmergencyPath: path.join(config.dataDir, 'imaging', 'emergency.m3u'),
+  // Promos (Paket B2): the fourth imaging layer. Clips land in imaging/promos/
+  // either from scheduler/promoProducer.js (schedule-driven, Edge TTS) or
+  // from the operator's hand -- same pool either way, same .m3u contract as
+  // the three siblings above.
+  imagingPromosDir: path.join(config.dataDir, 'imaging', 'promos'),
+  imagingPromosPath: path.join(config.dataDir, 'imaging', 'promos.m3u'),
   // R128 loudness alignment (lib/autocue.js + scheduler/autocueScan.js +
   // radio.liq's amplify(override="liq_amplify")): measured per-track LUFS
   // side index. Path-keyed, mtimeMs+size-checked, rewritten atomically by

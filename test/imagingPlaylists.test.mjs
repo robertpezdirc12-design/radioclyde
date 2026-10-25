@@ -1,6 +1,7 @@
 // Imaging layer regression tests: scheduler/imagingPlaylists.js's directory
 // scan + .m3u writing, which is the Node half of the contract with
-// liquidsoap/radio.liq's three imaging sources (id / stingers / emergency).
+// liquidsoap/radio.liq's four imaging sources (id / stingers / promos /
+// emergency).
 //
 // What these pin down, following the repo's honesty standards:
 //  - only audio files in the layer directory become entries (no subdirs, no
@@ -24,7 +25,7 @@ setupTestConfig('imaging-playlists', {
 });
 
 const { config } = await import('../src/config/index.js');
-const { buildImagingEntries, writeImagingPlaylists } = await import(
+const { buildImagingEntries, writeImagingPlaylists, LAYER_TAGS } = await import(
   '../src/scheduler/imagingPlaylists.js'
 );
 
@@ -77,6 +78,12 @@ describe('writeImagingPlaylists', () => {
     writeWav(path.join(config.paths.imagingIdDir, 'id-1.wav'));
     writeWav(path.join(config.paths.imagingIdDir, 'id-2.wav'));
     writeWav(path.join(config.paths.imagingStingerDir, 'sting-1.wav'));
+    // The promos layer (Paket B2): same contract as the siblings -- the m3u
+    // lists whatever is in the dir, whether the clips came from
+    // promoProducer.js or the operator's hand.
+    fs.mkdirSync(config.paths.imagingPromosDir, { recursive: true });
+    writeWav(path.join(config.paths.imagingPromosDir, 'promo-hosted.wav'));
+    writeWav(path.join(config.paths.imagingPromosDir, 'moj-promo.wav'));
     // emergency dir deliberately NOT created.
 
     const summary = writeImagingPlaylists();
@@ -88,6 +95,10 @@ describe('writeImagingPlaylists', () => {
     assert.deepEqual(
       summary.stingers,
       { count: 1, dirMissing: false, path: config.paths.imagingStingerPath }
+    );
+    assert.deepEqual(
+      summary.promos,
+      { count: 2, dirMissing: false, path: config.paths.imagingPromosPath }
     );
     assert.deepEqual(
       summary.emergency,
@@ -103,6 +114,12 @@ describe('writeImagingPlaylists', () => {
 
     const stingerLines = fs.readFileSync(config.paths.imagingStingerPath, 'utf8').trim().split('\n');
     assert.equal(stingerLines.length, 1);
+
+    const promoLines = fs.readFileSync(config.paths.imagingPromosPath, 'utf8').trim().split('\n');
+    assert.equal(promoLines.length, 2);
+    for (const line of promoLines) {
+      assert.match(line, /^annotate:source_tag="promo",liq_fade_in="0":/);
+    }
 
     // Missing dir -> EMPTY file (not garbage, not fabricated entries).
     assert.equal(fs.readFileSync(config.paths.imagingEmergencyPath, 'utf8'), '');
@@ -177,5 +194,48 @@ describe('writeImagingPlaylists write discipline (watched files)', () => {
     const imagingDir = path.dirname(config.paths.imagingIdPath);
     const leftovers = fs.readdirSync(imagingDir).filter((f) => f.includes('.tmp'));
     assert.deepEqual(leftovers, []);
+  });
+});
+
+// Fourth layer (Paket B2): the promos layer is additive to the summary and
+// the LAYER_TAGS contract -- its clips are auto-produced by promoProducer.js
+// when enabled, but the SCAN treats generated and operator clips
+// identically, so these pins only re-state the shared contract for the new
+// name.
+describe('writeImagingPlaylists fourth layer (promos)', () => {
+  function resetImagingDirs() {
+    fs.rmSync(path.join(config.dataDir, 'imaging'), { recursive: true, force: true });
+  }
+
+  test('LAYER_TAGS.promos is "promo" (one tag per layer, closed set)', () => {
+    assert.equal(LAYER_TAGS.promos, 'promo');
+    assert.equal(Object.keys(LAYER_TAGS).length, 4);
+  });
+
+  test('missing promos dir -> empty promos.m3u + honest summary entry', () => {
+    resetImagingDirs();
+    // No imaging dirs at all: the promos entry must still exist and tell the
+    // truth (count 0, dirMissing true) -- an additive key, never an
+    // undefined one a Diagnostics surface would have to guess about.
+    const summary = writeImagingPlaylists();
+    assert.deepEqual(
+      summary.promos,
+      { count: 0, dirMissing: true, path: config.paths.imagingPromosPath }
+    );
+    assert.equal(fs.readFileSync(config.paths.imagingPromosPath, 'utf8'), '');
+  });
+
+  test('idempotence: an identical promos clip set leaves the file (and mtime) alone', () => {
+    resetImagingDirs();
+    fs.mkdirSync(config.paths.imagingPromosDir, { recursive: true });
+    writeWav(path.join(config.paths.imagingPromosDir, 'promo_a.wav'));
+    writeWav(path.join(config.paths.imagingPromosDir, 'promo_b.wav'));
+    writeImagingPlaylists();
+    const afterFirst = fs.statSync(config.paths.imagingPromosPath).mtimeMs;
+    const bytes = fs.readFileSync(config.paths.imagingPromosPath, 'utf8');
+
+    writeImagingPlaylists(); // the promoProducer's end-of-wave refresh: same set
+    assert.equal(fs.readFileSync(config.paths.imagingPromosPath, 'utf8'), bytes);
+    assert.equal(fs.statSync(config.paths.imagingPromosPath).mtimeMs, afterFirst);
   });
 });

@@ -201,7 +201,12 @@ export function addCalendarDays(date, days) {
 // it airs on -- lets gap detection compare two occurrences that may fall on
 // different calendar days (a day's last show followed by tomorrow's first)
 // on one consistent timeline instead of separate per-day minute-of-day math.
-function absoluteStart(date, startTime) {
+// Exported since Paket B1: auto/liveLines.js computes the CURRENT show's
+// nominal end (absoluteStart + durationMinutes) as the reference point for
+// the "danes/jutri" day label of the next-show announcement -- a show that
+// crosses midnight must announce tomorrow's morning show as "danes", because
+// that is what the listener hears at the moment the announcement airs.
+export function absoluteStart(date, startTime) {
   const d = dateFromKey(date);
   const [h, m] = startTime.split(':').map(Number);
   d.setHours(h, m, 0, 0);

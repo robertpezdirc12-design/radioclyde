@@ -6,12 +6,16 @@ import { estimateSpeechMs } from '../lib/format.js';
 import { isSegmentType } from './segments.js';
 
 const VALID_TYPES = new Set(['dj', 'track', 'live']);
-const VALID_LIVE_KINDS = new Set(['time', 'weather', 'time-weather']);
+// 'nextShow' (Paket B1, docs/programming-research.md §5): the closing "what's
+// next" announcement -- like time/weather it can only be resolved at DIRECT
+// time (a same-day repeat shares script.md, so a script-time next show would
+// name a show that already aired on the re-run; see auto/liveLines.js).
+const VALID_LIVE_KINDS = new Set(['time', 'weather', 'time-weather', 'nextShow']);
 const FALLBACK_TRACK_DURATION_MS = 210000; // ~3.5min, same fallback plex/tracks.js uses when Plex omits duration
 // `live` segments have no real content yet at authoring time (that's the
 // whole point -- see script-format.md), so these are nominal placeholders
 // for a short spoken check-in, not a measurement of anything.
-const LIVE_SEGMENT_ESTIMATE_MS = { time: 10000, weather: 15000, 'time-weather': 20000 };
+const LIVE_SEGMENT_ESTIMATE_MS = { time: 10000, weather: 15000, 'time-weather': 20000, nextShow: 8000 };
 // A producer session can't hit the target duration exactly -- it's working
 // from word-count/track-length estimates, same as the preview tool. Wide
 // enough to not fight over a couple minutes, tight enough to flag a show
@@ -126,7 +130,7 @@ export function parseScript(markdown, { requiredDurationMinutes, personas, known
         issues.push(`${label}: persona "${persona}" is not a known persona (${Object.keys(personas).join(', ')}).`);
       }
       if (!kind || !VALID_LIVE_KINDS.has(kind)) {
-        issues.push(`${label}: live segment "kind:" must be one of time, weather, time-weather.`);
+        issues.push(`${label}: live segment "kind:" must be one of time, weather, time-weather, nextShow.`);
       }
       if (!brief) issues.push(`${label}: live segment missing "brief:".`);
       const segment = fields.segment ?? null;

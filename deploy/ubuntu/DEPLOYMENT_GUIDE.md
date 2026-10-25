@@ -259,6 +259,10 @@ Arhiv vsebuje **PLAINTEXT gesla** (studio, icecast, plex, lastfm) **in VAPID zas
 
 `fallback([show_source, filler_source])` pomeni: **producirana oddaja gre v eter, takoj ko obstaja**; filler pokrije le vrzeli. Če vaš `radio.liq` ima *samo* `filler.m3u` (kot starejša različica `install.sh`), urnik nikoli ne pride v eter in poslušalci slišijo isto neskončno zankco — točno to je bil prijavljen problem ponavljanja.
 
+### Icy identiteta toka (Paket B3)
+
+Predloga iz `install.sh` v svojem `output.icecast` nosi `name="Radio Markec"`, `description="Slovenian AI DJ Radio"`, `genre="Various"` in uredniško nastavljiv `url="https://your-domain.com"` — to so STATIČNI metapodatki mounta, ki jih predvajalniki in imeniki (TuneIn idr.) pokažejo kot identiteto postaje. Enake tri vrednosti (brez `url=`) nosi tudi referenčni `liquidsoap/radio.liq` iz repozitorija; obe kopiji sta pripeti skupaj v `test/radioLiqIcy.test.mjs`, da ne razideta. Vrednosti so namerno literali v `radio.liq` (tipizirani `json.parse` ostaja nedotaknjen, starejši `config.json` torej še vedno zažene) — preuredite jih neposredno v `/opt/radioclyde/config/radio.liq`. Namig za namestitve pred valom 21: `install.sh` piše `radio.liq` le ob prvi namestitvi — obstoječi stroji te identitete še nimajo, dokler ne prepišejo svojega izhodnega bloka.
+
 ### Zakaj se pesmi ne ponavljajo več vsako uro
 
 Trije vzroki so bili odpravljeni (revizija 2026-10-24):
@@ -290,7 +294,7 @@ sudo diff <(sort /tmp/gen1.m3u) <(sort /opt/radioclyde/data/filler.m3u) | grep -
 
 Znano omejitev: če je knjižnica manjša od `poolSize` (ali manjša od ene urne rotacije), se skladbe neizogibno vrnejo prek najstarejše rotacije — takrat dodajte glasbo ali povečajte knjižnico; arhitektura ne more rotirati, česar ni.
 
-**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`.
+**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`. Isto velja za promo plast (Paket B2): namestniška predloga `radio.liq` nima `promo_source`, zato prižiganje `imaging.promos.enabled` tu pomeni produkcijo klipev, ki nikoli ne gredo na eter — plast živi samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md`, razdelek o promosih).
 
 ## .gitignore
 

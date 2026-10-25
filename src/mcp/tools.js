@@ -536,7 +536,7 @@ const trackMetadataTool = {
 const imagingInventoryTool = {
   name: 'imaging_inventory',
   description:
-    'Inventory of the imaging layer clip directories (station IDs, stingers, emergency bed): clip counts and file lists per layer, with an honest dirMissing flag. Read-only -- it never rewrites the .m3u files radio.liq watches.',
+    'Inventory of the imaging layer clip directories (station IDs, stingers, promos, emergency bed): clip counts and file lists per layer, with an honest dirMissing flag. Read-only -- it never rewrites the .m3u files radio.liq watches.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   write: false,
   handler: async () => {
@@ -544,6 +544,10 @@ const imagingInventoryTool = {
     const layers = [
       { name: 'id', dir: be.config.paths.imagingIdDir },
       { name: 'stingers', dir: be.config.paths.imagingStingerDir },
+      // Paket B2: the promo layer's dir can hold BOTH scheduler-produced
+      // clips (promoProducer.js) and operator-placed ones -- same read-only
+      // inventory treatment either way.
+      { name: 'promos', dir: be.config.paths.imagingPromosDir },
       { name: 'emergency', dir: be.config.paths.imagingEmergencyDir },
     ];
     const out = {};

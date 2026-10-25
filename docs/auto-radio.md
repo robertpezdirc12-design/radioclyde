@@ -337,6 +337,7 @@ izmenjujejo brez modela. Vrednosti, ki jih lahko uporabiš:
 | `{fact}` | zanimivost (polna poved brez končne pike — predloga jo dodaja) |
 | `{time}` / `{date}` | trenutni čas/datum v `weather.timezone` |
 | `{condition}` / `{temp}` / `{wind}` | vreme (slovensko, °C, km/h) |
+| `{nextShow}` / `{nextHost}` / `{nextTime}` / `{nextDayWord}` | zaključna napoved naslednje oddaje (ime, voditelj, ura, slovenska dnevna beseda »danes«/»jutri«/»v sredo«) — razrešeno ob režiji, glej razdelek o njej spodaj |
 
 Sloti: `open` in `close` imajo tudi različice po časovnih blokih
 (`morning`/`daytime`/`evening`/`night` + `default`) — različico izbere blok,
@@ -344,7 +345,12 @@ razrešen ob produkciji (`scriptBuilder` ga razreši enkrat na izgradnjo
 oddaje, isti blok kot žanrsko usmerjanje); `recap` se sam odloči
 med različicami z albumom+letom, samo letom ali splošno — glede na to, kaj
 knjižnica res ve. Preprost kviz (ugibanje leta) uporablja `quizIntro` in
-`quizReveal`.
+`quizReveal`. Živi sloti (`live:time`, `live:weather`, `live:time-weather`)
+se polnijo z reliefnimi podatki ob režiji; zaključna napoved naslednje
+oddaje ima svoj par bazenov — `live.nextShow.withHost`/`noHost` (razcep
+po voditelju, tako da oddaja brez voditelja nikoli ne izreše obvislega
+»z voditeljem«) in pošteno rezervo `live.nextShowOffline` (glej razdelek
+»Paket B1« spodaj).
 
 Poljuben slot lahko prepišeš:
 
@@ -927,6 +933,59 @@ Ledger se preverja z ISTIM branjem kot izvajalno poročilo (P4 #27
 vrstice so opozorilo (izgubljeni podatki za licenčno poročilo), tako
 kot ledger brez vnosa starejšega od 7 dni (morda ne piše
 `scrobbleTrack`).
+
+### Paket B1 (Val 21): zaključna napoved naslednje oddaje
+
+Zadnja vrstica vsake oddaje je zdaj tisto, kar pravi radio počne samo od
+sebe: **napoved, kaj sledi** — »Takoj za mano pa danes ob 20:00 — oddaja
+Večerni maraton z voditeljem Elena. Ostani z nami!«, nato pa še poslovilni
+pozdrav. Graditelja skript (`scriptBuilder.js` za avto pot,
+`boundaryWalk.js` za AI pot) odložita živi segment `kind: nextShow` takoj
+pred zaključni `dj` segment; ker sta govorni sosedi, ju režiser zlije v eno datoteko
+(`director/index.js` flushPendingSpeech) — napoved prva, poslovilje drugo,
+brez prehoda med njima.
+
+**Zakaj živi segment in ne vrstica v skripti:** skripta in dj-glas se
+predpomnlita PO oddaji/datumu, ponovitev istega dne pa ju DELEŽI — v času
+pisanja skripte torej ne vem, katera ponovitev bo zadnja, in bi »naslednja
+oddaja« na ponovitvi imenovala oddajo, ki je že bila na zraku. Zato se
+podatki (ime, voditelj, ura, dnevna beseda) razrešijo šele OB REŽIJI —
+približno 15 minut pred etrom (`directLeadTimeMinutes`) — iz `station.json`
+ovega urnika prek `nextOccurrence`, ki pravilno prečka tudi temne dneve.
+Skupen razreševalec je `resolveNextShowValues` (`auto/liveLines.js`);
+obe poti (avto predloge + AI dejstva) ga uvažata iz istega vira, zato o
+tem, kdo je naslednji, nikoli ne moreta dati različnega odgovora. Dnevna beseda
+(»danes«/»jutri«/»v sredo«) se računa glede na NOMINALNI KONEC trenutne
+oddaje — oddaja, ki gre čez polnoč, mora jutranjo oddajo napovedati z
+»danes«, ker tako sliši poslušalec, ko vrstica gre v eter.
+
+**Iskrena obramba pred zastarelostjo:** urnik, spremenjen v tistih ~15
+minutah med režijo in etrom, pusti napoved odveč — a to je strogo bolje
+kot pri vsaki drugi govorjeni vrstici, ki nastane ure/dni prej. Nihče ne
+zmaga proti urejevalniku urnika ob 19:52.
+
+**Lestvica degradacije** (nikoli izjema v režijo, P4 #29 lekcija):
+
+1. Naslednja oddaja obstaja → bazen `live.nextShow.withHost` (ime, voditelj,
+   dan, ura) ali `noHost` (oddaja brez voditelja nikoli ne dobi obvislega
+   »z voditeljem«).
+2. Razreševanje odpove (brez identitete pojavitve, timeKey po urejanju
+   urnika ni več v njem, v naslednjih 7 dneh ni nič programiranega,
+   neberljiv station.json) → poštena offline vrstica `live.nextShowOffline`
+   (»urnik trenutno molči …«), ki si ne izmisli NE dneva NE ure NE imena —
+   brez števk, po vzorcu `weatherOffline`.
+
+Seme izbire različice je razrešeni DAN+URA naslednje oddaje, ne stenska ura —
+isto stanje urnika = ista vrstica = reproducirljivi prepisi (vreme ima
+namerno ostalo stensko-urno seme, ker je njegov podatek prav stenska ura).
+
+**Meja načinov clips/pregenerated:** živi segmenti so tam po konstrukciji
+preskočeni — ti načini iščejo datoteke po imenu slota (`resolveClipPath`,
+preslikani sloti za pregenerated pokrivajo le open/close/handoff), posnet
+klip pa nikoli ne more vedeti, kaj je naslednje ob režiji. Enako kot živo
+vreme danes: napoved preprosto utihne, poslovilni pozdrav pa povede naprej.
+V načinu `none` seveda utihne ves govor — besedilo ostane v `script.md` in
+`transcript.json`.
 
 ### Nadgradnja iz SUB/WAVE (4-c): Finding model + šest novih preverjanj
 

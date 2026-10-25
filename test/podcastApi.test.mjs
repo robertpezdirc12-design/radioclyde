@@ -277,7 +277,20 @@ describe('studio podcast ruta', () => {
     }, { prefix: '/studio' });
     return fastify;
   }
-  const today = new Date().toISOString().slice(0, 10); // test config je UTC
+  // "Danes" se izračuna POTI-ENAKO: toLocalISOString(new Date(),
+  // config.weather.timezone), natanko kot studioPodcastApi.js:66. Prej je
+  // test delal new Date().toISOString() (UTC) s komentarjem "test config je
+  // UTC" -- kar je bila LAŽ: fixtures.mjs:52 nastavi Europe/Ljubljana, zato je
+  // v oknu 23:00-00:00 UTC (= 00:00-01:00 po Ljubljani) UTC-datum za dan
+  // za lokalnim, reuse je zgrešil, pot je poklicala produce (ki vrže) in
+  // test padel s 500. Pripravljen dnevni flake, odkrit na Val 21 integracijskih
+  // vratih ob 23:16 UTC 2026-10-25. Izračun je zato znotraj testa (dinamicna
+  // uvoza za setupTestConfig, weatherOffline.test.mjs vzorec).
+  async function routeToday() {
+    const { toLocalISOString } = await import('../src/lib/time.js');
+    const { config } = await import('../src/config/index.js');
+    return toLocalISOString(new Date(), config.weather?.timezone).slice(0, 10);
+  }
 
   test('GET status: running + lastEpisode iz skena', async () => {
     const fastify = app({
@@ -294,6 +307,7 @@ describe('studio podcast ruta', () => {
   });
 
   test('POST reuse: današnja z zvokom = reused, produce se ne pokliče', async () => {
+    const today = await routeToday();
     let produceCalls = 0;
     const fastify = app({
       podcastsDir: tmpDir(),

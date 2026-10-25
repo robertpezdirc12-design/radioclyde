@@ -198,7 +198,11 @@ export async function directShow({ id, weekday, date, timeKey }) {
     } else if (seg.type === 'live') {
       speechSegmentSeq++;
       const textStartedAt = Date.now();
-      const text = await resolveLiveLine(seg);
+      // The occurrence identity ({ show, weekday, date, timeKey }) feeds the
+      // nextShow resolver (auto/liveLines.js's resolveNextShowValues reads the
+      // schedule FROM this occurrence onward); the weather/time kinds ignore
+      // the second argument -- their resolver signature documents it.
+      const text = await resolveLiveLine(seg, { show: id, weekday, date, timeKey });
       const aiGenerationMs = Date.now() - textStartedAt;
       liveLog.push({ persona: seg.persona, kind: seg.kind, brief: seg.brief, text, aiGenerationMs });
       const audioStartedAt = Date.now();

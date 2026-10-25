@@ -37,6 +37,70 @@ export function formatCalendarDate(dateKey) {
   );
 }
 
+// --- Slovenian day labels (Paket B1/B2, docs/programming-research.md §5) ----
+//
+// The server-side Slovenian date vocabulary for SPOKEN copy. Both helpers
+// build local Dates straight from the dateKey's y/m/d components (exactly
+// like formatCalendarDate above), so there is no timezone conversion to get
+// wrong, and the day arithmetic below is CALENDAR-day arithmetic (setDate),
+// never a fixed epoch-ms step -- the fall-back-day lesson documented at
+// scheduleUtil.js's addCalendarDays (a +24h step re-lands on the same
+// calendar date on the 25-hour day, which would mislabel "jutri").
+//
+// Accusative weekday forms ("v ponedeljek", "v sredo", ...), indexed by
+// Date#getDay() (0 = Sunday). Masculine inanimate days keep the nominative
+// form in the accusative; the feminine ones decline (nedelja->nedeljo,
+// sreda->sredo, sobota->soboto).
+const SLOVENIAN_WEEKDAY_ACC = ['nedeljo', 'ponedeljek', 'torek', 'sredo', 'četrtek', 'petek', 'soboto'];
+
+function dateFromKeyLocal(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  return new Date(y, m - 1, d);
+}
+
+function sameCalendarDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+// "v ponedeljek" / "v sredo" ... from a plain dateKey -- the ABSOLUTE day
+// phrase, correct regardless of WHEN it is spoken. This is the form promo
+// clips must use (a clip lives in the pool for hours, so a relative word
+// produced at 22:00 would rot after midnight; the weekday name never does).
+// Returns null for an unparseable key, so callers can degrade honestly
+// rather than speak a fabricated day.
+export function slovenianWeekdayPhrase(dateKey) {
+  const d = dateFromKeyLocal(dateKey);
+  return d ? `v ${SLOVENIAN_WEEKDAY_ACC[d.getDay()]}` : null;
+}
+
+// 'danes' | 'jutri' | 'v <dneva>' -- the RELATIVE day label for a target
+// dateKey, as heard from a given reference dateKey. Used by the closing
+// next-show announcement (auto/liveLines.js), where the reference is the
+// CURRENT show's nominal end: a show crossing midnight must label the
+// morning show after it "danes", because that is what the listener hears at
+// the moment the announcement airs. Beyond +1 day the phrase switches to
+// the absolute weekday form (still true whenever it is spoken). Walks the
+// reference forward one calendar day at a time, capped at 13 steps
+// (scheduleUtil.nextOccurrences' own 14-day horizon); a target further out
+// than that still gets the honest weekday phrase. Returns null when either
+// key is unparseable -- never a guess.
+export function slovenianDayLabel(targetKey, referenceKey) {
+  const target = dateFromKeyLocal(targetKey);
+  const reference = dateFromKeyLocal(referenceKey);
+  if (!target || !reference) return null;
+  const cursor = new Date(reference);
+  for (let i = 0; i <= 13; i++) {
+    if (sameCalendarDay(cursor, target)) {
+      if (i === 0) return 'danes';
+      if (i === 1) return 'jutri';
+      break; // falls through to the weekday phrase below
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return `v ${SLOVENIAN_WEEKDAY_ACC[target.getDay()]}`;
+}
+
 // True when `timeZone` is a timezone name this Node build's ICU can actually
 // use (IANA id like "Europe/Ljubljana", or a fixed offset like "UTC"). Exported
 // as the ONE shared implementation -- director/weather.js's spoken time/date

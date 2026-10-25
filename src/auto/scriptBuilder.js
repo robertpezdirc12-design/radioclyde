@@ -477,6 +477,24 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     }
   }
 
+  // Paket B1 (docs/programming-research.md §5): the closing "what's next"
+  // announcement. This segment is DATA-FREE on purpose -- ALL resolution
+  // (next show name/host/time/day word) happens at DIRECT time in
+  // auto/liveLines.js, never at script time, because a same-day repeat
+  // shares one script.md AND one dj-audio cache, so a script-time "next
+  // show" would name a show that already aired on the re-run. It lands
+  // immediately BEFORE the close dj segment, so the announcement and the
+  // goodbye are consecutive speech segments -- the director's
+  // flushPendingSpeech concat-splices them into one physical file
+  // (director/index.js:114-148), announcement first, sign-off second, no
+  // crossfade between them.
+  segments.push({
+    type: 'live',
+    persona: primaryPersona,
+    kind: 'nextShow',
+    brief: 'announce the next show on the schedule, then hand to the close',
+  });
+
   const closeSeed = seedFor({ showId, date, slot: 'close' });
   segments.push({
     type: 'dj',

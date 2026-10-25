@@ -198,7 +198,13 @@
     "impactMinCoverage": 0.5
   },
   "imaging": {
-    "checkIntervalMinutes": 30
+    "checkIntervalMinutes": 30,
+    "promos": {
+      "enabled": false,
+      "checkIntervalMinutes": 30,
+      "horizonHours": 18,
+      "maxClips": 8
+    }
   },
   "autocue": {
     "targetLufs": -16,

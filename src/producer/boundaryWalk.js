@@ -100,6 +100,24 @@ export async function buildSegments({ tracks, trackFacts, brief, date }) {
     }
   }
 
+  // Paket B1 (docs/programming-research.md §5): the closing "what's next"
+  // announcement. The segment is deliberately DATA-FREE at build time --
+  // ALL resolution (next show name/host/time/day word) happens at direct
+  // time in director/liveSegments.js -> auto/liveLines.js's
+  // resolveNextShowValues(), fed by the occurrence identity the director
+  // threads in. That's the whole design: boundaryWalk has no timeKey (it
+  // walks one tracklist per show/day) and doesn't need one -- a script-time
+  // next show would break on same-day repeats, which share script.md and
+  // the dj-audio cache. Placed before the close so the announcement and
+  // the sign-off are consecutive speech segments the director splices into
+  // one file (director/index.js:114-148).
+  segments.push({
+    type: 'live',
+    persona: primaryPersona,
+    kind: 'nextShow',
+    brief: 'announce the next scheduled show after this one, then sign off',
+  });
+
   segments.push({
     type: 'dj',
     persona: primaryPersona,

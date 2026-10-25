@@ -146,6 +146,22 @@ stinger_source = playlist(id="imaging_stingers", reload_mode="watch", mode="rand
   config.dataDir ^ "/imaging/stingers.m3u")
 stinger_timed = delay(1800., stinger_source)
 
+# Promosi (Paket B2, docs/imaging-layer.md): the fourth imaging layer --
+# schedule-driven station promos ("v torek ob 19:00 ...") auto-produced by
+# scheduler/promoProducer.js via Edge TTS into imaging/promos/ (operator-
+# placed clips are equally at home there; anything in promos.m3u airs).
+# Same pattern as the stingers above: delay() gates one promo per interval
+# at a track boundary, fallback(track_sensitive=true) keeps it off
+# mid-track cuts. Interval 1200. (20 min) DELIBERATELY differs from the
+# stingers' 1800. so the two gates don't always fire at the same boundary
+# and stack a promo on every stinger seam; a literal for the same
+# json.parse-untouched reason as the 1800. above. mode="randomize" is
+# CORRECT here (short-clip pool family -- random picking is the right
+# behavior for stingers/IDs/promos; only the music wheel is "normal").
+promo_source = playlist(id="imaging_promos", reload_mode="watch", mode="randomize", loop=false,
+  config.dataDir ^ "/imaging/promos.m3u")
+promo_timed = delay(1200., promo_source)
+
 # Station ID at the top of the hour -- the official cookbook overlay recipe
 # ("Mixing and switching": add([normal, switch([({0m0s}, jingle)])])). The
 # switch has no default branch: before :00 it's unavailable and contributes
@@ -470,6 +486,8 @@ radio = source.on_metadata(radio, scrobble_on_metadata)
 # crossing, fixed upstream in 2.4.6, #5379), so the track-sensitive
 # re-selection here keeps seeing music boundaries exactly as before.
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
+# Promo sibling of the stinger fallback above (Paket B2).
+radio = fallback(track_sensitive=true, [promo_timed, radio])
 # Hour ID overlay (see comment above).
 radio = add([radio, switch([({0m0s}, id_source)])])
 
@@ -652,10 +670,26 @@ radio = blank.detect(dead_air_total, on_noise=sound_total,
 radio = compress(attack=1.0, release=80.0, threshold=-1.0, ratio=20.0, knee=0.5, gain=0.0, radio)
 %endif
 
+# Icy identity (Paket B3, docs/programming-research.md §5): mount-level STATIC
+# metadata -- name/description/genre ride every icy handshake, so players and
+# directories show the station's identity instead of Icecast defaults. These
+# are literals on purpose (same policy as the 1800. above): radio.liq's
+# json.parse type stays untouched, so an older config.json keeps booting;
+# retune the literals here. name/description/genre deliberately MATCH the
+# install.sh template's output.icecast (deploy/ubuntu/install.sh) -- the two
+# copies are pinned together in test/radioLiqIcy.test.mjs so they cannot
+# drift. url= is deliberately OMITTED in this reference file: a placeholder
+# URL would be a soft lie on the dev box (the install.sh template keeps its
+# operator-editable url= for real deployments). Dynamic "Sedaj: X" updates of
+# the mount description were evaluated and deferred -- the roadmap itself
+# marks them optional and they need live Icecast admin-API verification.
 output.icecast(%mp3(bitrate=config.icecast.bitrate),
   host = config.icecast.sourceHost, port = config.icecast.port,
   password = config.icecast.sourcePassword,
   mount = config.icecast.mount,
+  name = "Radio Markec",
+  description = "Slovenian AI DJ Radio",
+  genre = "Various",
   radio)
 
 # --- Optional mounts + hourly archive (SUB/WAVE mechanism) ------------------

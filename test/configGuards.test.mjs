@@ -136,14 +136,18 @@ describe('cadence() (the every() tick-storm guard)', () => {
   // Structural: every registration is wrapped, the four old Math.max(1, ...)
   // sites included -- a raw every(config...) left anywhere re-opens the
   // storm for exactly that job. Same standard as the radio.liq wiring tests.
-  test('all 14 every() registrations route through cadence(), none raw', () => {
+  // 15 since Paket B2 (the OPT-IN promo_producer registration; it is
+  // cadence-wrapped exactly like the unconditional 14, it is merely gated by
+  // an if (config.imaging?.promos?.enabled === true) around the every()
+  // call).
+  test('all 15 every() registrations route through cadence(), none raw', () => {
     const source = fs.readFileSync(`${repoRoot()}/src/scheduler/scheduler.js`, 'utf8');
     // Registrations always start their own line; plain every( mentions inside
     // comments ("every()'s own immediate first tick") must not confuse the count.
     const registrations = source.match(/^\s*every\(/gm) ?? [];
-    assert.equal(registrations.length, 14, 'exactly the 14 job registrations, nothing raw');
+    assert.equal(registrations.length, 15, 'exactly the 15 job registrations, nothing raw');
     const wrapped = source.match(/^\s*every\(cadence\(/gm) ?? [];
-    assert.equal(wrapped.length, 14, 'every job registration is cadence-wrapped');
+    assert.equal(wrapped.length, 15, 'every job registration is cadence-wrapped');
     assert.equal(source.includes('Math.max(1, config.'), false, 'the old Math.max guard form is gone');
   });
 });

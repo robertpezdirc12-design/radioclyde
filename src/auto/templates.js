@@ -114,6 +114,36 @@ export const DEFAULT_TEMPLATES = {
       'Je {time}. Vremenskih podatkov ni, ugib pa je takšen: zunaj je vsaj nekaj. Podrobneje vas obvestijo lastna očesa.',
       'Je {time} in vremenske napovedi ni -- uradno torej: danes bo vreme. Natančnost si delite z oknom, ki je pri vas.',
     ],
+    // Paket B1 (docs/programming-research.md §5): the closing "what's next"
+    // announcement. Resolved at DIRECT time (auto/liveLines.js, from
+    // scheduleUtil.nextOccurrence) -- never at script time, because same-day
+    // repeats share one script.md AND one dj-audio cache, so a script-time
+    // "next show" would name a show that already aired on the re-run. Split by
+    // host presence (weatherNow's temp/condition pattern): a hostless show must
+    // never render a dangling "z voditeljem" clause. {nextDayWord} is the
+    // Slovenian relative label ('danes' / 'jutri' / 'v ponedeljek') resolved by
+    // lib/time.js's slovenianDayLabel against the current show's NOMINAL end.
+    nextShow: {
+      withHost: [
+        'Takoj za mano pa {nextDayWord} ob {nextTime} -- oddaja {nextShow} z voditeljem {nextHost}. Ostani z nami!',
+        'Kaj sledi po tej oddaji? {nextDayWord} ob {nextTime} vas čaka {nextShow} z voditeljem {nextHost}. Ne odhajajte predaleč.',
+        '{nextDayWord} ob {nextTime} prisluhnite {nextShow} -- za mikrofonom bo {nextHost}. Do takrat pa kar ostajte pri nas!',
+      ],
+      noHost: [
+        'Takoj za mano pa {nextDayWord} ob {nextTime} -- oddaja {nextShow}. Ostani z nami!',
+        'Kaj sledi po tej oddaji? {nextDayWord} ob {nextTime} vas čaka {nextShow}. Ne odhajajte predaleč.',
+        '{nextDayWord} ob {nextTime} prisluhnite {nextShow}. Do takrat pa kar ostajte pri nas!',
+      ],
+    },
+    // Honest degradation (P4 #29 pattern, weatherOffline's sibling): no next
+    // show found / schedule unreadable / occurrence unresolvable -> a line that
+    // invents NOTHING (no day, no time, no show name) and hands the mic back.
+    nextShowOffline: [
+      'Kaj sledi po tej oddaji, za zdaj še ne vemo -- urnik trenutno molči, glasba pa gotovo ne.',
+      'Naslednja oddaja za zdaj ni v pregledu -- ko urnik spet spregovori, vam povemo. Do takrat kar ostanite z nami.',
+      'Podatka o naslednji oddaji trenutno ni -- mikrofon oddahne, glasba pa prevzame. Poslušajte naprej.',
+      'Za tisto, kaj sledi, urnik danes še ni povedal ničesar zanesljivega -- zato kar počakajte na glasbo.',
+    ],
   },
 
   // Rubrikes (service segments rendered from real data at produce time --
@@ -320,6 +350,27 @@ export const DEFAULT_TEMPLATES = {
     'Pet minut je za nami, polnih rocka in heca. Hvala, ker ste bili tam, jaz pa smukam.',
     'Konec podkasta, konec heca, glasba teče naprej. Jaz sem Markec, nasvidenje!',
   ],
+
+  // Paket B2 (docs/programming-research.md §5): promo clips -- the fourth
+  // imaging layer (imaging/promos.m3u + radio.liq's promo_source), produced by
+  // scheduler/promoProducer.js from the REAL schedule via Edge TTS. Two pools,
+  // split by host presence exactly like live.nextShow above. {dayWord} is
+  // ALWAYS the weekday-name form ("v torek") -- never "danes"/"jutri": a promo
+  // clip lives in the pool for hours, so a relative word produced at 22:00
+  // would rot after midnight; the weekday name stays true whenever it airs.
+  // renderSlot's unknown-slot branch resolves these straight from
+  // config.autoRadio.templates, so both pools are owner-overridable with no
+  // code changes.
+  promo: [
+    'Na {station} {dayWord} ob {time}: {show}. Ne zamudite!',
+    '{dayWord} ob {time} vas na {station} čaka {show} -- ostanite z nami!',
+    'Napovedujemo: {show} {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
+  ],
+  promoHost: [
+    'Na {station} {dayWord} ob {time}: {show} z voditeljem {host}. Ne zamudite!',
+    '{dayWord} ob {time} vas na {station} čaka {show}, za mikrofonom pa {host} -- ostanite z nami!',
+    'Napovedujemo: {show} z voditeljem {host}, {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
+  ],
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the
@@ -414,6 +465,12 @@ export function renderSlot(slot, { values, seed, block }) {
     pool = recapPool(templates, values.track ?? {});
   } else if (slot === 'intro' || slot === 'quizIntro' || slot === 'quizReveal' || slot === 'handoff') {
     pool = templates[slot];
+  } else if (slot === 'live:nextShow') {
+    // Paket B1: host-aware pool split, same pattern as weatherNow's
+    // temp/condition split above -- a show with no host must never render a
+    // dangling "z voditeljem" clause (substitute() would blank the host but
+    // keep the sentence shape).
+    pool = values.nextHost ? templates.live.nextShow.withHost : templates.live.nextShow.noHost;
   } else if (slot.startsWith('live:')) {
     pool = templates.live[slot.slice('live:'.length)];
   } else if (slot === 'weatherNow') {
