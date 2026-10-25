@@ -28,6 +28,7 @@
     "update-now-playing": "node src/scheduler/updateNowPlaying.js",
     "generate-filler-playlist": "node src/scheduler/generateFillerPlaylist.js",
     "cleanup-shows": "node src/scheduler/cleanupOldShows.js",
+    "backup": "node src/scheduler/backupStation.js",
     "runstation": "node src/scheduler/scheduler.js",
     "runweb": "node src/server/index.js",
     "start-radioclyde": "sudo systemctl start radioclyde",

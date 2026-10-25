@@ -194,6 +194,60 @@ sudo tail -f /var/log/icecast2/error.log
 sudo tail -f /var/log/nginx/access.log
 ```
 
+## Varnostne kopije in obnova
+
+Razporejevalnik enkrat na `backup.intervalMinutes` (privzeto 1440 = dnevno) zapiše **vse stanje postaje, ki ga ni mogoče rekonstruirati** v `backup.dir` — vsak dan svoj datumski imenik (`/opt/radioclyde/backups/2026-10-25/`), tako da se slaba sprememba ali izguba podatkov da povrniti do kateregakoli dneva znotraj retencije. Naloga: `src/scheduler/backupStation.js`; ročni zagon: `cd /opt/radioclyde/app && sudo -u radioclyde npm run backup`.
+
+### Kaj dnevna kopija pokriva
+
+| vir | zakaj je v kopiji |
+|---|---|
+| `station.json`, `show-descriptions/`, `prompts.json` | ročno avtorstvo (urnik, osebnost, briefi) — edini izvod |
+| `requests.jsonl`, `polls.json` | poslušalčevi podatki (želje, posvetila, ankete) — nastanejo sami od poslušalcev, iz etra se ne da rekonstruirati |
+| `push/` (vapid.json, subscriptions.json, sent.jsonl) | poverilnice obvestil: izguba `vapid.json` razveljavi VSE obstoječe naročnine brskalnikov |
+| `history/*.jsonl` (played, aired, listener-samples, filler-rotation, deadair) | dokaz o etru: analitika, »najbolj poslušano«, rotacija fillerja, epizode mrtvega etra |
+| `show-logos/`, `imaging/id/`, `imaging/stingers/`, `imaging/emergency/` | operaterski medij: logotipi oddaj in produkirani posnetki nimajo drugega izvoda |
+| `track_ratingkeys.json`, `autocue_index.json` | dragi izpeljani predpomnilniki: obnovljiva, a po ponovnem skenu traja ure/dneve |
+| `config.json` (iz korena repozitorija) | edini izvod poverilnic postaje (studio, icecast, plex, lastfm); kopija v arhivu dobi mode `0600` |
+
+### Kaj je zavestno izven
+
+Tranzientno in izpeljano stanje se NE kopira, ker ga tikovi sami znova zapišejo: `.station_hash`, `now_playing*`, `filler.m3u`, `imaging/*.m3u`, `running/`, `cache/`, `logs/`, `archive/`, `podcasts/`, `piper/`, `asrun/`, `lyrics-cache.json`, `lastfm-session.json`.
+
+Odgovornost OPERATERJA (po namenu izven te naloge):
+
+- **glasba** (`/opt/radioclyde/music`) in **jingli/glasovi izven dataDir** (`/opt/radioclyde/voices`) — velike zbirke z lastnim virom (Plex, izvorni disk); niso postajina tvorba;
+- `data/voice-clips/` in `data/pre-generated/` — TTS posnetki, ki ste jih prinesli z namestitvenim tarbalom (korak 3.3); obnova = ponovni prenos istega tarbala, regeneracija iz pisal je mogoča, a počasna;
+- `data/piper/` — govor model (~63 MB), obnovljiv z enkratnim prenosom ob namestitvi;
+- `data/podcasts/` — izdelki podcasta, regenerirajo se iz zgodovine + knjižnice (`npm run podcast-gen`).
+
+### Obnova po vrstah
+
+- **Skladi poslušalcev** (`requests.jsonl`, `polls.json`): kopiraj nazaj na svoje mesto v dataDir. Bralci odpovejo odprto (manjkajoča ali pokvarjena datoteka = prazno stanje, ne sesutje) in berejo sveže ob vsakem klicu — restart ni potreben.
+- **Push**: kopiraj celo mapo `push/` nazaj; `vapid.json` mora obdržati mode `0600` in lastništvo uporabnika `radioclyde`. Če je bil `vapid.json` izgubljen, se bodo vsi brskalniki morali znova prijaviti na obvestila (stare naročnine razveljavi brskalnik sam, ko podpis ne ujema).
+- **Dragi predpomnilniki** (`track_ratingkeys.json`, `autocue_index.json`): kopiraj nazaj; uporabita se ob naslednjem branju/skenu, brez restarta.
+- **Zgodovina** (`history/*.jsonl`): kopiraj nazaj. JSONL zapis je odporen na prekinitve: če je zadnja vrstica raztrgana, je izguba ene vrstice, ne korupcija — bralci raztrgane vrstice preskočijo.
+- **config.json**: kopiraj na koren repozitorija (`/opt/radioclyde/app/config.json`), popravi lastništvo (`sudo chown radioclyde:radioclyde /opt/radioclyde/app/config.json`) in **restartaj postajo** (`sudo systemctl restart radioclyde`) — konfiguracija je namreč zamrznjena ob zagonu procesa, žive spremembe ne prebere.
+- **`.station_hash`**: ga ni v kopiji in ne rabi biti — prvi tik `checkScheduleChanged` po obnovi le zapiše novo osnovo in ničesar ne invalidira (`src/scheduler/scheduleWatch.js:158-165`).
+
+### Varnost kopije
+
+Arhiv vsebuje **PLAINTEXT gesla** (studio, icecast, plex, lastfm) **in VAPID zasebni ključ**:
+
+- imenik `backup.dir` naj bo v lasti `radioclyde` in mode `700`: `sudo chown -R radioclyde:radioclyde /opt/radioclyde/backups && sudo chmod 700 /opt/radioclyde/backups`;
+- kopija `config.json` v arhivu je zapisana z mode `0600` (poskrbi naloga sama) — to ščiti pred drugimi uporabniki na strežniku, ne pred odkodom;
+- priporočilo: **off-box kopija**, npr. `rsync -a /opt/radioclyde/backups/ uporabnik@backup-streznik:/backup/radioclyde/` v cronu. `/opt/radioclyde/backups` na ISTEM disku kot `dataDir` varuje pred napako (slaba sprememba, brisanje), NE pred odpovedjo diska (nasvet tudi v `config.example.json`).
+
+### Retencija
+
+- `backup.retentionDays` (privzeto 30): datumski imeniki, starejši od toliko dni, se ob dnevni nalogi pobrišejo;
+- `0` = večno (nič se ne briše);
+- neveljavna vrednost (npr. `"trideset"`) se zavrne — vse kopije se obdržijo, v dnevnik pa se zapiše ena poštena vrstica, ker bi ugibanje pomenilo bodisi brisanje bodisi tiho ne-delovanje.
+
+### Retencija dnevnika mrtvega etra
+
+`history/deadair.jsonl` (dogodki mrtvega etra, ki jih zapisuje `radio.liq` ob vsakem prehodu tišine) ima od vala 18 lastno retencijo: naloga za čiščenje — isti tikt, ki poreže ostale glavne knjige — ohrani zadnjih **90 dni** dogodkov in pri tem nikoli ne poreže pod najnovejših **2000 vrstic** (zaščita pred napačno ali pretirano retencijo). Prag preklopite s `cleanup.deadairRetentionDays` v bloku `cleanup` (`config.linux.json`). Zgodovina, starejša od 90 dni, ostane dosegljiva v dnevni varnostni kopiji (glejte zgoraj).
+
 ## Arhitektura predvajanja (kaj prihaja v eter in kdaj)
 
 `/opt/radioclyde/config/radio.liq` (ki ga namesti `install.sh`) mora imeti **dva vira**:

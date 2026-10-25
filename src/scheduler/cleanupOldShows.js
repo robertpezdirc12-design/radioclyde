@@ -40,6 +40,18 @@ const REQUESTS_RETENTION_DAYS = 90;
 const REQUESTS_MIN_KEEP = 200;
 const POLLS_RETENTION_DAYS = 90;
 
+// Dead-air guard events (deadair/recordEvent.js, appended by radio.liq's
+// blank.detect callbacks as detached processes): the last history ledger with
+// no retention of its own, while deadair/ledger.js parses it WHOLE on every
+// studio Diagnostics view -- unbounded growth is a slow leak on that read,
+// and since the val-18 backup extension every daily backup copies it too, so
+// growth also bloats each backup. 90 days matches the requests/polls "honest
+// history" horizon: diagnostics older than that belong in the backups, not
+// the live ledger. The floor keeps a pathological flapping detector plus a
+// huge retention value from eroding the tail the Diagnostics view reads.
+const DEADAIR_RETENTION_DAYS_DEFAULT = 90;
+const DEADAIR_MIN_KEEP = 2000;
+
 // Prunes the aired ledger by age (and quietly drops torn lines it happens to
 // walk past -- same skip-and-count contract as every other JSONL reader).
 // Rewrites atomically. Honest about the tiny race: appenders run in separate
@@ -174,6 +186,53 @@ export function pruneClosedPolls(retentionDays = POLLS_RETENTION_DAYS) {
   return store.closed.length - keep.length;
 }
 
+// Prunes the dead-air event ledger by age (and quietly drops torn lines it
+// happens to walk past -- same skip-and-count contract as every other JSONL
+// prune here). Rewrites atomically. Honest about the same tiny race the aired
+// prune has: recordEvent.js appends from a DETACHED Liquidsoap callback
+// process, so a guard transition within the few-ms read->rename window could
+// append a line the rewrite drops; cleanup runs 4x/day and the floor keeps
+// the blast radius at a single stale transition. An entry with an unparseable
+// `at` is KEPT (NaN < cutoff is false) -- conservative, the same convention
+// the aired prune uses for a bad playedAt.
+export function pruneDeadAirEvents(
+  retentionDays = DEADAIR_RETENTION_DAYS_DEFAULT,
+  minKeep = DEADAIR_MIN_KEEP
+) {
+  const file = config.paths.deadAirEventsFile;
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch {
+    return 0; // no ledger yet (the guard never fired) or unreadable -- nothing to prune
+  }
+  const cutoff = Date.now() - retentionDays * DAY_MS;
+  const keptByAge = [];
+  let dropped = 0;
+  for (const line of lines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      dropped++; // torn line (crash mid-append) -- drop it while we're here
+      continue;
+    }
+    if (new Date(entry.at).getTime() < cutoff) {
+      dropped++;
+      continue;
+    }
+    keptByAge.push(line);
+  }
+  const keep = keptByAge.length >= minKeep ? keptByAge : lines.slice(-minKeep);
+  if (keep.length === lines.length) return 0; // nothing aged out, nothing torn -- leave the file (and its mtime) alone
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(tmp, keep.length ? keep.join('\n') + '\n' : '');
+  fs.renameSync(tmp, file);
+  log(`Pruned dead-air events: kept ${keep.length}, dropped ${lines.length - keep.length} (retention ${retentionDays}d).`);
+  return lines.length - keep.length;
+}
+
 function listSubdirs(dir) {
   return fs
     .readdirSync(dir, { withFileTypes: true })
@@ -248,6 +307,11 @@ export async function cleanupOldShows(retentionDays = config.cleanup?.retentionD
     pruneClosedPolls();
   } catch (err) {
     log(`Closed-polls prune failed (non-fatal): ${err.message}`);
+  }
+  try {
+    pruneDeadAirEvents(config.cleanup?.deadairRetentionDays ?? DEADAIR_RETENTION_DAYS_DEFAULT);
+  } catch (err) {
+    log(`Dead-air-events prune failed (non-fatal): ${err.message}`);
   }
   return { removed };
 }

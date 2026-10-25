@@ -581,8 +581,11 @@ API tipk:
 - **VAPID par** (`push/vapid.js`, RFC 8292): P-256 par se prvič ustvari
   lokalno z `node:crypto` in leži v `<dataDir>/push/vapid.json`; javna
   polovica gre brskalniku kot `applicationServerKey`. Izguba datoteke = vse
-  obstoječe naročnine prenehajo veljati (brskalnik jih zavre) — datoteko
-  varuj kot del dataDir varnostne kopije.
+  obstoječe naročnine prenehajo veljati (brskalnik jih zavre) — od vala 18
+  jo dnevna varnostna kopija (`backupStation`) dejansko zajame: celotna mapa
+  `push/` (vapid.json z mode 0600, naročnine, dnevnik poslanih) gre v vsak
+  datumski imenik. Obnova po vrstah: razdelek »Varnostne kopije in obnova«
+  v deploy/ubuntu/DEPLOYMENT_GUIDE.md.
 - **Šifriranje** (`push/encrypt.js`, RFC 8291 shema `aes128gcm`): payload
   je za push servis Slepa — samo odjemalec s parom `p256dh` ga odšifrira.
 - **Naročnine** (`push/subscriptions.js`): `<dataDir>/push/subscriptions.json`

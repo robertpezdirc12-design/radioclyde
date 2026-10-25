@@ -1,0 +1,452 @@
+// Backup coverage regressions (src/scheduler/backupStation.js), closing the
+// 18-a research gap: the old job copied ONLY station.json +
+// show-descriptions/ + prompts.json while its header claimed everything else
+// under dataDir was "generated/derived" -- false for listener wishes
+// (requests.jsonl), polls, web-push (the VAPID private key!), ether history,
+// operator media and the expensive derived caches. docs/auto-radio.md even
+// PROMISED vapid.json was covered. These tests pin the full coverage, the
+// honest exclusion of transient state, config.json (credentials -> 0600
+// copy), the retention rotation (pruneArchives semantics) and per-source
+// failure resilience. Job-test pattern from cleanupRetention.test.mjs:
+// seed scratch dataDir + call + disk assertions, live config-mutation lever
+// with try/finally, 0 network, 0 listening sockets.
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { setupTestConfig, repoRoot } from './fixtures.mjs';
+
+setupTestConfig('backup-station');
+
+const { config } = await import('../src/config/index.js');
+const { backupStation } = await import('../src/scheduler/backupStation.js');
+
+// ---------- helpers (cleanupRetention.test.mjs patterns) ----------
+
+function todayDateKey() {
+  const d = new Date();
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function write(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+}
+
+// Every irreplaceable source the job must copy, on a scratch dataDir.
+// Wipes the whole dataDir first (fixtures' backup.dir lives under it, so
+// each test also starts with a clean backup destination).
+function seedAllSources() {
+  const d = config.dataDir;
+  fs.rmSync(d, { recursive: true, force: true });
+  fs.mkdirSync(d, { recursive: true });
+
+  write(config.paths.stationFile, JSON.stringify({ station: { name: 'Test Station', neverPlay: { keywords: [], artists: [] } } }));
+  // Nested brief dir pins the recursive copy (themed-shows materialize
+  // under show-descriptions/themed/ in real stations).
+  write(path.join(config.paths.showDescriptionsDir, 'one.json'), JSON.stringify({ show: 'one' }));
+  write(path.join(config.paths.showDescriptionsDir, 'themed', 'two.md'), '# two\n');
+  write(config.paths.promptsFile, JSON.stringify({ personas: {}, scriptReview: 'x' }));
+  write(config.paths.requestsFile, `${JSON.stringify({ id: 'r1', status: 'approved' })}\n${JSON.stringify({ id: 'r2', status: 'pending' })}\n`);
+  write(config.paths.pollsFile, JSON.stringify({ active: null, closed: [] }, null, 2));
+  // push/: the VAPID pair (0600 like its writer, src/push/vapid.js:56),
+  // the subscription list and the sent ledger.
+  write(config.paths.pushVapidFile, JSON.stringify({ publicKey: { x: 'x', y: 'y' }, privateKey: { d: 'd' } }, null, 2));
+  fs.chmodSync(config.paths.pushVapidFile, 0o600);
+  write(config.paths.pushSubscriptionsFile, JSON.stringify([{ endpoint: 'https://push.example/e1', keys: { p256dh: 'k', auth: 'a' } }], null, 2));
+  write(config.paths.pushSentLedgerFile, `${JSON.stringify({ key: '2026-01-01@10-00@morning', sentAt: '2026-01-01T08:58:00.000Z' })}\n`);
+  write(config.paths.trackRatingKeysPath, JSON.stringify({ '/music/a.mp3': 'aaa', '/music/b.mp3': 'bbb' }, null, 2));
+  write(config.paths.autocueIndexPath, JSON.stringify({ version: 1, tracks: { '/music/a.mp3': { lufs: -16 } } }));
+  write(config.paths.historyFile, `${JSON.stringify({ ratingKey: 'aaa', playedAt: '2026-01-01T08:00:00.000Z' })}\n`);
+  write(config.paths.airedHistoryFile, `${JSON.stringify({ ratingKey: 'aaa', filePath: '/music/a.mp3' })}\n`);
+  write(config.paths.listenerSamplesFile, `${JSON.stringify({ ts: '2026-01-01T08:00:00+01:00', listeners: 2 })}\n`);
+  // The one ledger with no config.paths entry -- resolved as its writer does.
+  write(path.join(config.dataDir, 'history', 'filler-rotation.jsonl'), `${JSON.stringify({ ratingKey: 'aaa', playedAt: '2026-01-01T08:00:00.000Z' })}\n`);
+  write(config.paths.deadAirEventsFile, `${JSON.stringify({ type: 'program_blank', at: '2026-01-01T08:00:00+01:00' })}\n`);
+  write(path.join(config.paths.showLogosDir, 'x.png'), 'PNGDATA');
+  write(path.join(config.paths.imagingIdDir, 'a.wav'), 'WAV1');
+  write(path.join(config.paths.imagingStingerDir, 'b.wav'), 'WAV2');
+  write(path.join(config.paths.imagingEmergencyDir, 'c.wav'), 'WAV3');
+}
+
+// Recursive tree snapshot: relative path -> base64 content, so two trees can
+// be deepEqual'd byte-for-byte including nested dirs.
+function treeContents(root) {
+  const out = new Map();
+  const walk = (dir, prefix) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(target, rel);
+      else if (entry.isFile()) out.set(rel, fs.readFileSync(target).toString('base64'));
+    }
+  };
+  walk(root, '');
+  return out;
+}
+
+// The live config-mutation lever (cleanupRetention.test.mjs:84-95 pattern):
+// mutate, try/finally restore. The fixtures config has no retentionDays key,
+// so "restore" means deleting it again.
+function withRetentionDays(value, fn) {
+  return async () => {
+    const previous = config.backup.retentionDays;
+    if (value === undefined) delete config.backup.retentionDays;
+    else config.backup.retentionDays = value;
+    try {
+      await fn();
+    } finally {
+      if (previous === undefined) delete config.backup.retentionDays;
+      else config.backup.retentionDays = previous;
+    }
+  };
+}
+
+// Exactly what a full run must produce at the top level of the dated dir.
+const EXPECTED_TOP_LEVEL = [
+  'autocue_index.json',
+  'config.json',
+  'history',
+  'imaging',
+  'polls.json',
+  'prompts.json',
+  'push',
+  'requests.jsonl',
+  'show-descriptions',
+  'show-logos',
+  'station.json',
+  'track_ratingkeys.json',
+];
+
+// ---------- coverage ----------
+
+describe('full coverage: every irreplaceable source lands in the dated backup', () => {
+  test('every flat file source lands byte-equal', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    const flat = [
+      [config.paths.stationFile, 'station.json'],
+      [config.paths.promptsFile, 'prompts.json'],
+      [config.paths.requestsFile, 'requests.jsonl'],
+      [config.paths.pollsFile, 'polls.json'],
+      [config.paths.trackRatingKeysPath, 'track_ratingkeys.json'],
+      [config.paths.autocueIndexPath, 'autocue_index.json'],
+      [config.paths.historyFile, path.join('history', 'played.jsonl')],
+      [config.paths.airedHistoryFile, path.join('history', 'aired.jsonl')],
+      [config.paths.listenerSamplesFile, path.join('history', 'listener-samples.jsonl')],
+      [path.join(config.dataDir, 'history', 'filler-rotation.jsonl'), path.join('history', 'filler-rotation.jsonl')],
+      [config.paths.deadAirEventsFile, path.join('history', 'deadair.jsonl')],
+    ];
+    for (const [src, rel] of flat) {
+      assert.ok(
+        fs.readFileSync(src).equals(fs.readFileSync(path.join(result.destDir, rel))),
+        `${rel} must be byte-equal to its source`
+      );
+    }
+  });
+
+  test('every directory source lands recursively byte-equal (nested briefs, push/, logos, imaging clips)', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    for (const [src, rel] of [
+      [config.paths.showDescriptionsDir, 'show-descriptions'],
+      [config.paths.pushDir, 'push'],
+      [config.paths.showLogosDir, 'show-logos'],
+      [config.paths.imagingIdDir, path.join('imaging', 'id')],
+      [config.paths.imagingStingerDir, path.join('imaging', 'stingers')],
+      [config.paths.imagingEmergencyDir, path.join('imaging', 'emergency')],
+    ]) {
+      assert.deepEqual(
+        treeContents(path.join(result.destDir, rel)),
+        treeContents(src),
+        `${rel} must be recursively byte-equal to its source`
+      );
+    }
+  });
+
+  test('counts: 17 dataDir sources + config.json copied, 0 skipped, no errors, bytes = on-disk tree size', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    assert.equal(result.copied, 18);
+    assert.equal(result.skipped, 0);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.pruned, 0);
+    // bytes is the recursive size of the destDir tree AFTER the run -- the
+    // backup's actual footprint, not a sum of what this pass claims it wrote.
+    let expected = 0;
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const target = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(target);
+        else if (entry.isFile()) expected += fs.statSync(target).size;
+      }
+    };
+    walk(result.destDir);
+    assert.ok(expected > 0, 'the seeded backup is non-empty');
+    assert.equal(result.bytes, expected);
+  });
+
+  test('config.json: copied from the repo root, valid JSON, mode 0600, deep-equal to the live file', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    const dest = path.join(result.destDir, 'config.json');
+    assert.ok(fs.existsSync(dest), 'config.json (the only copy of the credentials) is backed up');
+    // setupTestConfig writes the repo-root config.json this resolves to.
+    const live = JSON.parse(fs.readFileSync(path.join(repoRoot(), 'config.json'), 'utf8'));
+    assert.deepEqual(JSON.parse(fs.readFileSync(dest, 'utf8')), live);
+    assert.equal(fs.statSync(dest).mode & 0o777, 0o600, 'the copy carries PLAINTEXT passwords -> 0600');
+  });
+
+  test('vapid.json keeps its 0600 mode through the push/ copy', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    // cpSync preserves modes today; the pin is here so a future switch to a
+    // manual copy loop cannot silently regress the private key to 0644.
+    assert.equal(fs.statSync(path.join(result.destDir, 'push', 'vapid.json')).mode & 0o777, 0o600);
+  });
+
+  test('exclusion pins: transient/derived state never lands in the backup', async () => {
+    seedAllSources();
+    const d = config.dataDir;
+    write(path.join(d, '.station_hash'), 'hash');
+    write(config.paths.nowPlayingPath, '#m3u\n');
+    write(config.paths.nowPlayingStatePath, '{}');
+    write(config.paths.fillerPath, '#m3u\n');
+    write(path.join(config.paths.runningDir, 'ep', 'x.md'), 'x');
+    write(path.join(config.paths.wikipediaCacheDir, 'f.json'), '{}');
+    write(path.join(config.paths.logsDir, 'station.log'), 'log line\n');
+    write(path.join(d, 'lyrics-cache.json'), '{}');
+    write(config.paths.imagingIdPath, '#m3u\n'); // derived playlist, not the clips
+    write(path.join(d, 'podcasts', 'ep', 'ep.mp3'), 'mp3');
+    write(path.join(d, 'lastfm-session.json'), '{}');
+    write(path.join(d, 'history', '.tmp-123'), 'torn'); // leftover atomic-rewrite tmp
+
+    const result = await backupStation();
+    assert.equal(result.copied, 18, 'the junk additions are not sources');
+
+    assert.deepEqual(fs.readdirSync(result.destDir).sort(), EXPECTED_TOP_LEVEL);
+    // Per-file history copies: exactly the five ledgers, never a .tmp sibling.
+    assert.deepEqual(fs.readdirSync(path.join(result.destDir, 'history')).sort(), [
+      'aired.jsonl',
+      'deadair.jsonl',
+      'filler-rotation.jsonl',
+      'listener-samples.jsonl',
+      'played.jsonl',
+    ]);
+    // imaging/ holds only the three clip dirs, not the derived .m3u files.
+    assert.deepEqual(fs.readdirSync(path.join(result.destDir, 'imaging')).sort(), ['emergency', 'id', 'stingers']);
+    for (const rel of [
+      '.station_hash',
+      'now_playing.m3u',
+      'now_playing_state.json',
+      'filler.m3u',
+      'running',
+      'cache',
+      'logs',
+      'lyrics-cache.json',
+      path.join('imaging', 'id.m3u'),
+      'podcasts',
+      'lastfm-session.json',
+      path.join('history', '.tmp-123'),
+    ]) {
+      assert.ok(!fs.existsSync(path.join(result.destDir, rel)), `${rel} must NOT be backed up`);
+    }
+  });
+
+  test('missing sources are honest skips: fresh dataDir with only station.json', async () => {
+    const d = config.dataDir;
+    fs.rmSync(d, { recursive: true, force: true });
+    fs.mkdirSync(d, { recursive: true });
+    write(config.paths.stationFile, JSON.stringify({ station: { name: 'Test Station' } }));
+
+    const result = await backupStation();
+    assert.ok(result.skipped >= 1, 'the 16 not-yet-existing sources are NOTE-skips');
+    assert.equal(result.copied, 2, 'station.json + config.json only');
+    assert.deepEqual(result.errors, [], 'a missing source is not an error');
+    assert.deepEqual(fs.readdirSync(result.destDir).sort(), ['config.json', 'station.json']);
+  });
+
+  test('a source that is a directory where a file is expected: honest error, the rest still copied', async () => {
+    seedAllSources();
+    fs.rmSync(config.paths.requestsFile, { force: true });
+    fs.mkdirSync(config.paths.requestsFile); // EISDIR under any user, root included
+
+    const result = await backupStation();
+    assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].source, 'requests.jsonl');
+    assert.match(result.errors[0].message, /directory/i);
+    assert.ok(!fs.existsSync(path.join(result.destDir, 'requests.jsonl')), 'the failed source leaves no dest entry');
+    assert.ok(fs.existsSync(path.join(result.destDir, 'polls.json')), 'the OTHER sources still got copied');
+    assert.equal(result.copied, 17, '18 minus the one failure');
+    assert.equal(result.skipped, 0, 'a failure is not a skip');
+  });
+
+  test('same-day rerun is idempotent: no throw, same destDir, files still byte-correct', async () => {
+    seedAllSources();
+    const first = await backupStation();
+    const second = await backupStation();
+    assert.equal(second.destDir, first.destDir);
+    assert.equal(second.copied, first.copied);
+    assert.equal(second.errors.length, 0);
+    assert.ok(
+      fs.readFileSync(path.join(second.destDir, 'requests.jsonl')).equals(fs.readFileSync(config.paths.requestsFile))
+    );
+    assert.deepEqual(treeContents(path.join(second.destDir, 'push')), treeContents(config.paths.pushDir));
+  });
+
+  test('return shape: destDir string, numeric counters, errors array', async () => {
+    seedAllSources();
+    const result = await backupStation();
+    assert.equal(typeof result.destDir, 'string');
+    for (const key of ['copied', 'skipped', 'bytes', 'pruned']) {
+      assert.equal(typeof result[key], 'number', `${key} is a number`);
+    }
+    assert.ok(Array.isArray(result.errors));
+    assert.ok(result.bytes > 0);
+  });
+
+  test('no backup block at all: honest { skipped: true } (configGuards owns the deep pins)', async () => {
+    const previous = config.backup;
+    delete config.backup;
+    try {
+      const result = await backupStation();
+      assert.deepEqual(result, { skipped: true });
+    } finally {
+      config.backup = previous;
+    }
+  });
+});
+
+// ---------- retention rotation (pruneArchives semantics) ----------
+
+describe('retention rotation of dated backup dirs', () => {
+  function seedRetentionNeighbours() {
+    const backupDir = config.backup.dir;
+    // genuinely old (must go), future (must stay), junk name (must stay).
+    write(path.join(backupDir, '2020-01-01', 'station.json'), '{"old":true}');
+    write(path.join(backupDir, '2027-01-01', 'station.json'), '{"future":true}');
+    write(path.join(backupDir, 'not-a-date', 'station.json'), '{"junk":true}');
+  }
+
+  test(
+    'retentionDays 30 removes the genuinely old dir; future + junk + today survive',
+    withRetentionDays(30, async () => {
+      seedAllSources();
+      seedRetentionNeighbours();
+      const result = await backupStation();
+      assert.equal(result.pruned, 1);
+      assert.deepEqual(
+        fs.readdirSync(config.backup.dir).sort(),
+        ['2027-01-01', 'not-a-date', todayDateKey()].sort()
+      );
+    })
+  );
+
+  test(
+    'retentionDays 0 keeps everything, the old dir included',
+    withRetentionDays(0, async () => {
+      seedAllSources();
+      seedRetentionNeighbours();
+      const result = await backupStation();
+      assert.equal(result.pruned, 0);
+      assert.deepEqual(
+        fs.readdirSync(config.backup.dir).sort(),
+        ['2020-01-01', '2027-01-01', 'not-a-date', todayDateKey()].sort()
+      );
+    })
+  );
+
+  test(
+    'retentionDays absent: documented default of 30 applies',
+    withRetentionDays(undefined, async () => {
+      seedAllSources();
+      seedRetentionNeighbours();
+      assert.ok(!('retentionDays' in config.backup), 'the key really is absent');
+      const result = await backupStation();
+      assert.equal(result.pruned, 1);
+      assert.ok(!fs.existsSync(path.join(config.backup.dir, '2020-01-01')));
+    })
+  );
+
+  test(
+    'retentionDays junk (non-number) is refused: keep everything rather than guess',
+    withRetentionDays('thirty', async () => {
+      seedAllSources();
+      seedRetentionNeighbours();
+      const result = await backupStation();
+      assert.equal(result.pruned, 0);
+      assert.ok(fs.existsSync(path.join(config.backup.dir, '2020-01-01')));
+    })
+  );
+
+  test('regex-matching-but-invalid dates, date-named FILES and non-date neighbours survive', async () => {
+    seedAllSources();
+    const backupDir = config.backup.dir;
+    write(path.join(backupDir, '2020-01-01', 'station.json'), 'old'); // genuinely old -> goes
+    write(path.join(backupDir, '2020-13-45', 'station.json'), 'invalid'); // Date.parse -> NaN -> stays
+    write(path.join(backupDir, '2020-01-02'), 'a plain file, not a day dir'); // stays
+    write(path.join(backupDir, 'notes', 'readme.txt'), 'operator notes'); // stays
+    const previous = config.backup.retentionDays;
+    config.backup.retentionDays = 30;
+    try {
+      const result = await backupStation();
+      assert.equal(result.pruned, 1);
+      const names = fs.readdirSync(backupDir).sort();
+      assert.ok(!names.includes('2020-01-01'));
+      assert.ok(names.includes('2020-13-45'));
+      assert.ok(names.includes('2020-01-02'));
+      assert.ok(names.includes('notes'));
+      assert.ok(names.includes(todayDateKey()));
+    } finally {
+      if (previous === undefined) delete config.backup.retentionDays;
+      else config.backup.retentionDays = previous;
+    }
+  });
+});
+
+// ---------- structural wiring pins ----------
+
+describe('structural wiring pins (the silent-reversion guard)', () => {
+  test('the source list uses every irreplaceable config.paths entry + the filler-rotation ledger', () => {
+    const source = fs.readFileSync(`${repoRoot()}/src/scheduler/backupStation.js`, 'utf8');
+    for (const key of [
+      'stationFile',
+      'showDescriptionsDir',
+      'promptsFile',
+      'requestsFile',
+      'pollsFile',
+      'pushDir',
+      'trackRatingKeysPath',
+      'autocueIndexPath',
+      'historyFile',
+      'airedHistoryFile',
+      'listenerSamplesFile',
+      'deadAirEventsFile',
+      'showLogosDir',
+      'imagingIdDir',
+      'imagingStingerDir',
+      'imagingEmergencyDir',
+    ]) {
+      assert.ok(source.includes(`config.paths.${key}`), `the backup must copy config.paths.${key}`);
+    }
+    // The filler ledger has no config.paths entry -- the resolution must
+    // mirror its writer (src/scheduler/fillerRotation.js:31-33).
+    assert.ok(source.includes("path.join(config.dataDir, 'history', 'filler-rotation.jsonl')"));
+    // config.json lockstep with the config loader is cited in the source.
+    assert.match(source, /src\/config\/index\.js:5-6/);
+  });
+
+  test('the skipped path and main() stay byte-honest (pinned by configGuards, strings pinned here)', () => {
+    const source = fs.readFileSync(`${repoRoot()}/src/scheduler/backupStation.js`, 'utf8');
+    // The no-backup-block NOTE and console.log are load-bearing: the skipped
+    // return shape is deep-pinned by test/configGuards.test.mjs:71-76.
+    assert.ok(source.includes('NOTE: no config.backup.dir -- skipping station backup this tick (backup block missing).'));
+    assert.ok(source.includes("console.log('Backup skipped: no config.backup.dir configured.');"));
+    // Manual runs deserve a non-zero exit when a source failed.
+    assert.ok(source.includes('process.exitCode = 1'));
+    // Main-guard unchanged.
+    assert.ok(source.includes("if (import.meta.url === `file://${process.argv[1]}`) {"));
+  });
+});

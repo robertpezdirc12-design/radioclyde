@@ -44,11 +44,21 @@ describe('shipped production config (deploy/ubuntu/config.linux.json)', () => {
       'cleanup.retentionDays',
       'backup.intervalMinutes',
       'backup.dir',
+      'backup.retentionDays',
     ]) {
       const [block, key2] = key.split('.');
       assert.ok(cfg[block], `missing config.${block} block (scheduler reads it without ?.)`);
       assert.ok(cfg[block][key2] !== undefined, `missing config.${key}`);
     }
+  });
+
+  test('backup retention is configured: 30 days of dated backup dirs, then they rotate away', () => {
+    // src/scheduler/backupStation.js prunes date-named dirs past
+    // config.backup.retentionDays (absent key = the same 30 default, but the
+    // shipped config states it explicitly so the rotation is visible to the
+    // operator reading the file; 0 would mean keep-forever).
+    assert.equal(cfg.backup.retentionDays, 30);
+    assert.equal(typeof cfg.backup.dir, 'string');
   });
 
   test('filler rotation window is configured', () => {

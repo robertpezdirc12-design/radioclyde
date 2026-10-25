@@ -542,6 +542,16 @@ Pipeline (normally only invoked by the scheduler, not by hand):
 - `npm run prewarm-show-audio -- --id=<showId> [--weekday=<weekday> --date=<yyyy-mm-dd>]`: warms a show's dj-audio cache ahead of time (the downtime job's own per-show step).
 - `npm run update-now-playing`: points `now_playing.m3u` at whatever should be airing.
 - `npm run generate-filler-playlist`: rewrites the off-air filler pool.
+- `npm run backup`: the daily safety copy the scheduler's `backup` job already
+  runs on its own cadence -- every irreplaceable piece of station state
+  (station.json, show-descriptions/, prompts.json, listener
+  requests/polls, `push/` including the VAPID private key, the history
+  ledgers, show logos + imaging clips, the derived rating/autocue caches, and
+  `config.json` itself) lands in `config.backup.dir`, one dated directory per
+  day with `backup.retentionDays` rotation. That archive contains plaintext
+  credentials, so protect the backup dir and ideally keep a copy off-box --
+  see the backup/restore section of
+  [deploy/ubuntu/DEPLOYMENT_GUIDE.md](deploy/ubuntu/DEPLOYMENT_GUIDE.md).
 
 Preview/dry-run tools, for iterating on a show while designing it (no
 station.json entry required):

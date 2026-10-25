@@ -181,8 +181,9 @@
     "intervalMinutes": 360
   },
   "backup": {
-    "dir": "TBD - absolute path to a folder (ideally off-box or on separate storage) where daily backups of station.json and show-descriptions/ are written",
-    "intervalMinutes": 1440
+    "dir": "TBD - absolute path to a folder where the daily backup is written; the backup covers ALL irreplaceable state (station.json, show-descriptions/, prompts.json, requests.jsonl, polls.json, push/ incl. the VAPID private key, history ledgers, show-logos/, imaging clips, the track_ratingkeys/autocue caches AND config.json with its plaintext passwords) -- so the backup dir itself must be protected (owner-only) and ideally off-box: on the same disk as dataDir it protects against a bad edit, not against disk failure (see deploy/ubuntu/DEPLOYMENT_GUIDE.md); retentionDays: 30 = rotate away day dirs older than 30 days, 0 = keep forever",
+    "intervalMinutes": 1440,
+    "retentionDays": 30
   },
   "archive": {
     "enabled": false,

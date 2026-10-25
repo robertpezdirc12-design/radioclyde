@@ -8,6 +8,9 @@
 //  - the requests.jsonl + closed-polls retention (the two ledgers nothing
 //    pruned anywhere): age cutoff, newest-N floor, torn-line tolerance,
 //    atomic tmp+rename rewrite, honest no-op on nothing-to-do
+//  - the dead-air event retention (the last unbounded history ledger,
+//    discovered by val-18 research): age cutoff, newest-2000 floor,
+//    torn-line tolerance, NaN-`at` conservatism, wired on the cleanup tick
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,7 +21,7 @@ import { setupTestConfig, repoRoot } from './fixtures.mjs';
 setupTestConfig('cleanup-retention');
 
 const { config } = await import('../src/config/index.js');
-const { cleanupOldShows, pruneRequestsLedger, pruneClosedPolls } = await import(
+const { cleanupOldShows, pruneRequestsLedger, pruneClosedPolls, pruneDeadAirEvents } = await import(
   '../src/scheduler/cleanupOldShows.js'
 );
 const { pruneOldEntries } = await import('../src/producer/history.js');
@@ -128,6 +131,11 @@ describe('played.jsonl prune wiring (pruneOldEntries finally has a caller)', () 
       'pruneOldEntries runs in the same cleanup pass as the aired-history prune'
     );
     assert.ok(requestsCall > playedCall, 'the requests/polls prunes live in the same pass too');
+    const deadairCall = source.indexOf('pruneDeadAirEvents(config.cleanup?');
+    assert.ok(deadairCall > requestsCall, 'the dead-air-events prune lives in the same pass too');
+    // The config knob is drift-pinned: an operator overriding it via
+    // cleanup.deadairRetentionDays must keep working through renames.
+    assert.match(source, /config\.cleanup\?\.deadairRetentionDays \?\? DEADAIR_RETENTION_DAYS_DEFAULT/);
   });
 });
 
@@ -284,5 +292,103 @@ describe('closed-polls retention (pruneClosedPolls)', () => {
     await cleanupOldShows(7);
     const store = JSON.parse(fs.readFileSync(config.paths.pollsFile, 'utf8'));
     assert.deepEqual(store.closed.map((p) => p.id), ['c-new']);
+  });
+});
+
+describe('dead-air event retention (pruneDeadAirEvents)', () => {
+  const event = (daysAgo, type = 'program_blank') => JSON.stringify({ type, at: iso(daysAgo) });
+
+  // Every test seeds the ledger explicitly; the directory itself exists in a
+  // fresh dataDir only after recordEvent.js's first mkdirSync, so make it.
+  function seedDeadAir(lines) {
+    fs.mkdirSync(path.dirname(config.paths.deadAirEventsFile), { recursive: true });
+    fs.writeFileSync(config.paths.deadAirEventsFile, lines.join('\n') + '\n');
+  }
+
+  test('drops aged-out events once past the newest-2000 floor', () => {
+    // 2010 aged-out + 1 fresh: only 1 event is inside the window, so the floor
+    // keeps the newest 2000 raw lines (1999 aged + the fresh one) and drops 11
+    // -- exactly the floor semantics the aired/requests prunes use (a small
+    // ledger is never pruned below its newest 2000).
+    const lines = [];
+    for (let i = 0; i < 2010; i++) lines.push(event(120, i % 2 ? 'program_blank' : 'program_sound'));
+    lines.push(event(1, 'air_blank'));
+    seedDeadAir(lines);
+
+    const dropped = pruneDeadAirEvents(90);
+
+    assert.equal(dropped, 11);
+    const kept = fs.readFileSync(config.paths.deadAirEventsFile, 'utf8').split('\n').filter(Boolean);
+    assert.equal(kept.length, 2000);
+    assert.equal(JSON.parse(kept[kept.length - 1]).type, 'air_blank');
+    // Atomic swap leaves no tmp sibling behind.
+    const leftovers = fs.readdirSync(path.dirname(config.paths.deadAirEventsFile)).filter((f) =>
+      f.includes('.tmp')
+    );
+    assert.deepEqual(leftovers, []);
+  });
+
+  test('torn lines drop even when everything else is fresh (no floor rescue for garbage)', () => {
+    const lines = [];
+    for (let i = 0; i < 2500; i++) lines.push(event(2, i % 2 ? 'air_blank' : 'air_sound'));
+    lines.push('{torn json');
+    seedDeadAir(lines);
+
+    const dropped = pruneDeadAirEvents(90);
+
+    assert.equal(dropped, 1);
+    const kept = fs.readFileSync(config.paths.deadAirEventsFile, 'utf8').split('\n').filter(Boolean);
+    assert.equal(kept.length, 2500);
+    assert.ok(!kept.some((l) => l.includes('torn')));
+  });
+
+  test('an unparseable `at` is KEPT (conservative, like a bad playedAt)', () => {
+    // 2005 fresh lines keep the ledger above the floor so age-based dropping
+    // is actually exercised; the aged line must go, the two NaN-`at` lines
+    // (missing `at`, junk `at`) must stay -- new Date(junk).getTime() is NaN
+    // and NaN < cutoff is false.
+    const lines = [];
+    for (let i = 0; i < 2005; i++) lines.push(event(1, i % 2 ? 'program_blank' : 'program_sound'));
+    lines.push(event(120)); // genuinely aged out
+    lines.push(JSON.stringify({ type: 'program_blank' })); // no `at` at all
+    lines.push(JSON.stringify({ type: 'air_sound', at: 'not-a-date' })); // NaN date
+    seedDeadAir(lines);
+
+    const dropped = pruneDeadAirEvents(90);
+
+    assert.equal(dropped, 1);
+    const kept = fs.readFileSync(config.paths.deadAirEventsFile, 'utf8').split('\n').filter(Boolean);
+    assert.equal(kept.length, 2007);
+    assert.ok(!kept.some((l) => JSON.parse(l).at === iso(120)), 'the genuinely-old event aged out');
+    assert.equal(JSON.parse(kept[kept.length - 2]).type, 'program_blank'); // no-`at` line survived
+    assert.equal(JSON.parse(kept[kept.length - 1]).at, 'not-a-date'); // NaN-`at` line survived
+  });
+
+  test('nothing to drop: no rewrite at all (mtime untouched), returns 0', () => {
+    seedDeadAir([event(1), event(2)]);
+    const before = fs.statSync(config.paths.deadAirEventsFile).mtimeMs;
+
+    assert.equal(pruneDeadAirEvents(90), 0);
+    assert.equal(fs.statSync(config.paths.deadAirEventsFile).mtimeMs, before);
+  });
+
+  test('missing file is a no-op, not a throw', () => {
+    fs.rmSync(config.paths.deadAirEventsFile, { force: true });
+    assert.equal(pruneDeadAirEvents(90), 0);
+  });
+
+  test('wired into the cleanup pass: aged-out events drop on a plain cleanupOldShows() tick', async () => {
+    const lines = [];
+    for (let i = 0; i < 2010; i++) lines.push(event(120, i % 2 ? 'program_blank' : 'program_sound'));
+    lines.push(event(1, 'air_sound'));
+    seedDeadAir(lines);
+
+    // Plain tick: the wiring passes no arguments, so the DEFAULT retention
+    // (90d, via config.cleanup?.deadairRetentionDays ?? DEFAULT) applies.
+    await cleanupOldShows(7);
+
+    const kept = fs.readFileSync(config.paths.deadAirEventsFile, 'utf8').split('\n').filter(Boolean);
+    assert.equal(kept.length, 2000);
+    assert.equal(JSON.parse(kept[kept.length - 1]).type, 'air_sound');
   });
 });

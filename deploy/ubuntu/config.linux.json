@@ -70,7 +70,8 @@
   },
   "backup": {
     "dir": "/opt/radioclyde/backups",
-    "intervalMinutes": 1440
+    "intervalMinutes": 1440,
+    "retentionDays": 30
   },
   "archive": {
     "enabled": false,
