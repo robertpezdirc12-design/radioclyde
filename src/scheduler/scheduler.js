@@ -10,6 +10,8 @@
 // the same process as the Fastify web/studio server -- there is no longer a
 // separate radioclyde-scheduler process. Kept independently runnable below
 // (`node src/scheduler/scheduler.js`) for local debugging.
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import * as scheduleUtil from './scheduleUtil.js';
@@ -81,6 +83,63 @@ function logStartupStatus() {
   }
 }
 
+// Hourly-archive retention (SUB/WAVE's day-granular prune, see
+// docs/stream-mounts.md): removes WHOLE <dataDir>/archive/YYYY-MM-DD/ day
+// directories once they age past config.archive.retentionDays. Day-granular
+// on purpose, exactly like SUB/WAVE's pruneOlderThan: the prune compares
+// date strings, never mtimes, so it can never unlink the CURRENT hour's
+// still-open file -- the newest thing it will ever remove is yesterday.
+// Double guard below: a day dir is removed only when it is older than the
+// cutoff AND strictly older than today, so today's and future dirs survive
+// even under a negative retentionDays (a hand-edit typo must not be able to
+// wipe the live archive). Non-date neighbours in the archive dir are left
+// untouched. Missing archive dir (feature never enabled / fresh install)
+// and a missing config.archive block are both honest no-ops -- NOT a
+// default-30-days sweep, because a station that never opted into the
+// archive must not start deleting directories some other tool put there.
+const ARCHIVE_DATE_DIR_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Takes the archive block as an optional argument (defaulting to the live
+// config's) so tests can exercise retention windows without a second
+// process -- the every() wiring below calls it with no arguments, which is
+// the production path.
+export async function pruneArchives(archiveConfig = config.archive) {
+  if (!archiveConfig) return { removed: 0 };
+  const retentionDays = archiveConfig.retentionDays ?? 30;
+  // 0 = keep forever (SUB/WAVE's documented semantics); non-numeric junk is
+  // refused rather than guessed at.
+  if (!Number.isFinite(retentionDays) || retentionDays === 0) return { removed: 0 };
+
+  const archiveDir = path.join(config.dataDir, 'archive');
+  let dayDirs;
+  try {
+    dayDirs = fs
+      .readdirSync(archiveDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && ARCHIVE_DATE_DIR_RE.test(e.name));
+  } catch {
+    return { removed: 0 }; // no archive dir yet (feature off / fresh install)
+  }
+
+  const cutoff = scheduleUtil.dateKey(new Date(Date.now() - retentionDays * DAY_MS));
+  const today = scheduleUtil.dateKey(new Date());
+  let removed = 0;
+  for (const entry of dayDirs) {
+    // String compare on YYYY-MM-DD keys is a calendar compare. The second
+    // condition is the guard that keeps today/future alive no matter what
+    // retentionDays said (negative values push the cutoff into the future).
+    if (!(entry.name < cutoff && entry.name < today)) continue;
+    const target = path.join(archiveDir, entry.name);
+    fs.rmSync(target, { recursive: true, force: true });
+    removed++;
+    log(`Removed ${target} (older than ${retentionDays}d)`);
+  }
+  if (removed > 0) {
+    log(`Archive prune complete: removed ${removed} day director${removed === 1 ? 'y' : 'ies'} (retention ${retentionDays}d).`);
+  }
+  return { removed };
+}
+
 // try/catch here matters more than for a typical exported function: this is
 // called from src/server/index.js's startup, in the same process as the
 // public site/stream/studio -- a startup-time throw here (e.g. a malformed
@@ -125,6 +184,12 @@ export function startScheduler() {
   every(config.filler?.regenerateIntervalMinutes ?? 360, 'filler', generateFillerPlaylist);
   every(config.cleanup?.intervalMinutes ?? 360, 'cleanup', cleanupOldShows);
   every(config.backup?.intervalMinutes ?? 1440, 'backup', backupStation);
+  // Hourly-archive retention (SUB/WAVE's day-granular prune): default
+  // sweep once a day -- day-granular pruning needs no tighter cadence. ?.
+  // + ?? like every other optional block: configs without an archive
+  // block (the shipped default -- the feature is opt-in) register a
+  // no-op tick instead of throwing the F2-class boot TypeError.
+  every(config.archive?.pruneIntervalMinutes ?? 1440, 'archive_prune', pruneArchives);
   // ?. matters: config.linux.json ships WITHOUT a chatterbox block (auto-radio
   // installs have no Chatterbox to restart), and reading
   // config.chatterbox.restartIntervalMinutes unguarded threw TypeError at boot

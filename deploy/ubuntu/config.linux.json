@@ -72,6 +72,11 @@
     "dir": "/opt/radioclyde/backups",
     "intervalMinutes": 1440
   },
+  "archive": {
+    "enabled": false,
+    "bitrate": 128,
+    "retentionDays": 30
+  },
   "analytics": {
     "sampleIntervalMinutes": 1,
     "maxEntries": 43200,
@@ -83,6 +88,9 @@
     "tuneIn": null,
     "discordWebhook": null,
     "publicStreamUrl": null
+  },
+  "lyrics": {
+    "enabled": true
   },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
@@ -110,7 +118,14 @@
     "mount": "/stream.mp3",
     "sourcePassword": "CHANGE_ME_SOURCE_PASSWORD",
     "adminPassword": "CHANGE_ME_ADMIN_PASSWORD",
-    "bitrate": 128
+    "bitrate": 128,
+    "opus": {
+      "enabled": false,
+      "bitrate": 96
+    },
+    "flac": {
+      "enabled": false
+    }
   },
   "plex": {
     "scrobbleEnabled": false

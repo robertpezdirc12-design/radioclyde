@@ -9,7 +9,7 @@ function escapeAnnotateValue(value) {
 // the same module the scheduler's autocue scan job writes. An empty or
 // missing index simply yields no field for any track -- see the comment on
 // annotateTrackEntry below for the pass-through contract.
-import { amplifyAnnotate } from '../lib/autocue.js';
+import { amplifyAnnotate, crossfadeAnnotate } from '../lib/autocue.js';
 
 // radio.liq wraps show_source/filler_source in fade.in(); this is the
 // per-track duration that operator uses unless a playlist entry's own
@@ -87,9 +87,25 @@ export function annotateJingleEntry(filePath, showTitle, stationName) {
 // exactly as it did before the loudness layer existed. Speech/jingle/imaging
 // entries below never carry the field: they're produced at fixed loudness
 // out-of-band and must not be touched by library measurement.
+//
+// liq_cross_duration (ending-aware crossfade sizing, the SUB/WAVE mechanism):
+// ONE number per track meaning "transition OUT of this track lasts this
+// long", derived at read time from the tail measurement the autocue scan
+// stored (lib/autocue.js tailMetrics -> crossSecondsFor: 8-12 s on measured
+// fade-out tails). radio.liq's cross_stamps metadata.map translates it into
+// explicit liq_cross_start_duration/liq_cross_end_duration keys per track
+// (a single per-track stamp cannot size both sides: cross re-applies
+// override keys off its own output) and clears the raw key. Tracks with no
+// tail measurement -- cold endings, speech, jingles, requests, old index
+// entries from before the tail pass existed -- get NO field here, so
+// radio.liq's dj_transition_buffer default (3.5 s) stands: the same
+// pass-through contract as liq_amplify above. Values are our own
+// 0.1-quantized number strings, never user data, so no escaping concerns.
 export function annotateTrackEntry(filePath) {
   const fields = [`source_tag="${SOURCE_TAG.music}"`, `liq_fade_in="${TRACK_FADE_IN_SECONDS}"`];
   const amplify = amplifyAnnotate(filePath);
   if (amplify) fields.push(`liq_amplify="${amplify}"`);
+  const cross = crossfadeAnnotate(filePath);
+  if (cross) fields.push(`liq_cross_duration="${cross}"`);
   return `annotate:${fields.join(',')}:${filePath}`;
 }

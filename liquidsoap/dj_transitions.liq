@@ -80,13 +80,20 @@
 #     BPM/beat-phase and stem analysis we deliberately don't run (no-AI,
 #     no-torch architecture). The three kept effects are self-contained
 #     signal shapes needing no analysis sidecar.
-#   * No cross-stamp machinery: their controller stamps liq_cross_duration
-#     per track and cross replays it via persist_override; our buffer is
-#     one literal (dj_transition_buffer below) and d is sized from what
-#     cross actually buffered (source.remaining), falling back to the
-#     literal. persist_override=true is still set in radio.liq: with no
-#     stamps it is a no-op, and if an operator ever hand-stamps a track,
-#     it behaves the SUB/WAVE way.
+#   * Cross stamps in SUB/WAVE's own shape (P6): director/playlist.js
+#     stamps liq_cross_duration on measured fade-out tails, radio.liq's
+#     CROSS STAMPS block rewrites it into liq_cross_start/end_duration per
+#     track and cross() consumes those override keys (persist_override=
+#     true). dj_transition_buffer stays the DEFAULT (unstamped/cold/speech
+#     seams), and d is still sized from what cross actually buffered
+#     (source.remaining) -- falling back to the END STAMP, not the
+#     literal, when a side cannot report a length. strip_cross_stamps
+#     below strips the keys off BOTH dj_transition returns: without it
+#     cross re-reads the override keys off its own output and each tail is
+#     sized by the track BEFORE the outgoing one (SUB/WAVE: 3931 of 3997
+#     logged transitions). Hard-cut seams still play the outgoing tail in
+#     full regardless of stamp size -- sequence() hands the whole buffer
+#     to the next track.
 #   * Plain-seam fades span the FULL buffer on both sides (their
 #     equal-amplitude invariant, sum ~1.0 across the blend). Our tracks
 #     additionally carry their own liq_fade_in=2 shaping inside the
@@ -111,14 +118,33 @@
 # in radio.liq (json.parse type stays untouched, older configs still boot).
 dj_transition_buffer = 3.5
 
+# CROSS STAMP STRIP -- applied to BOTH dj_transition returns. cross()
+# processes liq_cross_* override keys on its output frames too, and the
+# transition replays the OUTGOING track's metadata, so unstripped keys
+# re-size the incoming track's own end buffer (SUB/WAVE measured 3931 of
+# 3997 transitions mis-sized before adding this). Removing the keys here
+# is what lets radio.liq's cross_stamps write fresh start/end values per
+# track at all. Update+strip with empty values = key removal.
+def strip_cross_stamps(s) =
+  metadata.map(update=true, strip=true, fun (_) -> [
+    ("liq_cross_duration", ""),
+    ("liq_cross_start_duration", ""),
+    ("liq_cross_end_duration", "")
+  ], s)
+end
+
 def dj_transition(a, b) =
   # BUFFER SIZING. cross buffers whole frames, so what it actually buffered
   # (min of the two sides' remaining) is the one length the fades can trust;
-  # the literal is only the fallback for a side that cannot report a length.
+  # the END STAMP is only the fallback for a side that cannot report a
+  # length (radio.liq's CROSS STAMPS block wrote liq_cross_end_duration
+  # per track; unstamped tracks carry dj_transition_buffer there, so the
+  # old literal behavior is the degenerate case of the new one).
   # Bounded at 600 like SUB/WAVE: a remaining() gone huge means the estimate
-  # is meaningless (live/infinite source) -- fade over the literal instead.
+  # is meaningless (live/infinite source) -- fade over the stamp instead.
+  stamp = float_of_string(default=dj_transition_buffer, a.metadata["liq_cross_end_duration"])
   buffered = min(source.remaining(a.source), source.remaining(b.source))
-  d = if buffered > 0. and buffered < 600. then buffered else dj_transition_buffer end
+  d = if buffered > 0. and buffered < 600. then buffered else stamp end
   # SEAM DISPATCH. source_tag is the P2 #5 contract (director/playlist.js
   # stamps every produced entry; imaging playlists above the cross carry
   # their own tags but never reach this function). Untagged = bare paths =
@@ -130,7 +156,7 @@ def dj_transition(a, b) =
   jingle_out = a.metadata["source_tag"] == "jingle"
   jingle_in = b.metadata["source_tag"] == "jingle"
   if speech_out or speech_in or jingle_out or jingle_in then
-    (sequence([a.source, b.source]) : source)
+    strip_cross_stamps((sequence([a.source, b.source]) : source))
   else
     # EFFECT ARMING. Flags on a (ending) or b (incoming) decide which
     # gesture reshapes the outgoing audio; precedence washout > dissolve >
@@ -428,7 +454,7 @@ def dj_transition(a, b) =
       else
         b_source
       end
-    add(normalize=false, [a_source, b_source])
+    strip_cross_stamps(add(normalize=false, [a_source, b_source]))
   end
 end
 

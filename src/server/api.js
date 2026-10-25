@@ -5,6 +5,7 @@ import { registerScheduleRoute } from './scheduleApi.js';
 import { registerRequestsRoutes } from './requestsApi.js';
 import { registerTopListenedRoutes } from './topListenedApi.js';
 import { registerPushRoutes } from './pushApi.js';
+import { registerLyricsRoute } from '../lyrics/lyricsService.js';
 import { registerPollsRoutes } from './pollsApi.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { readSamples } from '../analytics/listenerSamples.js';
@@ -64,4 +65,10 @@ export function registerApiRoutes(fastify) {
   // "/api/push", ko poslusalci res vklopijo obvestila (isti precedens kot
   // /podcast v P5 #3).
   registerPushRoutes(fastify);
+  // "Besedila" -- synced/plain lyrics for the track on air (src/lyrics/):
+  // LRCLIB search-first client behind a 1 req/s throttle, honest pending /
+  // miss / no-music states, 503 when the operator switched lyrics off. The
+  // response contract is frozen against the listener page's panel -- see
+  // docs/lyrics-lrclib.md.
+  registerLyricsRoute(fastify);
 }

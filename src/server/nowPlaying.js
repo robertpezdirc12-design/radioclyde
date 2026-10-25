@@ -3,6 +3,7 @@ import { config } from '../config/index.js';
 import { readNowPlayingState } from '../scheduler/updateNowPlaying.js';
 import { loadSchedule, loadStation } from '../scheduler/scheduleUtil.js';
 import { resolveShowInfo, capitalizePersonaList } from './showName.js';
+import { streamEntries } from './streamUrls.js';
 
 // now_playing_track.json holds either a track record or a DJ-speaking
 // record ({dj, startedAt}, written by plex/scrobbleTrack.js when the
@@ -39,7 +40,11 @@ function streamUrl() {
 export function composeNowPlaying() {
   const state = readNowPlayingState();
   const { track, dj } = readNowPlayingTrack();
-  const station = { name: loadStation().name ?? null, streamUrl: streamUrl() };
+  // streamUrl stays the legacy always-MP3 field every existing consumer
+  // (PWA player, embeds, pushes) expects, byte-for-byte; streams is the
+  // full mount surface (mp3 first, then the enabled optional mounts -- see
+  // streamUrls.js) for consumers that can pick a better codec.
+  const station = { name: loadStation().name ?? null, streamUrl: streamUrl(), streams: streamEntries() };
 
   // A finished show's state is left in place until the next occurrence is
   // ready to load (see updateNowPlaying's comment on filler taking over on

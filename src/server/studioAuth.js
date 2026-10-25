@@ -25,6 +25,7 @@ import { registerStudioVoiceApi } from './studioVoiceApi.js';
 import { registerStudioAnalyticsApi } from './studioAnalyticsApi.js';
 import { registerStudioPodcastRoutes } from './studioPodcastApi.js';
 import { registerStudioPushRoutes } from './studioPushApi.js';
+import { registerStudioArchivesApi } from './studioArchivesApi.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -87,4 +88,8 @@ export async function registerStudioRoutes(fastify) {
   registerStudioAnalyticsApi(fastify);
   registerStudioPodcastRoutes(fastify);
   registerStudioPushRoutes(fastify);
+  // Hourly-archive browser (GET/DELETE /studio/api/archives*): the disk
+  // under <dataDir>/archive/ is the truth, the routes only read/remove
+  // whole day dirs -- see studioArchivesApi.js.
+  registerStudioArchivesApi(fastify);
 }

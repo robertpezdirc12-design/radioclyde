@@ -522,3 +522,91 @@ body {
 .top-up { color: #7fd88f; }
 .top-down { color: #e08f8f; }
 .top-flat { color: var(--text-faint); }
+
+/* ---- besedila ---- */
+/* Zložljiv panel z besedili trenutne skladbe (GET /api/lyrics/current).
+   Žetonska disciplina kot povsod: samo obstoječe spremenljivke + ena
+   dobesedna barva trenutne vrstice rgba(124, 92, 255, 0.10) -- ista litava,
+   kot jo že uporablja .show-item.mark-next. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.lyrics-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.lyrics-toggle:hover { color: var(--text); border-color: var(--accent); }
+.lyrics-toggle[aria-expanded="true"] {
+  color: #fff;
+  background: var(--accent-grad);
+  border-color: transparent;
+}
+.lyrics-chevron { transition: transform 0.15s ease; }
+.lyrics-toggle[aria-expanded="true"] .lyrics-chevron { transform: rotate(180deg); }
+
+.lyrics-panel { margin-top: 10px; max-width: 560px; animation: fadein 0.25s ease; }
+
+.lyrics-status { margin: 0 0 8px; font-size: 0.84rem; color: var(--text-faint); min-height: 1.2em; }
+.lyrics-status.is-warn { color: var(--warn); }
+
+.lyrics-lines {
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--card-edge);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.lyric-line {
+  margin: 0;
+  padding: 5px 8px;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: var(--text-dim); /* prihodnje vrstice: običajno */
+  overflow-wrap: anywhere;
+}
+.lyric-line.is-past { color: var(--text-faint); } /* prepevane: zbledijo */
+.lyric-line.is-current {
+  font-weight: 800;
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+  background: rgba(124, 92, 255, 0.10);
+}
+.lyric-rest { color: var(--text-faint); font-weight: 700; }
+
+.lyrics-offset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+}
+.lyrics-offset-btns { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.lyrics-offset .chip-btn { padding: 4px 10px; font-size: 0.78rem; }
+.lyrics-offset .chip-btn:disabled { opacity: 0.55; cursor: default; }
+#lyrics-offset-value { color: var(--text-dim); font-variant-numeric: tabular-nums; }

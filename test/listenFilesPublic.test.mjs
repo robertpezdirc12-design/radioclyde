@@ -14,6 +14,7 @@ setupTestConfig('listen-files-public', {
 });
 
 const { m3uBody, plsBody, resolveStreamUrl } = await import('../src/server/listenFiles.js');
+const { siblingStreamUrl, stripMp3Suffix } = await import('../src/server/streamUrls.js');
 const { registerAuthHook } = await import('../src/server/auth.js');
 
 describe('publicStreamUrl override', () => {
@@ -29,6 +30,29 @@ describe('publicStreamUrl override', () => {
     const declared = '   ';
     const fallback = typeof declared === 'string' && declared.trim() ? declared.trim() : 'http://derived/stream';
     assert.equal(fallback, 'http://derived/stream');
+  });
+});
+
+describe('optional mounts off behind a publicStreamUrl override', () => {
+  test('both playlist files stay BYTE-IDENTICAL with the override URL', () => {
+    assert.equal(m3uBody(), '#EXTM3U\n#EXTINF:-1,Test Station\nhttps://radio.example.com/live\n');
+    assert.equal(
+      plsBody(),
+      '[playlist]\nNumberOfEntries=1\nFile1=https://radio.example.com/live\n' +
+        'Title1=Test Station\nLength1=-1\nVersion=2\n'
+    );
+  });
+
+  test('sibling URLs derive from the owner-declared publicStreamUrl', () => {
+    assert.equal(siblingStreamUrl('.opus'), 'https://radio.example.com/live.opus');
+    assert.equal(siblingStreamUrl('.flac'), 'https://radio.example.com/live.flac');
+  });
+
+  test('stripMp3Suffix only strips a trailing .mp3, URLs included', () => {
+    assert.equal(stripMp3Suffix('https://radio.example.com/live.mp3'), 'https://radio.example.com/live');
+    assert.equal(stripMp3Suffix('https://radio.example.com/live'), 'https://radio.example.com/live');
+    assert.equal(stripMp3Suffix('/stream.mp3'), '/stream');
+    assert.equal(stripMp3Suffix('/stream'), '/stream');
   });
 });
 

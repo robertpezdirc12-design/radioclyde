@@ -36,6 +36,17 @@
 //     run in the same long-lived process as the scheduler job that refreshes
 //     the file, and the cache must never serve a stale copy after the job's
 //     rewrite.
+//   - Tail pass (ending-aware crossfade sizing, the SUB/WAVE mechanism from
+//     worklog 4-a item 4): after a successful loudness pass the scan runs ONE
+//     more ffmpeg pass over the last 20 s (-sseof -20, ebur128 momentary
+//     series) and stores tail:{windMs,fade,lufsDrop} on the same entry. At
+//     read time crossfadeAnnotate() derives liq_cross_duration ("8.0".."12.0")
+//     for measured FADE-OUT tails only; director/playlist.js stamps it on the
+//     m3u and radio.liq's cross_stamps turns it into explicit start/end
+//     override keys. Backwards compatibility: entries WITHOUT a tail (written
+//     before this pass existed) are never stamped, and the mtimeMs+size skip
+//     means old entries never gain a tail without re-analysis -- full
+//     re-stamp = delete dataDir/autocue_index.json and let the scan rebuild.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,8 +66,13 @@ const FFMPEG_MAX_BUFFER = 32 * 1024 * 1024;
 // Integrated LUFS + true peak from ONE ffmpeg pass. Throws on any failure --
 // the caller (analyzeMissing) counts failures and keeps the station running;
 // annotate writers never see a half-parsed result.
-export async function analyzeTrack(filePath) {
-  const { stderr } = await execFileAsync(
+// The optional {runner} is a TEST SEAM (canned-stderr injection) shared with
+// analyzeTail/analyzeMissing; production callers pass nothing and get the
+// real execFileAsync with byte-identical discipline (timeout/maxBuffer/
+// windowsHide).
+export async function analyzeTrack(filePath, { runner } = {}) {
+  const run = runner ?? execFileAsync;
+  const { stderr } = await run(
     'ffmpeg',
     ['-hide_banner', '-nostats', '-i', filePath, '-filter_complex', 'ebur128=peak=true', '-f', 'null', '-'],
     { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: FFMPEG_MAX_BUFFER, windowsHide: true }
@@ -109,6 +125,169 @@ export function loudnessSettings() {
   };
 }
 
+// --- Tail pass (ending-aware crossfade sizing) -----------------------------
+//
+// SUB/WAVE provenance (worklog 4-a item 4, verdict STEALABLE-WITH-FFMPEG-ONLY):
+// their analyze_worker computes, over the last 20 s of the file, loud = p95 of
+// RMS frames, a wind-down start at the last frame >= 0.6*loud, and
+// ending='fade' iff the mean RMS of the last 1.5 s < 0.15*loud AND the
+// wind-down spans >= 3 s. Here the same thresholds are applied to the ebur128
+// MOMENTARY series (LUFS), using the dB equivalents of the amplitude gates:
+// 0.6 amplitude = 4.44 dB below the body, 0.15 amplitude = 16.5 dB below.
+const TAIL_WINDOW_SECONDS = 20; // -sseof window; shorter files decode whole
+const TAIL_LOUD_PERCENTILE = 0.95; // p95 of the momentary series
+const WIND_DOWN_DROP_DB = 4.44; // 0.6 amplitude ~= -4.44 dB (thr_hi = 0.6*loud)
+const WIND_MIN_MS = 3000; // wind_span >= 3.0 s
+const TAIL_MEAN_SECONDS = 1.5; // end_level = mean of the last 1.5 s
+const FADE_DROP_DB = 16.5; // 0.15 amplitude ~= -16.5 dB (end_level < 0.15*loud)
+const MOMENTARY_FLOOR_LUFS = -60.0; // digital silence prints ~= -159/-163 on 7.x
+// Read-time sizing (SUB/WAVE mix.ts endingCrossSecondsFor): a shallow
+// tail-drop (3 dB) trims toward the 8 s floor, a deep drop (12 dB) keeps the
+// full wind-down ride.
+const FADE_DROP_SHALLOW_DB = 3;
+const FADE_DROP_DEEP_DB = 12;
+const CROSS_SECONDS_MIN = 8;
+const CROSS_SECONDS_MAX = 12;
+
+// Per-line parser for the ebur128 momentary series. The 7.x frame line is
+//   [Parsed_ebur128_0 @ 0x...] t: 0.0999773  TARGET:-23 LUFS    M:-120.7 S:-120.7 ...
+// (no colon after t; no space before M when the value is wide -- ffmpeg pads
+// to a fixed width, so both "M:-120.7" and "M: -41.7" occur); older builds
+// printed "t: 0.0999773: ... M: -18.5". The regex anchors on the only
+// invariant -- a t: timestamp and the momentary M: on the SAME line -- which
+// banner and Summary lines never carry (measured on ffmpeg 7.1.5). -inf and
+// everything below -60 LUFS floors to the silence floor; result sorted by t.
+export function parseEbur128Momentary(stderr) {
+  const points = [];
+  for (const line of String(stderr).split('\n')) {
+    const m = line.match(/t:\s*(\d+(?:\.\d+)?).*?M:\s*(-?\d+(?:\.\d+)?|-inf)/);
+    if (!m) continue;
+    const t = Number.parseFloat(m[1]);
+    if (!Number.isFinite(t)) continue;
+    let v = m[2] === '-inf' ? MOMENTARY_FLOOR_LUFS : Number.parseFloat(m[2]);
+    if (!Number.isFinite(v) || v < MOMENTARY_FLOOR_LUFS) v = MOMENTARY_FLOOR_LUFS;
+    points.push({ t, m: v });
+  }
+  points.sort((a, b) => a.t - b.t);
+  return points;
+}
+
+// Linear-interpolation percentile (the same convention SUB/WAVE's numpy
+// percentile uses): idx = (n-1)*p between the two neighbouring sorted values.
+function percentileLin(values, p) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+// {windMs, fade, lufsDrop} from a (sorted) momentary series:
+//  - endIdx = last strictly-above-floor index: trailing digital silence is
+//    padding around the ending, not the ending itself (SUB/WAVE measure the
+//    silence-trimmed end).
+//  - windMs = t[endIdx] - t[k], k = last index <= endIdx with M >= p95-4.44.
+//  - tailMean = mean of the final 1.5 s OF THE TRIMMED ENDING (indices
+//    <= endIdx only) -- an unbounded mean would let digital padding inflate
+//    lufsDrop (pinned by the paddedColdSeries test: drop must stay 0).
+//  - fade iff windMs >= 3000 AND tailMean < p95-16.5.
+//  - lufsDrop = max(0, p95 - tailMean), rounded to 0.1 dB.
+//  - all-silent window -> zeros; empty series throws (callers count it).
+export function tailMetrics(points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new Error('tailMetrics: empty momentary series');
+  }
+  const p95 = percentileLin(points.map((p) => p.m), TAIL_LOUD_PERCENTILE);
+  let endIdx = -1;
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    if (points[i].m > MOMENTARY_FLOOR_LUFS) {
+      endIdx = i;
+      break;
+    }
+  }
+  if (endIdx === -1) return { windMs: 0, fade: false, lufsDrop: 0 };
+  const windThreshold = p95 - WIND_DOWN_DROP_DB;
+  let k = -1;
+  for (let i = endIdx; i >= 0; i -= 1) {
+    if (points[i].m >= windThreshold) {
+      k = i;
+      break;
+    }
+  }
+  const windMs = k === -1 ? 0 : Math.round((points[endIdx].t - points[k].t) * 1000);
+  const cutoff = points[endIdx].t - TAIL_MEAN_SECONDS;
+  let sum = 0;
+  let n = 0;
+  for (let i = endIdx; i >= 0 && points[i].t >= cutoff; i -= 1) {
+    sum += points[i].m;
+    n += 1;
+  }
+  const tailMean = sum / n; // n >= 1: endIdx's own point always qualifies
+  const fade = windMs >= WIND_MIN_MS && tailMean < p95 - FADE_DROP_DB;
+  const lufsDrop = Math.round(Math.max(0, p95 - tailMean) * 10) / 10;
+  return { windMs, fade, lufsDrop };
+}
+
+// One tail pass: decode the last TAIL_WINDOW_SECONDS seconds and collect the
+// ebur128 momentary series. DEVIATION from the brief (measured on this box,
+// ffmpeg 7.1.5): the brief's exact `ebur128=metadata=1` prints ZERO frame
+// lines on ffmpeg >= 6.1 (0 vs 200 with explicit framelog=info -- metadata
+// mode disables frame logging), so the filter carries framelog=info, which
+// is a no-op default on older builds. Same execFileAsync error contract as
+// analyzeTrack: any ffmpeg failure rejects and the caller counts it.
+export async function analyzeTail(filePath, { runner } = {}) {
+  const run = runner ?? execFileAsync;
+  const { stderr } = await run(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-nostats',
+      '-sseof',
+      `-${TAIL_WINDOW_SECONDS}`,
+      '-i',
+      filePath,
+      '-filter_complex',
+      'ebur128=metadata=1:framelog=info',
+      '-f',
+      'null',
+      '-',
+    ],
+    { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: FFMPEG_MAX_BUFFER, windowsHide: true }
+  );
+  const points = parseEbur128Momentary(stderr);
+  if (points.length === 0) {
+    throw new Error('ebur128 tail pass produced no momentary frames');
+  }
+  return tailMetrics(points);
+}
+
+// The crossfade duration stamp for a stored tail, or null when the tail is
+// not a fade (cold ending, all-silent window) or malformed. SUB/WAVE's
+// endingCrossSecondsFor reduced to the ffmpeg-measurable inputs:
+//   windSec = clamp(windMs/1000, 8, 12)  -- the measured wind-down IS the
+//                                         canvas, clamped to the blend band
+//   t = clamp01((lufsDrop - 3) / (12 - 3)) -- shallow drop trims toward 8 s,
+//                                         deep drop keeps the full ride
+//   secs = 8 + (windSec - 8) * t, 0.1-quantized
+// HONEST OBSERVATION: with lufsDrop = tail-p95 - tailMean, fade=true implies
+// drop > 16.5 dB, so t saturates at 1 and the stamp === windSec for every
+// honestly-measured entry; the interpolation branch is unreachable from real
+// measurements (kept for SUB/WAVE table fidelity and hand-edited index
+// robustness -- the pure-math tests exercise it).
+export function crossSecondsFor(tail) {
+  if (!tail || typeof tail !== 'object') return null;
+  if (!Number.isFinite(tail.windMs) || !Number.isFinite(tail.lufsDrop)) return null;
+  if (!tail.fade) return null;
+  const windSec = Math.min(CROSS_SECONDS_MAX, Math.max(CROSS_SECONDS_MIN, tail.windMs / 1000));
+  const t = Math.min(
+    1,
+    Math.max(0, (tail.lufsDrop - FADE_DROP_SHALLOW_DB) / (FADE_DROP_DEEP_DB - FADE_DROP_SHALLOW_DB))
+  );
+  const secs = CROSS_SECONDS_MIN + (windSec - CROSS_SECONDS_MIN) * t;
+  return (Math.round(secs * 10) / 10).toFixed(1);
+}
+
 // --- Index ----------------------------------------------------------------
 
 // In-process cache invalidated by the file's own mtime: the scheduler job
@@ -158,12 +337,23 @@ export function amplifyAnnotate(filePath) {
   return `${amplify.toFixed(1)} dB`;
 }
 
+// The liq_cross_duration annotate value for a track path, or null when the
+// entry has no fade-out tail: cold endings, a failed tail pass, or an entry
+// written before the tail pass existed (derive-at-read, same as amplify).
+// radio.liq's cross_stamps consumes the stamp; unstamped tracks keep the
+// dj_transition_buffer default.
+export function crossfadeAnnotate(filePath) {
+  const entry = autocueFor(filePath);
+  if (!entry) return null;
+  return crossSecondsFor(entry.tail);
+}
+
 // Analyze every path whose (mtimeMs, size) differs from the index -- i.e.
 // new files plus files replaced on disk -- up to maxAnalyzePerRun, so the
 // first-ever sweep is spread across job ticks instead of blocking one tick
 // for an hour on a big library. Writes the index atomically (tmp + rename,
 // the same durability pattern as the other Node-written side files).
-export async function analyzeMissing(paths, { maxAnalyzePerRun, settings } = {}) {
+export async function analyzeMissing(paths, { maxAnalyzePerRun, settings, runner } = {}) {
   const max = Math.max(1, maxAnalyzePerRun ?? 100);
   const tracks = readIndexFresh();
   const next = { ...tracks };
@@ -171,6 +361,7 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings } = {})
   let failed = 0;
   let skipped = 0;
   let clampedCount = 0;
+  let tailFailed = 0;
   const analyzedAt = new Date().toISOString();
 
   for (const filePath of paths) {
@@ -190,10 +381,22 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings } = {})
     if (analyzed >= max) continue; // budget exhausted: leave for the next tick
 
     try {
-      const { lufs, peak } = await analyzeTrack(filePath);
+      const { lufs, peak } = await analyzeTrack(filePath, { runner });
       const { clamped } = amplifyDbFor(lufs, settings);
       if (clamped) clampedCount += 1;
-      next[filePath] = { mtimeMs: stat.mtimeMs, size: stat.size, lufs, peak, analyzedAt };
+      const entry = { mtimeMs: stat.mtimeMs, size: stat.size, lufs, peak, analyzedAt };
+      // Tail pass runs AFTER a successful loudness pass: on tail failure the
+      // entry is stored WITHOUT tail and tailFailed counts it -- loudness
+      // never regresses because of the ending measurement (the next scan of
+      // an unchanged file skips it, so the tail stays missing until the file
+      // changes or the index is deleted).
+      try {
+        entry.tail = await analyzeTail(filePath, { runner });
+      } catch (err) {
+        tailFailed += 1;
+        log(`Autocue: tail pass FAILED for ${filePath}: ${err.message}`);
+      }
+      next[filePath] = entry;
       analyzed += 1;
     } catch (err) {
       failed += 1;
@@ -205,7 +408,7 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings } = {})
     writeIndex({ version: 1, tracks: next });
     log(`Autocue: analyzed ${analyzed} file(s) -> ${config.paths.autocueIndexPath}`);
   }
-  return { analyzed, skipped, failed, total: paths.length, clamped: clampedCount };
+  return { analyzed, skipped, failed, total: paths.length, clamped: clampedCount, tailFailed };
 }
 
 function writeIndex(doc) {
@@ -230,7 +433,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       try {
         const { lufs, peak } = await analyzeTrack(file);
         const { amplify, clamped } = amplifyDbFor(lufs);
-        console.log(JSON.stringify({ file, lufs, peak, amplify, clamped, ...loudnessSettings() }));
+        const out = { file, lufs, peak, amplify, clamped, ...loudnessSettings() };
+        // Tail pass is non-fatal here too (same contract as the scan): a
+        // failed ending measurement surfaces as tailError, never as a lost
+        // loudness result.
+        try {
+          out.tail = await analyzeTail(file);
+        } catch (err) {
+          out.tailError = err.message;
+        }
+        console.log(JSON.stringify(out));
       } catch (err) {
         console.log(JSON.stringify({ file, error: err.message }));
         process.exitCode = 1;

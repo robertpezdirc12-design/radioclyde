@@ -29,6 +29,7 @@ import { registerShowLogoRoute } from './showLogoProxy.js';
 import { registerDjPhotoRoute } from './djPhotoProxy.js';
 import { registerWeatherRoute } from './weatherApi.js';
 import { registerStudioRoutes } from './studioAuth.js';
+import { writeStreamsLiq } from '../liquidsoap/streamsLiqWriter.js';
 
 const log = createLogger('web');
 
@@ -68,6 +69,29 @@ async function main() {
   registerDjPhotoRoute(fastify);
   registerWeatherRoute(fastify);
   await fastify.register(registerStudioRoutes, { prefix: '/studio' });
+
+  // Regenerate liquidsoap/streams.liq (optional mounts + hourly archive)
+  // BEFORE listening: the write is idempotent, atomic and never throws
+  // (streamsLiqWriter.js returns its result honestly), so this can sit
+  // on the boot path without endangering the listen() below. Restart
+  // semantics: a changed streams.liq still needs a `systemctl restart
+  // liquidsoap` afterwards to take effect -- the running Liquidsoap has
+  // already parsed the old file (docs/stream-mounts.md).
+  try {
+    const streamsResult = writeStreamsLiq();
+    const enabledParts = Object.entries(streamsResult.enabled ?? {})
+      .filter(([, on]) => on === true)
+      .map(([name]) => name);
+    if (streamsResult.error) {
+      log(`streams.liq: ERROR: ${streamsResult.error}`);
+    } else if (streamsResult.written) {
+      log(`streams.liq: written (${enabledParts.length ? enabledParts.join(', ') : 'all optional outputs off'})`);
+    } else {
+      log('streams.liq: unchanged');
+    }
+  } catch (err) {
+    log(`streams.liq: ERROR: ${err.stack || err.message}`);
+  }
 
   await fastify.listen({ port: config.web.port, host: '0.0.0.0' });
   log(`Listening on 0.0.0.0:${config.web.port}`);

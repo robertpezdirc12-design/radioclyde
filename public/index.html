@@ -68,6 +68,27 @@
           </button>
         </div>
         <p class="player-status" id="player-status" role="status">Pritisni predvajaj in poslušaj v živo.</p>
+
+        <!-- Besedila trenutne skladbe (GET /api/lyrics/current). Zložiljiv
+             panel pod statusom predvajalnika -- ni zavihek: selectTab() se ga
+             ne dotika. Vrstice, zamiki in stanja upravlja app.js. -->
+        <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-expanded="false" aria-controls="lyrics-panel">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+          <span>Besedila</span>
+          <svg class="lyrics-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
+        </button>
+        <div id="lyrics-panel" class="lyrics-panel" role="region" aria-label="Besedila pesmi" hidden>
+          <p class="lyrics-status" id="lyrics-status" role="status"></p>
+          <div id="lyrics-lines" class="lyrics-lines"></div>
+          <div id="lyrics-offset" class="lyrics-offset" hidden>
+            <span class="lyrics-offset-label">zamik na tej napravi: <span id="lyrics-offset-value">0,0 s</span></span>
+            <span class="lyrics-offset-btns">
+              <button class="chip-btn" id="lyrics-offset-down" type="button">&minus;100 ms</button>
+              <button class="chip-btn" id="lyrics-offset-up" type="button">+100 ms</button>
+              <button class="chip-btn" id="lyrics-offset-reset" type="button" disabled>ponastavi</button>
+            </span>
+          </div>
+        </div>
       </div>
     </section>
 

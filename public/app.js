@@ -58,6 +58,15 @@ const els = {
   checkButton: $('req-check'),
   checkInput: $('req-check-id'),
   checkResult: $('req-status'),
+  lyricsToggle: $('lyrics-toggle'),
+  lyricsPanel: $('lyrics-panel'),
+  lyricsStatus: $('lyrics-status'),
+  lyricsLines: $('lyrics-lines'),
+  lyricsOffset: $('lyrics-offset'),
+  lyricsOffsetValue: $('lyrics-offset-value'),
+  lyricsOffsetDown: $('lyrics-offset-down'),
+  lyricsOffsetUp: $('lyrics-offset-up'),
+  lyricsOffsetReset: $('lyrics-offset-reset'),
 };
 
 const SL_DAYS = { monday: 'Ponedeljek', tuesday: 'Torek', wednesday: 'Sreda', thursday: 'Četrtek', friday: 'Petek', saturday: 'Sobota', sunday: 'Nedelja' };
@@ -253,6 +262,7 @@ function renderFavs() {
 // ---------- now playing ----------
 
 function renderNowPlaying(data) {
+  updateStationStreams(data.station);
   if (data.station?.name) {
     document.title = data.station.name;
     els.brandName.textContent = data.station.name;
@@ -314,6 +324,7 @@ function renderNowPlaying(data) {
   syncLikeButtons();
   renderChips();
   tickProgress();
+  lyricsOnNowPlaying(data); // besedila: keeps its own clock, restarts polling at track boundaries
 }
 
 function tickProgress() {
@@ -639,6 +650,66 @@ async function checkRequest() {
   }
 }
 
+// ---------- stream format picker (SUB/WAVE rule) ----------
+//
+// MP3 is the floor. The player upgrades to the station's Opus mount only
+// when ALL of these hold: /api/now-playing actually lists an opus stream
+// (icecast.opus.enabled on the server), canPlayType('audio/ogg;
+// codecs=opus') answers 'probably', and the browser is neither iOS nor
+// Firefox (both break on chained Ogg at a crossfade -- SUB/WAVE's measured
+// call, #212). The upgrade lands on the next tune (the src assignment in
+// startStream below), never on a playing element (#1232/#1234); an Opus
+// error pins MP3 for the rest of the session. FLAC is deliberately NOT
+// offered to the web player (docs/stream-mounts.md): it is for audiophile
+// players via the published playlists, not a browser codec bet.
+
+let stationStreams = null;        // [{url, format, bitrate}] from station.streams
+let opusPinnedToMp3 = false;      // session-permanent downgrade after an Opus error
+let currentStreamIsOpus = false;  // what player.src currently points at
+
+function updateStationStreams(station) {
+  stationStreams = Array.isArray(station && station.streams) ? station.streams : null;
+}
+
+function canPlayOpus() {
+  try {
+    if (opusPinnedToMp3) return false;
+    const nav = typeof navigator !== 'undefined' ? navigator : null;
+    if (nav) {
+      const ua = String(nav.userAgent || '');
+      // iP(hone|ad|od) covers iPhone/iPad/iPod; iPadOS 13+ masquerades as
+      // Mac Safari -- touch points give it away. Firefox-for-iOS reports
+      // FxiOS and is already caught by the iPad branch (SUB/WAVE's note).
+      if (/iP(hone|ad|od)/.test(ua)) return false;
+      if (/firefox/i.test(ua)) return false;
+      if (nav.platform === 'MacIntel' && (nav.maxTouchPoints || 0) > 1) return false;
+    }
+    return document.createElement('audio').canPlayType('audio/ogg; codecs=opus') === 'probably';
+  } catch { return false; }
+}
+
+function opusStreamUrl() {
+  if (!stationStreams) return null;
+  const opus = stationStreams.find((s) => s && s.format === 'opus' && s.url);
+  return opus ? opus.url : null;
+}
+
+function pickStreamSrc() {
+  const opus = canPlayOpus() ? opusStreamUrl() : null;
+  return opus || '/stream';
+}
+
+// The ONE place player.src is assigned for the live stream (the play
+// button and the MediaSession handlers both route through here), so the
+// format choice is always a fresh, session-consistent decision.
+function startStream() {
+  const src = pickStreamSrc();
+  currentStreamIsOpus = src !== '/stream';
+  player.src = src;
+  streamStarted = true;
+  setStatus('Povezujem s tokom …');
+}
+
 // ---------- player controls ----------
 
 function setPlayIcon(playing) {
@@ -649,11 +720,7 @@ function setPlayIcon(playing) {
 }
 
 els.playButton.addEventListener('click', () => {
-  if (!streamStarted) {
-    player.src = '/stream';
-    streamStarted = true;
-    setStatus('Povezujem s tokom …');
-  }
+  if (!streamStarted) startStream();
   if (player.paused) player.play().catch(() => setStatus('Predvajanja ni bilo mogoče začeti -- poskusi znova.', 'is-error'));
   else player.pause();
 });
@@ -665,7 +732,7 @@ els.playButton.addEventListener('click', () => {
 if ('mediaSession' in navigator) {
   try {
     navigator.mediaSession.setActionHandler('play', () => {
-      if (!streamStarted) { player.src = '/stream'; streamStarted = true; }
+      if (!streamStarted) startStream();
       player.play().catch(() => {});
     });
     navigator.mediaSession.setActionHandler('pause', () => player.pause());
@@ -690,6 +757,19 @@ player.addEventListener('pause', () => {
 player.addEventListener('waiting', () => setStatus('Čakam na podatke toka …'));
 player.addEventListener('stalled', () => setStatus('Tok se je ustavil -- poskušam znova …', 'is-warn'));
 player.addEventListener('error', () => {
+  // An Opus mount error pins MP3 for the session (SUB/WAVE's rule: a
+  // failing mount must not re-arm on the next press) and retries once on
+  // the MP3 floor before reporting failure honestly.
+  if (currentStreamIsOpus) {
+    opusPinnedToMp3 = true;
+    currentStreamIsOpus = false;
+    if (streamStarted) {
+      setStatus('Opus tok ni dosegljiv -- preusmerjam na MP3 …', 'is-warn');
+      player.src = '/stream';
+      player.play().catch(() => {});
+      return;
+    }
+  }
   if (streamStarted) setStatus('Tok ni dosegljiv (strežnik ali povezava). Preveri, ali postaja teče, in poskusi znova.', 'is-error');
 });
 
@@ -921,6 +1001,398 @@ async function fetchTopListened() {
     els.topError.hidden = false;
   }
 }
+
+// ---------- besedila (lyrics panel) ----------
+//
+// "Besedila": collapsible lyrics for the on-air track, fed by
+// GET /api/lyrics/current (LRCLIB-backed server side, honest 503 while the
+// feature is switched off). Not a tab -- selectTab() stays untouched; the
+// panel folds out inside the hero, under the player status. Polling runs
+// ONLY while the panel is open AND music is on air: 4 s while the station
+// is still looking the song up (bounded to 10 asks), 15 s otherwise -- a
+// late answer still heals the panel. Offsets are applied to the CLOCK,
+// never to the lines (SUB/WAVE lesson): the station offset arrives per
+// response, the device offset lives in localStorage and survives reloads.
+
+const LYRICS_PENDING_MAX_TRIES = 10;
+const LYRICS_PENDING_POLL_MS = 4000;
+const LYRICS_POLL_MS = 15000;
+const LYRICS_TICK_MS = 500;
+const LYRICS_NUDGE_MS = 100;
+const LYRICS_OFFSET_MAX_MS = 30000;
+const LYRICS_DEVICE_OFFSET_KEY = 'lyrics-device-offset-ms';
+const LYRICS_SCROLL_ECHO_MS = 1000; // our own scrollIntoView echoes a 'scroll' event
+const LYRICS_USER_SCROLL_PAUSE_MS = 8000; // the user's scrolling wins over auto-centering, for a while
+
+const lyricsState = {
+  open: false,
+  songId: null,
+  synced: false,
+  lines: [],
+  source: null,
+  pending: false,
+  stationOffsetMs: 0,
+  deviceOffsetMs: readLyricsDeviceOffset(),
+  // internal bookkeeping
+  disabled: false, // 503 lyrics-disabled: terminal for this page load
+  fetched: false, // at least one answer arrived for the current track
+  failed: false, // the last ask threw -- honest "unreachable" until the next one
+  playedAtMs: null, // OWN copy: now-playing poll refreshes must not jitter the lyrics clock
+  trackKey: null, // "artist — title" of the track this state describes
+  epoch: 0, // boundary counter: answers that straddled a boundary are dropped
+  pendingTries: 0,
+  fetching: false,
+  pollTimer: null,
+  tickTimer: null,
+  currentLine: -1,
+  renderedLines: null, // identity of the lines array behind the rendered DOM
+  lastProgrammaticScrollAt: 0,
+  userScrollUntil: 0,
+};
+
+function readLyricsDeviceOffset() {
+  let raw = 0;
+  try {
+    raw = Number.parseInt(localStorage.getItem(LYRICS_DEVICE_OFFSET_KEY) ?? '0', 10);
+  } catch {
+    return 0; // storage blocked -- the offset simply starts at zero
+  }
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(-LYRICS_OFFSET_MAX_MS, Math.min(LYRICS_OFFSET_MAX_MS, raw));
+}
+
+function persistLyricsDeviceOffset(ms) {
+  const clamped = Math.max(-LYRICS_OFFSET_MAX_MS, Math.min(LYRICS_OFFSET_MAX_MS, Math.round(ms) || 0));
+  try {
+    // 0 removes the key, exactly like the server's own offset table holds
+    // only actually-corrected tracks.
+    if (clamped === 0) localStorage.removeItem(LYRICS_DEVICE_OFFSET_KEY);
+    else localStorage.setItem(LYRICS_DEVICE_OFFSET_KEY, String(clamped));
+  } catch {
+    // private mode: the nudge still applies for this session, just not beyond it
+  }
+  return clamped;
+}
+
+function formatLyricsOffset(ms) {
+  // sl-SI decimal comma; U+2212 minus so the sign can't read as a hyphen
+  const seconds = (Math.abs(ms) / 1000).toFixed(1).replace('.', ',');
+  if (ms > 0) return `+${seconds} s`;
+  if (ms < 0) return `\u2212${seconds} s`;
+  return `${seconds} s`;
+}
+
+function renderLyricsOffsetValue() {
+  els.lyricsOffsetValue.textContent = formatLyricsOffset(lyricsState.deviceOffsetMs);
+  els.lyricsOffsetReset.disabled = lyricsState.deviceOffsetMs === 0; // nothing to reset at zero
+}
+
+function nudgeLyricsOffset(deltaMs) {
+  const next = persistLyricsDeviceOffset(lyricsState.deviceOffsetMs + (deltaMs || 0));
+  if (next === lyricsState.deviceOffsetMs) return; // clamped -- nothing moved
+  lyricsState.deviceOffsetMs = next;
+  renderLyricsOffsetValue();
+  tickLyrics(); // re-highlight at once: corrections land on the clock, no refetch
+}
+
+function renderLyricsStatus(text, cls = '') {
+  const value = text ?? '';
+  if (els.lyricsStatus.hidden === !value && els.lyricsStatus.textContent === value) return; // no churn, no double screen-reader announce
+  els.lyricsStatus.textContent = value;
+  els.lyricsStatus.className = `lyrics-status ${cls}`.trim();
+  els.lyricsStatus.hidden = !value;
+}
+
+function lyricLineEl(line) {
+  const row = document.createElement('p');
+  row.className = 'lyric-line';
+  const text = typeof line?.text === 'string' ? line.text : '';
+  if (text.trim()) {
+    row.textContent = text;
+  } else {
+    // stamped but empty line: the singing pauses for an instrumental stretch
+    const glyph = document.createElement('span');
+    glyph.className = 'lyric-rest';
+    glyph.textContent = '\u266A';
+    glyph.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = 'instrumentalni del';
+    row.append(glyph, label);
+  }
+  return row;
+}
+
+function renderLyricsLines() {
+  els.lyricsLines.replaceChildren(...lyricsState.lines.map(lyricLineEl));
+  lyricsState.currentLine = -1; // tickLyrics() re-highlights on its next pass
+}
+
+function lyricsElapsedMs() {
+  if (lyricsState.playedAtMs == null) return null;
+  return Date.now() - lyricsState.playedAtMs + lyricsState.stationOffsetMs + lyricsState.deviceOffsetMs;
+}
+
+function currentLyricsLineIndex() {
+  // The last stamped line whose startMs <= elapsed; a null-startMs line is
+  // metadata and is never current.
+  if (!lyricsState.synced || !lyricsState.lines.length) return -1;
+  const elapsed = lyricsElapsedMs();
+  if (elapsed == null) return -1;
+  let current = -1;
+  for (let i = 0; i < lyricsState.lines.length; i++) {
+    const startMs = lyricsState.lines[i].startMs;
+    if (typeof startMs === 'number' && Number.isFinite(startMs) && startMs <= elapsed) current = i;
+  }
+  return current;
+}
+
+function scrollLyricsTo(row) {
+  if (!row) return;
+  let behavior = 'smooth';
+  try {
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) behavior = 'auto';
+  } catch { /* no matchMedia -- smooth stays */ }
+  try {
+    row.scrollIntoView({ block: 'center', behavior });
+  } catch { /* engines without scroll options */ row.scrollIntoView(); }
+  lyricsState.lastProgrammaticScrollAt = Date.now(); // anchor for the echo guard
+}
+
+function tickLyrics() {
+  if (!lyricsState.open || !lyricsState.synced || !lyricsState.lines.length || lyricsState.playedAtMs == null) return;
+  const current = currentLyricsLineIndex();
+  if (current === lyricsState.currentLine) return; // DOM writes only when the line CHANGES
+  lyricsState.currentLine = current;
+  const rows = els.lyricsLines.children;
+  for (let i = 0; i < rows.length; i++) {
+    rows[i].classList.toggle('is-past', i < current);
+    rows[i].classList.toggle('is-current', i === current);
+    if (i === current) rows[i].setAttribute('aria-current', 'true');
+    else rows[i].removeAttribute('aria-current');
+  }
+  if (current >= 0 && Date.now() >= lyricsState.userScrollUntil) scrollLyricsTo(rows[current]);
+}
+
+function startLyricsTick() {
+  stopLyricsTick();
+  lyricsState.tickTimer = setInterval(tickLyrics, LYRICS_TICK_MS);
+}
+
+function stopLyricsTick() {
+  if (lyricsState.tickTimer != null) {
+    clearInterval(lyricsState.tickTimer);
+    lyricsState.tickTimer = null;
+  }
+}
+
+function stopLyricsPoll() {
+  if (lyricsState.pollTimer != null) {
+    clearTimeout(lyricsState.pollTimer);
+    lyricsState.pollTimer = null;
+  }
+}
+
+function scheduleLyricsPoll() {
+  stopLyricsPoll();
+  if (!lyricsState.open || !trackIsPlaying || lyricsState.disabled) return;
+  // 4 s while the station is still looking the song up (bounded), else 15 s.
+  // Past the bound the status turns honest ("ni bilo mogo\u010De najti") but THIS
+  // chain keeps running at 15 s -- a late-resolving lookup still heals the panel.
+  const delay =
+    lyricsState.pending && lyricsState.pendingTries < LYRICS_PENDING_MAX_TRIES ? LYRICS_PENDING_POLL_MS : LYRICS_POLL_MS;
+  lyricsState.pollTimer = setTimeout(async () => {
+    lyricsState.pollTimer = null;
+    if (!lyricsState.open || !trackIsPlaying || lyricsState.disabled) return; // the chain ends here
+    await fetchLyrics(); // the answer's handler re-arms the chain
+  }, delay);
+}
+
+function refreshLyricsView() {
+  // The single renderer: status, line list, offset row. The list only
+  // rebuilds when the lines ARRAY identity changed (a refill assigned a new
+  // array) -- a steady poll must not reset the highlight or fight the
+  // user's scroll position.
+  renderLyricsOffsetValue();
+  if (lyricsState.lines !== lyricsState.renderedLines) {
+    lyricsState.renderedLines = lyricsState.lines;
+    renderLyricsLines();
+  }
+  const clockable = lyricsState.synced && lyricsState.lines.length > 0 && lyricsState.playedAtMs != null;
+  els.lyricsOffset.hidden = !clockable; // nudging makes sense only against a clock
+  let status = '';
+  let cls = '';
+  if (lyricsState.disabled) status = 'besedila so izklopljena';
+  else if (!trackIsPlaying) status = 'Zdaj na etru ni skladbe -- besedila se poka\u017Eejo ob naslednji pesmi.';
+  else if (lyricsState.failed && !lyricsState.lines.length) {
+    status = 'besedila trenutno niso dosegljiva';
+    cls = 'is-warn';
+  } else if (!lyricsState.fetched) status = 'Nalagam besedila \u2026';
+  else if (!lyricsState.lines.length && lyricsState.pending) {
+    status = lyricsState.pendingTries >= LYRICS_PENDING_MAX_TRIES ? 'besedil ni bilo mogo\u010De najti' : 'i\u0161\u010Dem besedila \u2026';
+  } else if (!lyricsState.lines.length) status = 'za to pesem ni besedil';
+  else if (!lyricsState.synced) status = 'besedila (sinhronizacija ni na voljo)';
+  else if (lyricsState.playedAtMs == null) status = 'neznani za\u010Detek predvajanja';
+  renderLyricsStatus(status, cls);
+}
+
+function resetLyricsForNewTrack(playedAtMs, key) {
+  lyricsState.trackKey = key ?? null;
+  lyricsState.songId = null;
+  lyricsState.synced = false;
+  lyricsState.lines = [];
+  lyricsState.source = null;
+  lyricsState.pending = false;
+  lyricsState.stationOffsetMs = 0;
+  lyricsState.failed = false;
+  lyricsState.fetched = false;
+  lyricsState.pendingTries = 0;
+  lyricsState.playedAtMs = playedAtMs ?? null;
+  lyricsState.epoch += 1; // any answer still in flight describes the previous track
+  stopLyricsPoll();
+  refreshLyricsView();
+  if (lyricsState.open && trackIsPlaying && !lyricsState.disabled) fetchLyrics();
+}
+
+function resetLyricsForNoMusic() {
+  lyricsState.trackKey = null;
+  lyricsState.songId = null;
+  lyricsState.synced = false;
+  lyricsState.lines = [];
+  lyricsState.source = null;
+  lyricsState.pending = false;
+  lyricsState.stationOffsetMs = 0;
+  lyricsState.failed = false;
+  lyricsState.fetched = false;
+  lyricsState.pendingTries = 0;
+  lyricsState.playedAtMs = null;
+  lyricsState.epoch += 1;
+  stopLyricsPoll(); // no music -> no polling; the panel tells the truth and waits
+  refreshLyricsView();
+}
+
+function applyLyrics(data) {
+  const songId = typeof data?.songId === 'string' ? data.songId : null;
+  const lines = Array.isArray(data?.lines) ? data.lines.filter((l) => l && typeof l.text === 'string') : [];
+  const synced = Boolean(data?.synced);
+  const pending = Boolean(data?.pending);
+  // When the panel must actually REBUILD (not just update offsets):
+  //  - the server moved to another track, or
+  //  - a pending lookup resolved for the SAME songId (the first build had a
+  //    real bug here: a same-songId answer after pending left the panel
+  //    empty forever), or
+  //  - plain lyrics got upgraded to synced ones, or
+  //  - this is the first answer for the current track.
+  const refill =
+    !lyricsState.fetched ||
+    songId !== lyricsState.songId ||
+    (lyricsState.pending && !pending) ||
+    (!lyricsState.synced && synced && lines.length > 0);
+  const stationOffsetMs = Number(data?.offsetMs);
+  lyricsState.songId = songId;
+  lyricsState.source = typeof data?.source === 'string' ? data.source : null;
+  lyricsState.stationOffsetMs = Number.isFinite(stationOffsetMs)
+    ? Math.max(-LYRICS_OFFSET_MAX_MS, Math.min(LYRICS_OFFSET_MAX_MS, stationOffsetMs))
+    : 0;
+  lyricsState.pending = pending;
+  lyricsState.pendingTries = pending ? lyricsState.pendingTries + 1 : 0;
+  lyricsState.failed = false;
+  lyricsState.fetched = true;
+  if (refill) {
+    lyricsState.synced = synced;
+    lyricsState.lines = lines;
+  }
+  refreshLyricsView();
+  tickLyrics(); // highlight wherever the song already is
+  scheduleLyricsPoll(); // re-arm the chain with the delay the new state asks for
+}
+
+async function fetchLyrics() {
+  if (lyricsState.fetching || lyricsState.disabled || !lyricsState.open || !trackIsPlaying) return;
+  lyricsState.fetching = true; // in-flight guard: poll ticks and opens share one ask
+  const epoch = lyricsState.epoch;
+  try {
+    const res = await fetch('/api/lyrics/current');
+    if (epoch !== lyricsState.epoch) {
+      // a boundary passed while we were asking: the answer describes the
+      // previous track -- hand the ask over to the current one (one hop; the
+      // fresh epoch keeps this from looping)
+      if (lyricsState.open && trackIsPlaying && !lyricsState.disabled) fetchLyrics();
+      return;
+    }
+    if (res.status === 503) {
+      // Honest 503: lyrics are switched off server-side. Terminal for this
+      // page load -- no refetch on reopen, no polling, no toasts.
+      lyricsState.disabled = true;
+      lyricsState.failed = false;
+      stopLyricsPoll();
+      refreshLyricsView();
+      return;
+    }
+    if (!res.ok) throw new Error(`lyrics ${res.status}`);
+    const data = await res.json();
+    if (epoch !== lyricsState.epoch) {
+      if (lyricsState.open && trackIsPlaying && !lyricsState.disabled) fetchLyrics();
+      return;
+    }
+    applyLyrics(data);
+  } catch {
+    if (epoch === lyricsState.epoch) {
+      lyricsState.failed = true;
+      refreshLyricsView(); // 'besedila trenutno niso dosegljiva' -- the chain retries
+      scheduleLyricsPoll();
+    }
+  } finally {
+    lyricsState.fetching = false;
+  }
+}
+
+function setLyricsPanelOpen(open) {
+  lyricsState.open = Boolean(open);
+  els.lyricsPanel.hidden = !lyricsState.open;
+  els.lyricsToggle.setAttribute('aria-expanded', String(lyricsState.open));
+  if (lyricsState.open) {
+    refreshLyricsView();
+    startLyricsTick();
+    if (!lyricsState.disabled && trackIsPlaying) fetchLyrics(); // a fresh open deserves a fresh answer
+  } else {
+    stopLyricsTick();
+    stopLyricsPoll();
+  }
+}
+
+// Called as the ONE new line at the end of renderNowPlaying(): the panel
+// keeps its OWN playedAt copy (poll refreshes must not jitter the clock)
+// and starts/stops its lifecycle at track boundaries.
+function lyricsOnNowPlaying(data) {
+  const track = data?.track;
+  if (!track?.title) {
+    resetLyricsForNoMusic(); // spoken segment / dead air
+    return;
+  }
+  const key = trackKey(track.artist ?? '', track.title);
+  if (key === lyricsState.trackKey) return; // same track: the clock keeps running untouched
+  const playedAt = track.playedAt ? new Date(track.playedAt).getTime() : null;
+  resetLyricsForNewTrack(Number.isFinite(playedAt) ? playedAt : null, key);
+}
+
+els.lyricsToggle.addEventListener('click', () => setLyricsPanelOpen(!lyricsState.open));
+els.lyricsOffsetDown.addEventListener('click', () => nudgeLyricsOffset(-LYRICS_NUDGE_MS));
+els.lyricsOffsetUp.addEventListener('click', () => nudgeLyricsOffset(LYRICS_NUDGE_MS));
+els.lyricsOffsetReset.addEventListener('click', () => nudgeLyricsOffset(-lyricsState.deviceOffsetMs)); // ponastavi -> 0
+
+// Scrolling discipline: the user's scrolling wins over auto-centering for
+// 8 s (wheel/touch); our own scrollIntoView echoes a 'scroll' event, so
+// echoes within 1 s of the programmatic scroll are not mistaken for the user.
+function pauseLyricsAutoScroll() {
+  lyricsState.userScrollUntil = Date.now() + LYRICS_USER_SCROLL_PAUSE_MS;
+}
+els.lyricsLines.addEventListener('wheel', pauseLyricsAutoScroll, { passive: true });
+els.lyricsLines.addEventListener('touchstart', pauseLyricsAutoScroll, { passive: true });
+els.lyricsLines.addEventListener('scroll', () => {
+  if (Date.now() - lyricsState.lastProgrammaticScrollAt < LYRICS_SCROLL_ECHO_MS) return; // our own echo
+  pauseLyricsAutoScroll();
+});
 
 // ---------- P5 #4: push opt-in (obvestilo ob začetku oddaje) ----------
 //

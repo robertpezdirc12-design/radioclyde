@@ -6,8 +6,9 @@
 //    (stale-while-revalidate): the page opens instantly and heals itself,
 //    while app.js's own polling re-renders live data when the network
 //    returns
-//  - EVERYTHING else -- /stream (an infinite audio connection must never
-//    be cached), /api/* (live data; app.js already renders explicit
+//  - EVERYTHING else -- /stream plus its optional sibling mounts
+//    /stream.opus and /stream.flac (an infinite audio connection must
+//    never be cached), /api/* (live data; app.js already renders explicit
 //    offline states), /studio (owner's authenticated views) -- passes
 //    straight through untouched, no caching, no auth interference
 //
@@ -47,7 +48,8 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   // Live data and audio never touch the cache; the page's own error
   // rendering is the offline story for these, as it already is today.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/studio') || url.pathname === '/stream') return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/studio') ||
+      url.pathname === '/stream' || url.pathname.startsWith('/stream.')) return;
 
   // Stale-while-revalidate for the precached shell: serve the cached copy
   // immediately, refresh it in the background so the NEXT load is current.

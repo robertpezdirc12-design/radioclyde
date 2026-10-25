@@ -20,7 +20,14 @@
     "mount": "/stream",
     "sourcePassword": "CHANGE_ME",
     "adminPassword": "CHANGE_ME",
-    "bitrate": 192
+    "bitrate": 192,
+    "opus": {
+      "enabled": false,
+      "bitrate": 96
+    },
+    "flac": {
+      "enabled": false
+    }
   },
   "web": {
     "port": 8000,
@@ -175,6 +182,11 @@
     "dir": "TBD - absolute path to a folder (ideally off-box or on separate storage) where daily backups of station.json and show-descriptions/ are written",
     "intervalMinutes": 1440
   },
+  "archive": {
+    "enabled": false,
+    "bitrate": 128,
+    "retentionDays": 30
+  },
   "analytics": {
     "sampleIntervalMinutes": 1,
     "maxEntries": 43200,
@@ -195,6 +207,9 @@
     "tuneIn": null,
     "discordWebhook": null,
     "publicStreamUrl": null
+  },
+  "lyrics": {
+    "enabled": true
   },
   "scripts": {
     "maxToolIterations": 60,

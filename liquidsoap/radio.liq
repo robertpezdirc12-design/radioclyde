@@ -288,10 +288,15 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 # Why duration=dj_transition_buffer (3.5, defined in dj_transitions.liq
 # inside the same gate): it is the value the 2026-07-28 crossfade() attempt
 # tuned by offline RMS-envelope testing; the number survived, the wrapper
-# didn't. persist_override=true is SUB/WAVE's setting: with no
-# liq_cross_* stamps anywhere in our pipeline it is a no-op today, and if
-# an operator ever hand-stamps a track, it behaves the SUB/WAVE way instead
-# of silently resetting.
+# didn't. It is now also the DEFAULT every unstamped track gets from
+# cross_stamps below (cold endings, speech, jingles, requests, old index
+# entries), so the literal and the stamps can never disagree about the
+# fallback. persist_override=true is SUB/WAVE's setting: with it unset, the
+# override resets before it sizes the stamped track's own end-of-track
+# buffer and a stamp lingers over later unstamped tracks (their
+# fx-render-test.sh xdur: a stamped 12 renders 86 s without persist, 78 s
+# with) -- and since cross_stamps rewrites explicit start/end keys onto
+# EVERY track, the values are always fresh anyway.
 #
 # Everything NON-musical stays OUT of the blend by construction: the stinger
 # fallback and the ID overlay attach BELOW this wiring (they wrap the
@@ -321,6 +326,60 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 # source.dynamic's signature.
 %ifversion >= 2.4.6
 radio = source.dynamic(self_sync=false, {radio})
+
+# --- CROSS STAMPS (SUB/WAVE mechanism; Node half = autocue tail pass) ------
+#
+# director/playlist.js stamps liq_cross_duration="8.0".."12.0" on every
+# measured fade-out tail (the offline ebur128 tail pass in autocue.js);
+# unstamped tracks (cold endings, speech, jingles, requests, old index
+# entries) fall back to dj_transition_buffer -- the literal above.
+#
+# cross() natively sizes the outgoing TAIL from liq_cross_end_duration and
+# the incoming HEAD from liq_cross_start_duration -- but a single
+# per-track stamp cannot keep the two in step: cross re-applies override
+# keys it finds in its OWN output, and the transition replays the OUTGOING
+# track's metadata, so each tail would be sized by the stamp of the track
+# BEFORE the outgoing one (SUB/WAVE measured 3931 of 3997 logged
+# transitions mis-sized that way before this rewrite). cross_stamps
+# translates the one stamp into explicit start/end values per track
+# (start = the PREVIOUS track's end) and clears the raw key so cross never
+# reads it twice; strip_cross_stamps (dj_transitions.liq) keeps the keys
+# off the transition's output frames.
+#
+# Replay dedup on rid+filename: a replayed metadata chunk (fallback
+# metadata replay keeps the request id) must not advance cross_prev_end.
+# 30 s stamp cap: the Node side stamps 8..12 s; anything past 30 is a
+# corrupt or hand-edited index entry, never a buffer worth waiting on.
+# No liq_clip_lead branch (SUB/WAVE's stem-blend cue leads): that needs
+# stem analysis we deliberately don't run (no-AI architecture).
+cross_prev_end = ref(dj_transition_buffer)
+cross_last_file = ref("")
+cross_last_rid = ref("")
+cross_last_stamps = ref([])
+def cross_stamps(m) =
+  # `fname`, not `file`: a local `file` shadows the stdlib file.* module
+  # (Liquidsoap Warning 6 at startup) -- SUB/WAVE's own wording.
+  fname = m["filename"]
+  rid = m["rid"]
+  if fname != "" and fname == cross_last_file() and rid == cross_last_rid() then
+    cross_last_stamps()
+  else
+    own = float_of_string(default=dj_transition_buffer, m["liq_cross_duration"])
+    own = if own < 0. then dj_transition_buffer else own end
+    own = if own > 30. then 30. else own end
+    stamps = [
+      ("liq_cross_start_duration", string(cross_prev_end())),
+      ("liq_cross_end_duration", string(own)),
+      ("liq_cross_duration", "")
+    ]
+    cross_prev_end := own
+    cross_last_file := fname
+    cross_last_rid := rid
+    cross_last_stamps := stamps
+    stamps
+  end
+end
+radio = metadata.map(update=true, strip=true, cross_stamps, radio)
 radio = cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)
 %endif
 
@@ -553,3 +612,16 @@ output.icecast(%mp3(bitrate=config.icecast.bitrate),
   password = config.icecast.sourcePassword,
   mount = config.icecast.mount,
   radio)
+
+# --- Optional mounts + hourly archive (SUB/WAVE mechanism) ------------------
+# streams.liq is GENERATED at every radioclyde-web boot by
+# src/liquidsoap/streamsLiqWriter.js from config.json's icecast.opus /
+# icecast.flac / archive blocks, with literal values (host, port, password,
+# bitrate ladders -- parse-time constants, which is the whole point: the
+# encoders' bitrate arguments cannot come from runtime config reads). The
+# committed default is comment-only (everything off), so a fresh clone, a
+# config.json without the new blocks, and the old 2.2.4 box all boot
+# byte-identically to the pre-streams state. Hand edits survive only until
+# the next web restart overwrites the file -- change config.json instead
+# (docs/stream-mounts.md).
+%include "streams.liq"

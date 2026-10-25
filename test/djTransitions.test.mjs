@@ -81,11 +81,63 @@ describe('radio.liq P3 #11 version gating', () => {
     }
   });
 
-  test('cross wiring exists only inside the >= 2.4.6 gate, behind the self-sync wrap', () => {
-    const gate = /%ifversion >= 2\.4\.6\nradio = source\.dynamic\(self_sync=false, \{radio\}\)\nradio = cross\(duration=dj_transition_buffer, persist_override=true, dj_transition, radio\)\n%endif/;
-    assert.match(radio, gate, 'source.dynamic(self_sync=false) must precede cross: the stdlib fade.in wrapper attaches record methods, method-extended sources report (Dynamic, None) internally, and cross refuses anything that is not exactly (Static, None) -- caught by --describe-sources on the real 2.4.6 binary');
+  test('cross wiring sits inside the >= 2.4.6 gate behind the self-sync wrap and the cross-stamps rewrite', () => {
+    // Order-based invariants (a regex here would pin pre-change text):
+    // gate -> source.dynamic -> CROSS STAMPS def -> metadata.map -> cross.
+    const gateIdx = radio.indexOf('%ifversion >= 2.4.6');
+    const dynamicIdx = radio.indexOf('radio = source.dynamic(self_sync=false, {radio})');
+    const stampsDefIdx = radio.indexOf('def cross_stamps(m) =');
+    const mapIdx = radio.indexOf('radio = metadata.map(update=true, strip=true, cross_stamps, radio)');
+    const crossIdx = radio.indexOf('radio = cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)');
+    assert.ok(gateIdx >= 0 && dynamicIdx >= 0 && stampsDefIdx >= 0 && mapIdx >= 0 && crossIdx >= 0,
+      'wiring lines present');
+    assert.ok(gateIdx < dynamicIdx, 'gate opens before the self-sync wrap');
+    assert.ok(dynamicIdx < stampsDefIdx && stampsDefIdx < mapIdx,
+      'cross_stamps def precedes the metadata.map rewrite');
+    assert.ok(mapIdx < crossIdx, 'the rewrite feeds cross: cross reads the liq_cross_start/end_duration override keys off its input frames (the stdlib fade.in method-extension reason for the source.dynamic wrap still stands)');
+    const endifIdx = radio.indexOf('%endif', crossIdx);
+    assert.ok(crossIdx < endifIdx, 'gate closes after the cross wiring');
     // Exactly one cross wiring, and it is the gated one.
     assert.equal((radio.match(/radio = cross\(/g) || []).length, 1);
+  });
+
+  test('CROSS STAMPS: one stamp split into start/end keys, replay dedup, 30 s cap, raw key cleared', () => {
+    // rid/filename replay dedup: a replayed chunk reuses the memoized
+    // stamps and must not advance cross_prev_end.
+    assert.match(radio, /fname = m\["filename"\]/);
+    assert.match(radio, /if fname != "" and fname == cross_last_file\(\) and rid == cross_last_rid\(\) then\n\s*cross_last_stamps\(\)/);
+    // The one liq_cross_duration stamp becomes explicit start/end values
+    // (start = the PREVIOUS track's end); the raw key is cleared so cross
+    // never applies it a second time.
+    assert.match(radio, /\("liq_cross_start_duration", string\(cross_prev_end\(\)\)\)/);
+    assert.match(radio, /\("liq_cross_end_duration", string\(own\)\)/);
+    assert.match(radio, /\("liq_cross_duration", ""\)/);
+    // Unstamped/negative -> the buffer literal default; 30 s safety cap
+    // (the Node side stamps 8..12 s; past 30 is a corrupt index entry).
+    assert.match(radio, /own = float_of_string\(default=dj_transition_buffer, m\["liq_cross_duration"\]\)/);
+    assert.match(radio, /own = if own < 0\. then dj_transition_buffer else own end/);
+    assert.match(radio, /own = if own > 30\. then 30\. else own end/);
+    assert.match(radio, /cross_prev_end := own/);
+  });
+
+  test('strip_cross_stamps: both dj_transition returns wrapped, all three keys removed', () => {
+    assert.match(transitions, /def strip_cross_stamps\(s\) =\n\s*metadata\.map\(update=true, strip=true, fun \(_\) -> \[\n\s*\("liq_cross_duration", ""\),\n\s*\("liq_cross_start_duration", ""\),\n\s*\("liq_cross_end_duration", ""\)\n\s*\], s\)\nend/);
+    const hardCutIdx = transitions.indexOf('strip_cross_stamps((sequence([a.source, b.source]) : source))');
+    const blendIdx = transitions.indexOf('strip_cross_stamps(add(normalize=false, [a_source, b_source]))');
+    assert.ok(hardCutIdx >= 0 && blendIdx >= 0, 'the hard-cut return AND the blend return are both wrapped');
+    assert.ok(hardCutIdx < blendIdx);
+    // def + exactly two applications (comments are already stripped).
+    assert.equal((transitions.match(/strip_cross_stamps\(/g) || []).length, 3);
+  });
+
+  test('streams.liq: included after the primary MP3 output; committed default is comment-only', () => {
+    const outputIdx = radio.indexOf('output.icecast(%mp3(bitrate=config.icecast.bitrate)');
+    const includeIdx = radio.indexOf('%include "streams.liq"');
+    assert.ok(outputIdx >= 0, 'primary MP3 output present');
+    assert.ok(includeIdx > outputIdx, 'the streams.liq include sits after the primary output (extra mounts + archive tap the final source)');
+    const streamsRaw = fs.readFileSync(path.join(repoRoot(), 'liquidsoap', 'streams.liq'), 'utf8');
+    const codeLines = streamsRaw.split('\n').filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+    assert.equal(codeLines.length, 0, 'committed default must be comment-only: the all-off no-op that the boot-time writer regenerates from config.json');
   });
 
   test('callback migrations: method forms on 2.4+, old forms preserved in %else', () => {
@@ -145,10 +197,11 @@ describe('dj_transitions.liq effects', () => {
     assert.equal(codeLines[codeLines.length - 1].trim(), '%endif');
   });
 
-  test('buffer literal + honest sizing from what cross actually buffered', () => {
+  test('buffer literal + honest sizing; the END STAMP is the lengthless-side fallback', () => {
     assert.match(transitions, /dj_transition_buffer = 3\.5/);
     assert.match(transitions, /buffered = min\(source\.remaining\(a\.source\), source\.remaining\(b\.source\)\)/);
-    assert.match(transitions, /d = if buffered > 0\. and buffered < 600\. then buffered else dj_transition_buffer end/);
+    assert.match(transitions, /stamp = float_of_string\(default=dj_transition_buffer, a\.metadata\["liq_cross_end_duration"\]\)/);
+    assert.match(transitions, /d = if buffered > 0\. and buffered < 600\. then buffered else stamp end/);
   });
 
   test('speech and jingle seams stay HARD CUTS (source_tag dispatch)', () => {
@@ -156,7 +209,7 @@ describe('dj_transitions.liq effects', () => {
     assert.match(transitions, /speech_in = b\.metadata\["source_tag"\] == "speech"/);
     assert.match(transitions, /jingle_out = a\.metadata\["source_tag"\] == "jingle"/);
     assert.match(transitions, /jingle_in = b\.metadata\["source_tag"\] == "jingle"/);
-    assert.match(transitions, /if speech_out or speech_in or jingle_out or jingle_in then\n\s*\(sequence\(\[a\.source, b\.source\]\) : source\)/);
+    assert.match(transitions, /if speech_out or speech_in or jingle_out or jingle_in then\n\s*strip_cross_stamps\(\(sequence\(\[a\.source, b\.source\]\) : source\)\)/);
   });
 
   test('arming precedence: washout > dissolve > sweep, flags from the right side', () => {

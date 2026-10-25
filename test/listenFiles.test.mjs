@@ -18,6 +18,8 @@ setupTestConfig('listen-files', {});
 const { m3uBody, plsBody, resolveStreamUrl, registerListenFiles } = await import(
   '../src/server/listenFiles.js'
 );
+const { streamEntries } = await import('../src/server/streamUrls.js');
+const { registerStreamRoute } = await import('../src/server/streamProxy.js');
 const { peakListeners } = await import('../src/analytics/listenerImpact.js');
 const { registerStaticRoutes } = await import('../src/server/staticFiles.js');
 const { registerApiRoutes } = await import('../src/server/api.js');
@@ -58,6 +60,40 @@ describe('listen files (m3u/pls)', () => {
     assert.equal(pls.statusCode, 200);
     assert.match(pls.headers['content-type'], /audio\/x-scpls/);
     assert.match(pls.body, /^\[playlist\]/);
+    await fastify.close();
+  });
+});
+
+describe('optional mounts off: backwards compat is a contract', () => {
+  test('m3u body is BYTE-IDENTICAL to the pre-mounts single-entry output', () => {
+    // No suffix, no second entry -- the exact bytes every pinned player and
+    // regression test has seen since the beginning (fixture: no opus/flac
+    // blocks in config.json).
+    assert.equal(m3uBody(), '#EXTM3U\n#EXTINF:-1,Test Station\nhttp://localhost:3999/stream\n');
+  });
+
+  test('pls body is BYTE-IDENTICAL to the pre-mounts single-entry output', () => {
+    assert.equal(
+      plsBody(),
+      '[playlist]\nNumberOfEntries=1\nFile1=http://localhost:3999/stream\n' +
+        'Title1=Test Station\nLength1=-1\nVersion=2\n'
+    );
+  });
+
+  test('streamEntries lists exactly the one mp3 entry', () => {
+    assert.deepEqual(streamEntries(), [
+      { url: 'http://localhost:3999/stream', format: 'mp3', bitrate: 128 },
+    ]);
+  });
+
+  test('disabled mounts produce NO sibling routes (404, not an upstream 502)', async () => {
+    const fastify = Fastify({ logger: false });
+    registerStreamRoute(fastify);
+    // /stream itself is always registered -> dead upstream 8001 answers 502.
+    assert.equal((await fastify.inject({ method: 'GET', url: '/stream' })).statusCode, 502);
+    // The siblings are NOT registered: absent route, plain 404.
+    assert.equal((await fastify.inject({ method: 'GET', url: '/stream.opus' })).statusCode, 404);
+    assert.equal((await fastify.inject({ method: 'GET', url: '/stream.flac' })).statusCode, 404);
     await fastify.close();
   });
 });
