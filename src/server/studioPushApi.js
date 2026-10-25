@@ -12,6 +12,11 @@
 // Testni gumb poslja po ISTEM sendPushTo kot dispatch tick (sifriranje +
 // VAPID + transport ena resnica), zato kar pade tukaj, bi padlo tudi ob
 // zaciku oddaje. Obrezovanje mrlih narocnin poteka tudi tukaj.
+//
+// POTI SPODAJ SO BREZ PREDPONE /studio: modul se registrira ZNOTRAJ vtičnika
+// s predpono (index.js: { prefix: '/studio' }), lastna predpona pa bi pomenila
+// dvojno /studio/studio/api/push = 404 v produkciji (napaka pred Valom 17-b;
+// enaka kot studioPodcastApi.js, kjer je poklicala front-end plošča).
 import { config } from '../config/index.js';
 import { loadSubscriptions, removeManySubscriptions } from '../push/subscriptions.js';
 import { loadOrCreateVapidKeys } from '../push/vapid.js';
@@ -25,7 +30,7 @@ function pushEnabled() {
 }
 
 export function registerStudioPushRoutes(fastify) {
-  fastify.get('/studio/api/push', () => {
+  fastify.get('/api/push', () => {
     const subscribers = loadSubscriptions();
     const keys = loadOrCreateVapidKeys();
     // Zadnji poslani kljuc iz ledzerja ("2026-10-25@20:00:00@rock-vecer") je
@@ -48,7 +53,7 @@ export function registerStudioPushRoutes(fastify) {
     };
   });
 
-  fastify.post('/studio/api/push/test', async (request, reply) => {
+  fastify.post('/api/push/test', async (request, reply) => {
     if (!pushEnabled()) {
       return reply.code(503).send({ error: 'Push obvestila so izklopljena (config.push.enabled = false) -- najprej jih vklopi.' });
     }

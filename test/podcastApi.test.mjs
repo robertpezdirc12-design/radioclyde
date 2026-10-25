@@ -14,11 +14,15 @@ import { setupTestConfig } from './fixtures.mjs';
 setupTestConfig('podcast-api', {
   broadcast: { publicStreamUrl: 'https://radio.example.com/live', tuneIn: null, discordWebhook: null },
   web: { port: 3999, publicPaths: [] },
+  // Studio uporabnik za polno montažo vtičnika /studio (blok 6) -- preostanek
+  // datoteke ga ne rabi, dodatna tipka pa ničesar ne pokvari.
+  studio: { users: [{ username: 'studio', password: 'podkast-geslo' }] },
 });
 
 const { buildPodcastChannelFeed, itunesDurationSeconds } = await import('../src/auto/podcast.js');
 const { scanPodcastEpisodes, parseRange, safeAudioPath, publicBaseUrl, registerPodcastRoutes } = await import('../src/server/podcastApi.js');
 const { registerStudioPodcastRoutes } = await import('../src/server/studioPodcastApi.js');
+const { registerStudioRoutes } = await import('../src/server/studioAuth.js');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'markec-podkast-'));
@@ -263,9 +267,14 @@ describe('podcast rute', () => {
 // 5. Studio gumb
 // ---------------------------------------------------------------------------
 describe('studio podcast ruta', () => {
+  // Produkcjska oblika registracije: modul znotraj vtičnika s predpono
+  // /studio (kot v index.js) -- poti v modulu so BREZ predpone, testni URL
+  // pa zato ostane /studio/api/podcast, kot ga kliče front-end kartica.
   function app({ produce, scan, podcastsDir }) {
     const fastify = Fastify({ logger: false });
-    registerStudioPodcastRoutes(fastify, { produce, scan, podcastsDir });
+    fastify.register(async (instance) => {
+      registerStudioPodcastRoutes(instance, { produce, scan, podcastsDir });
+    }, { prefix: '/studio' });
     return fastify;
   }
   const today = new Date().toISOString().slice(0, 10); // test config je UTC
@@ -354,6 +363,41 @@ describe('studio podcast ruta', () => {
     const res = await fastify.inject({ method: 'POST', url: '/studio/api/podcast' });
     assert.equal(res.statusCode, 500);
     assert.equal(res.json().error, 'Izdelava podkasta ni uspela: V knjižnici ni skladb z žanrom "rock".');
+    await fastify.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Produkcija: polna montaža vtičnika /studio (oblika iz index.js)
+// ---------------------------------------------------------------------------
+describe('produkcija: polna montaža /studio vtičnika', () => {
+  const AUTH = { authorization: `Basic ${Buffer.from('studio:podkast-geslo').toString('base64')}` };
+
+  async function prodApp() {
+    const fastify = Fastify({ logger: false });
+    await fastify.register(registerStudioRoutes, { prefix: '/studio' });
+    return fastify;
+  }
+
+  test('GET /studio/api/podcast (pogodba front-enda kartice): 401 brez poverilnic, 200 z njimi', async () => {
+    const fastify = await prodApp();
+    const noAuth = await fastify.inject({ method: 'GET', url: '/studio/api/podcast' });
+    assert.equal(noAuth.statusCode, 401);
+    assert.equal(noAuth.headers['www-authenticate'], 'Basic realm="radioclyde-studio"');
+
+    const res = await fastify.inject({ method: 'GET', url: '/studio/api/podcast', headers: AUTH });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.running, false);
+    assert.equal(body.lastEpisode, null);
+    assert.deepEqual(body.episodes, []);
+    await fastify.close();
+  });
+
+  test('dvojna predpona /studio/studio/api/podcast NE obstaja (regresijski pin Vala 17-b)', async () => {
+    const fastify = await prodApp();
+    const doubled = await fastify.inject({ method: 'GET', url: '/studio/studio/api/podcast', headers: AUTH });
+    assert.equal(doubled.statusCode, 404);
     await fastify.close();
   });
 });

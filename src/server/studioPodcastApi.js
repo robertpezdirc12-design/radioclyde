@@ -12,6 +12,12 @@
 //                             Piper + ffmpeg trajata desetine sekund -- odgovor
 //                             je sinkron, zato sočasni klik dobi 409, ne dvema
 //                             epizodama.
+//
+// POTI SPODAJ SO BREZ PREDPONE /studio: modul se registrira ZNOTRAJ vtičnika
+// s predpono (index.js: fastify.register(registerStudioRoutes, { prefix: '/studio' })),
+// zato bi lastna predpona pomenila dvojno /studio/studio/api/podcast = 404 v
+// produkciji -- natanko napaka, popravljenja v Valu 17-b (kartica Podkast je
+// dobivala 404; testi, ki modul montirajo golo, je niso videli).
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { scanPodcastEpisodes } from './podcastApi.js';
@@ -34,7 +40,7 @@ export function registerStudioPodcastRoutes(fastify, { produce, podcastsDir = pa
     });
   });
 
-  fastify.get('/studio/api/podcast', () => {
+  fastify.get('/api/podcast', () => {
     const episodes = scan(podcastsDir);
     return {
       running,
@@ -43,7 +49,7 @@ export function registerStudioPodcastRoutes(fastify, { produce, podcastsDir = pa
     };
   });
 
-  fastify.post('/studio/api/podcast', async (request, reply) => {
+  fastify.post('/api/podcast', async (request, reply) => {
     if (running) {
       return reply.code(409).send({ error: 'Izdelava podkasta že teče -- počakaj, da se konča (desetine sekund zvoka).' });
     }

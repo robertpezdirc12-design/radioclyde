@@ -14,6 +14,8 @@ import { setupTestConfig } from './fixtures.mjs';
 
 setupTestConfig('push', {
   web: { port: 3998, publicPaths: [] },
+  // Studio uporabnik za polno montažo vtičnika /studio (blok 8).
+  studio: { users: [{ username: 'studio', password: 'push-geslo' }] },
 });
 
 const {
@@ -45,6 +47,7 @@ const {
 } = await import('../src/push/dispatch.js');
 const { registerPushRoutes } = await import('../src/server/pushApi.js');
 const { registerStudioPushRoutes } = await import('../src/server/studioPushApi.js');
+const { registerStudioRoutes } = await import('../src/server/studioAuth.js');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'markec-push-'));
@@ -483,9 +486,11 @@ describe('javne push rute /api/push/*', () => {
 });
 
 describe('studio push rute', () => {
+  // Produkcjska oblika registracije: modul znotraj vtičnika s predpono
+  // /studio (kot v index.js) -- URL-ji testov ostanejo /studio/api/push*.
   async function app() {
     const fastify = Fastify({ logger: false });
-    registerStudioPushRoutes(fastify);
+    fastify.register(registerStudioPushRoutes, { prefix: '/studio' });
     return fastify;
   }
 
@@ -551,5 +556,34 @@ describe('sent ledger', () => {
     const keys = loadSentKeysSet({ filePath: file });
     assert.deepEqual([...keys].sort(), ['a@b@c', 'd@e@f']);
     assert.ok(sentLedgerPath().includes(path.join('push', 'sent.jsonl')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Produkcija: polna montaža vtičnika /studio (oblika iz index.js)
+// ---------------------------------------------------------------------------
+describe('produkcija: polna montaža /studio vtičnika', () => {
+  const AUTH = { authorization: `Basic ${Buffer.from('studio:push-geslo').toString('base64')}` };
+
+  async function prodApp() {
+    const fastify = Fastify({ logger: false });
+    await fastify.register(registerStudioRoutes, { prefix: '/studio' });
+    return fastify;
+  }
+
+  test('GET /studio/api/push: 401 brez poverilnic, 200 z njimi, dvojna predpona = 404', async () => {
+    resetPushState();
+    const fastify = await prodApp();
+    const noAuth = await fastify.inject({ method: 'GET', url: '/studio/api/push' });
+    assert.equal(noAuth.statusCode, 401);
+    assert.equal(noAuth.headers['www-authenticate'], 'Basic realm="radioclyde-studio"');
+
+    const res = await fastify.inject({ method: 'GET', url: '/studio/api/push', headers: AUTH });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().configured, true);
+
+    const doubled = await fastify.inject({ method: 'GET', url: '/studio/studio/api/push', headers: AUTH });
+    assert.equal(doubled.statusCode, 404, 'dvojna predpona = neobstoječa pot (regresijski pin)');
+    await fastify.close();
   });
 });
