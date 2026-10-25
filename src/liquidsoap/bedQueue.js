@@ -28,30 +28,102 @@
 // requestQueue.js does: a bed is station speech (weather, ID, promo), never
 // a music track, so registering it would only teach scrobbleTrack.js to
 // scrobble a spoken clip.
+//
+// Tih uvod (lead-in, SUB/WAVE radio.liq:1722-1746): pred vsako posteljo se
+// v vrsto najprej potisne 0,8 s posebej umerjenega rjavega šuma, da se
+// duker povsem zgosti ŠE PRED prvo besedo (napad ~20 ms naredi svoje v
+// prvih ~60 ms, a uvod pokriva celotno rampanje + izravnavo rms.smooth).
+// DEVIACIJA od subwave: njihov smooth_add duha na PRIPRAVLJENOST vira, zato
+// jim zadošča čista tišina; naš duker pa duha na IZMERJENO glasnost
+// (radio.liq duck_update: level >= 0.02 duha, level < 0.008 POPUŠČA), torej
+// bi čisto tihov uvod program celo ODdugal. Zato je uvod rjavi šum,
+// umerjen na RMS ~0.03 (-30,3 dBFS, izmerjeno na tem stroju): nad pragom
+// duhanja 0,02 z rezervo, a spektralno v nizkih frekvencah in ~31 dB pod
+// mešanico -- pod zigovanim programom nezaslišen. Konstanti sta subwaveovi
+// dobesedno (0,8 s); amplitudo je treba preumeriti SAMO ob spremembi pragov
+// dukerja v radio.liq (0,02 / 0,008).
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { sendCommand } from './telnetClient.js';
+
+const execFileAsync = promisify(execFile);
 
 const log = createLogger('station');
 
 const BEDS_SOURCE_ID = 'beds'; // must match radio.liq's request.queue(id=...)
 
+const LEAD_IN_SECONDS = 0.8; // subwave leadin.wav duration, verbatim
+const LEAD_IN_AMPLITUDE = 0.21; // measured: RMS -30.3 dBFS, peak -18.6 dBFS, DC 0.002
+
+// Zgenerira (enkrat, na disku se cachira) uvodni posnetek v
+// <dataDir>/beds-leadin.wav. Vrne absolutno pot ali null ob napaki -- null
+// pomeni POŠTEN odered: postelja gre v vrsto brez uvoda, duker pa naredi
+// svojih prvih ~60 ms napada čez prvo besedo (današnje vedenje). runner je
+// šiv za teste.
+export async function ensureBedsLeadIn({ runner = execFileAsync } = {}) {
+  const leadInPath = path.join(config.dataDir, 'beds-leadin.wav');
+  try {
+    const st = fs.statSync(leadInPath);
+    if (st.isFile() && st.size > 1000) return leadInPath; // ~141 kB za 0,8 s stereo 44,1 kHz s16
+  } catch {
+    // še ni ga -- zgeneriramo spodaj
+  }
+  try {
+    fs.mkdirSync(config.dataDir, { recursive: true });
+    await runner('ffmpeg', [
+      '-y', '-v', 'error',
+      '-f', 'lavfi', '-i',
+      `anoisesrc=color=brown:amplitude=${LEAD_IN_AMPLITUDE}:duration=${LEAD_IN_SECONDS}:sample_rate=44100`,
+      '-ac', '2', '-ar', '44100',
+      leadInPath,
+    ]);
+    return leadInPath;
+  } catch (err) {
+    log(`bedQueue: uvodni posnetek se ni zgeneriral (${err?.message ?? err}) -- postelja gre brez njega`);
+    return null;
+  }
+}
+
 // Queues `filePath` (absolute, or resolved against the process working
 // directory -- Liquidsoap resolves pushed URIs against ITS own cwd, so the
 // absolute form is the only deterministic one to send) as a bed. Returns
-// { ok:false, error } with Liquidsoap's own answer on any refusal.
-export async function pushBedFile(filePath) {
+// { ok:false, error } with Liquidsoap's own answer on any refusal. Pred
+// posteljo potisne tih uvod (glej ensureBedsLeadIn) razen kadar je izklopljen
+// ({ leadIn:false }) ali se ne zgenerira -- odpoved uvoda NIKOLI ne ustavi
+// postelje same. Zavrnitev postelje prekine verigo: takrat uvoda (ki je že
+// v vrsti) operater odstrani z beds.skip, spodaj pa pošteno poročamo
+// { leadIn } o tem, kaj je pristalo v vrsti.
+export async function pushBedFile(filePath, { leadIn = true, runner = execFileAsync } = {}) {
   const localPath = path.resolve(String(filePath ?? ''));
   if (!fs.existsSync(localPath)) {
     return { ok: false, error: `Datoteka za posteljo ne obstaja: ${localPath}` };
+  }
+  let leadInPushed = false;
+  if (leadIn) {
+    const leadInPath = await ensureBedsLeadIn({ runner });
+    if (leadInPath) {
+      try {
+        const leadInResponse = await sendCommand(`${BEDS_SOURCE_ID}.push ${leadInPath}`);
+        if (/^-?\d+$/.test(leadInResponse.trim())) {
+          leadInPushed = true;
+        } else {
+          log(`bedQueue: uvod zavrnjen ("${leadInResponse.trim() || '(prazen odgovor)'}") -- postelja gre brez njega`);
+        }
+      } catch (err) {
+        log(`bedQueue: uvod ni uspel (${err?.message ?? err}) -- postelja gre brez njega`);
+      }
+    }
   }
   const response = await sendCommand(`${BEDS_SOURCE_ID}.push ${localPath}`);
   if (!/^-?\d+$/.test(response.trim())) {
     return { ok: false, error: `Liquidsoap ni sprejel postelje: "${response.trim() || '(prazen odgovor)'}"` };
   }
-  log(`bedQueue: pushed bed ${localPath} -> request #${response.trim()}`);
-  return { ok: true, requestId: response.trim(), localPath };
+  log(`bedQueue: pushed bed ${localPath} -> request #${response.trim()}${leadInPushed ? ' (s tihim uvodom)' : ''}`);
+  return { ok: true, requestId: response.trim(), localPath, leadIn: leadInPushed };
 }
 
 // Verified v2.2.4 request.liq: `<id>.queue` lists the ids of the currently

@@ -429,9 +429,11 @@ nespremenjen.
 
 Predvečerna diagnostika (`npm run doctor`, P4 #31, `src/cli/doctorCli.js`) je
 EN ukaz, ki operaterju pred terminirano uro pove, ali bo oddaja preživela:
-konfiguracija, podatkovna mapa, govor, knjižnica, ledger, korpusi in (z
-`--net`) dostopnost virov — z istimi pogodbami kot oddaja sama (skip-not-fail;
-mrtvi vir je OPOZORILO, ne napaka; `--json` za strojni izpis). Ta razdelek
+konfiguracija, podatkovna mapa, govor, knjižnica, ledger, korpusi, (z
+`--net`) dostopnost virov IN šest SUB/WAVE preverjanj (oddajnik, telnet,
+predvajalne liste, shramba, gostitelj, dnevnik napak — glej razdelek P4 #31)
+— z istimi pogodbami kot oddaja sama (skip-not-fail; mrtvi vir je OPOZORILO,
+ne napaka; `--json` za strojni izpis). Ta razdelek
 pokriva dopolnilo **(c)**: dogovorjeni »cron vzorec« — doctor naj bi tekel
 **tik pred vsako terminirano uro**, cron pa ne zna brati station.json.
 
@@ -646,8 +648,11 @@ sistem je zgrajen za vidna obvestila, ne tihe.
 - `npm run doctor [-- --net] [-- --json]`
   — P4 #31: predvečerna diagnostika — EN ukaz pred terminirano uro, ki
   pove, ali bo oddaja preživela: konfiguracija, podatkovna mapa, govor,
-  knjižnica, ledger, korpusi, (z `--net`) viri. Mrtvi vir je OPOZORILO,
-  ne napaka — točno tako kot v programu (podrobno v razdelku o P4 #31).
+  knjižnica, ledger, korpusi, (z `--net`) viri in šest SUB/WAVE preverjanj
+  (icecast, liquidsoap telnet, predvajalne liste, shramba, gostitelj,
+  dnevnik napak — opozorila nosijo namig in popravi iz zaprtega nabora
+  FIXES). Mrtvi vir je OPOZORILO, ne napaka — točno tako kot v programu
+  (podrobno v razdelku o P4 #31).
 
 - `npm run preview-auto-show -- <ime-oddaje> [--duration=<minute>] [--offline]`
   — celoten suhi preizkus producenta: razčleni brief, zgradi vrsto skladb z
@@ -693,7 +698,7 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 | Licenčna skladnost (as-run logi) | izvajalno poročilo iz realnega
   predvajalnega ledgerja (P4 #27) |
 | Predogled oddaj | imagingPlaylists, preview-auto-show |
-| Predvečerna diagnostika | `npm run doctor` — 7 preverjanj (config, mapa, govor, knjižnica, ledger, korpusi, viri); mrtvi vir je opozorilo, nikoli napaka (P4 #31) |
+| Predvečerna diagnostika | `npm run doctor` — 13 preverjanj (config, mapa, govor, knjižnica, ledger, korpusi, viri + SUB/WAVE: icecast, telnet, liste, shramba, gostitelj, napake); mrtvi vir je opozorilo, nikoli napaka (P4 #31) |
 
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
 teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
@@ -871,9 +876,12 @@ Odpornostni lok P4 #28–#30 je naredil program, ki preživi mrtev
 usmerjevalnik — ampak do #31 ni obstajal način, da to ugotoviš vnaprej,
 brez čakanja prve režije. `npm run doctor` je en ukaz, ki operaterju
 pred terminirano uro pove, ali bo oddaja preživela in kaj je na
-zdravilih. Sedem preverjanj v stalnem vrstnem redu: konfiguracija,
-podatkovna mapa, govor (TTS), glasbena knjižnica, predvajalni ledger,
-korpusi in (z `--net`) dostopnost virov.
+zdravilih. Trinajst preverjanj v stalnem (za testi zamrznjenem) vrstnem
+redu: konfiguracija, podatkovna mapa, govor (TTS), glasbena knjižnica,
+predvajalni ledger, korpusi, (z `--net`) dostopnost virov ter šest
+preverjanj, ukradenih iz SUB/WAVE (4-c): icecast (oddajnik), liquidsoap
+(telnet), predvajalne liste, shramba (arhiv/disk), gostitelj (CPU/spomin)
+in dnevnik napak (24 h).
 
 Dogovori, ki jih diagnostika varuje — enaki kot program sama:
 
@@ -906,16 +914,79 @@ vrstice so opozorilo (izgubljeni podatki za licenčno poročilo), tako
 kot ledger brez vnosa starejšega od 7 dni (morda ne piše
 `scrobbleTrack`).
 
+### Nadgradnja iz SUB/WAVE (4-c): Finding model + šest novih preverjanj
+
+SUB/WAVE-ov doktorjev poroča najdbe (Finding): `{label, status, detail,
+hint, fix}` — `hint` pove, KJE poglej, `fix` (`{id, label}` iz ZAPRTEGA
+nabora `FIXES`) pa KAJ stori. To strukturo smo ukradli brez AI: opozorila
+novih preverjanj jo nosijo (izpiše se `    namig: …` / `    popravi: …`
+pod vrstico, `--json` pa jo nespremenjeno nese naprej), vsi obstoječi
+rezultati pa ostanejo bajtno enaki. Nabor popravkov je zaprt prav zato,
+ker se ga da pripeti na gumb: `check-icecast`, `restart-liquidsoap`,
+`regenerate-filler`, `prune-archives`, `free-disk`, `inspect-logs`
+(gostitelj NIMA popravka — pritisk na škatlo se ne reši z enim klikom in
+raje je to pošteno priznati kot opozorilo brez ukrepa).
+
+Šest novih preverjanj, po vrstnem redu za viri:
+
+1. **icecast (oddajnik):** sonda na
+   `http://<sourceHost>:<port>/status-json.xsl` (ista izpeljava URL kot
+   štetje poslušalcev). Vsak HTTP odgovor (tudi 4xx/5xx) = OK — merimo
+   dostopnost, ne pravilnost, enako kot pri virih. Padec = »poslušalci
+   trenutno ne slišijo ničesar … program igra dalje« → opozorilo +
+   `check-icecast`. Manjkajoč `icecast` blok v configu → pošten preskok.
+   Sonda NE gre pod `--net`: oddajnik je LAN storitev postaje same.
+2. **liquidsoap (telnet):** ukaz `uptime` (Liquidsoapov vgrajen strežniški
+   ukaz, ne radijski) čez pravi telnet odjemalec. Živ odgovor → OK z
+   izrezkom odgovora; `ERROR:`/prazen/zavržen → opozorilo +
+   `restart-liquidsoap`. Odjemalec se uvaža dinamično ŠELE, ko je config
+   prebrano (telnetClient potegne config na vrhu — zlomljen config.json
+   ne sme seseti diagnostike).
+3. **predvajalne liste:** štetje ne-praznih, ne-komentar vrstic
+   `now_playing.m3u` in `filler.m3u`. Obe prazni/manjkajoči = »program bi
+   padel na nujni seznam« — emergency.m3u je ZADNJA rezerva, zato
+   opozorilo, nikoli napaka + `regenerate-filler` (namig kaže na
+   `npm run update-now-playing` / `generate-filler-playlist`).
+4. **shramba (arhiv/disk):** (i) hoja po urnem arhivu z ISTIMI pravili kot
+   studio Arhiv (dan `YYYY-MM-DD`, ura `HH-00.mp3`): čez 20 GB je
+   zadrževanje milo napihnjeno → `prune-archives`; arhiv izklopljen
+   (`archive.enabled !== true`, strogo kot streamsLiqWriter) → del (i) je
+   v detailu pošteno preskočen. (ii) `fs.statfs` na dataDir (prosto =
+   `bavail × bsize`, kar je na voljo procesu): pod 2 GB → `free-disk`;
+   kjer statfs ni na voljo ali pade, podatek o prostoru preprosto IZPUSTIMO
+   — ni lažnega števila.
+5. **gostitelj (CPU/spomin):** `/proc/loadavg` (load1) in
+   `/proc/meminfo` (MemAvailable/MemTotal). load1 nad 2×jedri = produkcija
+   (TTS, ffmpeg) lahko zamudi; pomnilnik pod 10 % = sinteza začenja
+   odpovedovati. Brez popravka v FIXES. `/proc` neberljiv (gostitelj ni
+   Linux) → preskok z opombo.
+6. **dnevnik napak (24 h):** vrstice z `ERROR` (dobesedno) v AKTIVNIH
+   `.log` datotekah — rotirana `.log.1` se ne bere, da ena napaka ne šteje
+   dvakrat — katerih `[ISO]` žig pade v zadnjih 24 h. Čez 20 = »nekaj se
+   vrti v zanki« → `inspect-logs`; 1–20 = OK s poštenim štetjem; vrstice z
+   nerazumljivim žigom se ne štejejo (konzervativno).
+
+Vseh šest teče pod isto varovalko `safe()` in istim pokrovom configa:
+zlomljen config.json = »preskočeno -- config ni berljiv« pri vseh šestih,
+ne lažna sonda. Izpeljava poti/nizov iz configa (`nowPlayingPath`,
+`fillerPath`, `archiveRoot`, `logsDir`, `icecastUrl`, `telnetPort`,
+`archiveEnabled`) živi v CLI-ju — doctor.js ostane brez configa (tudi
+branje /proc, telnet, statfs in fetch so injicirani šivi, kar je edini
+način, da izpis ostane determinističen).
+
 - **Odpornost doctorja samega:** CLI dinamično uvaža config v
   try/catch — zlomljen config.json je NAPAKA v izpisu, ne crash pred
   prvo vrstico. Slovensko števanje (1 vnos, 2 vnosa, 5 vnosov) skrbi
   `slPlural`.
 - **Deterministika:** isti inputi → bajtno isti izpis (fiksni vrstni
-  red, statična razlaga; test potrjuje z dvema tekomema). Testi: 454 →
-  484 (`test/doctor.test.mjs`, 30 — vseh sedem preverjanj, obeh vej
-  config/ne-config, varovalka poštenosti za vire, determinizem,
-  exit-kodna preslikava). Demo: `node scripts/demo_doctor.mjs` (zdrav +
-  pokvarjen peskovnik + zlomljen config).
+  red, statična razlaga; test potrjuje z dvema tekomema). Testi: 712 →
+  744 celotne suite (`test/doctor.test.mjs` 47 → 79 — vseh trinajst
+  preverjanj, obeh vej config/ne-config, varovalka poštenosti za vire,
+  Finding model (FIXES zaprt nabor, hint/fix samo na opozorilih), meje
+  20 GB / 2 GB / 2×jedri / 10 % na BAJT točno, `.log.1` izpuščen,
+  determinizem, exit-kodna preslikava, cron vzorec). Demo:
+  `node scripts/demo_doctor.mjs` (zdrav + pokvarjen peskovnik + zlomljen
+  config).
 
 ## Zapisi, ki ostajajo odprti (PoC)
 

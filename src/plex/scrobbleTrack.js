@@ -19,6 +19,7 @@ import { recordFillerPlays } from '../scheduler/fillerRotation.js';
 import { occurrenceDir } from '../scheduler/scheduleUtil.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { pushNowPlaying } from '../broadcast/nowPlayingPush.js';
+import { submitScrobbles } from '../broadcast/scrobble.js';
 
 const log = createLogger('station');
 const filePath = process.argv[2];
@@ -54,11 +55,44 @@ function recordDjTalking(persona) {
   fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({ dj: persona, startedAt: toLocalISOString() }));
 }
 
+// The track that was on air BEFORE this segment started -- the OUTGOING half
+// of the external-scrobble transition (broadcast/scrobble.js, SUB/WAVE's
+// model: now-playing on the incoming, submit on the outgoing). Must be read
+// from now_playing_track.json before anything in this run overwrites it
+// (recordDjTalking below for speech, recordNowPlaying for music), which is
+// why the caller snapshots it at the very top of main(). Only music entries
+// count: a {dj:...} entry means the previous segment was speech, and speech
+// is not a scrobblable play. Tolerant by design -- a missing or torn file
+// (first track after boot) just means "no outgoing".
+function readOutgoingTrack() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(config.paths.nowPlayingTrackPath, 'utf8'));
+    if (parsed && typeof parsed === 'object' && parsed.artist && parsed.title && parsed.playedAt) {
+      return {
+        artist: parsed.artist,
+        title: parsed.title,
+        album: parsed.album ?? null,
+        durationMs: parsed.durationMs,
+        playedAt: parsed.playedAt,
+      };
+    }
+  } catch {
+    // Missing/unreadable/corrupt -- nothing was on air as far as we know.
+  }
+  return null;
+}
+
 async function main() {
   if (!filePath) {
     log('Called with no file path argument -- skipping.');
     return;
   }
+
+  // Snapshot the outgoing track BEFORE any write in this run overwrites
+  // now_playing_track.json (recordDjTalking/recordNowPlaying below) -- the
+  // external-scrobble block at the bottom of main() submits it together
+  // with this segment's incoming track.
+  const outgoing = readOutgoingTrack();
 
   // Fires on every segment (jingle, speech, track, filler), not just the
   // ones handled below -- confirmOccurrenceStart itself is a no-op past the
@@ -139,9 +173,14 @@ async function main() {
   // have no plex block at all (config.linux.json), and crashing here would
   // take out now-playing metadata + occurrence confirmation for every
   // segment, not just the Plex ping.
+  // Fetched once here for the Plex gate and reused verbatim by the
+  // external-scrobble block below, so Icecast is not asked twice per track.
+  // Stays undefined when this whole block is skipped (no Plex configured) or
+  // the fetch threw -- the scrobble block re-fetches tolerantly on its own.
+  let listenerCount;
   if (config.plex?.scrobbleEnabled !== false && config.plex?.baseUrl) {
     try {
-      const listenerCount = await getListenerCount();
+      listenerCount = await getListenerCount();
       if (listenerCount > 0) {
         await scrobbleTrack(ratingKey);
         log(`Scrobbled ratingKey ${ratingKey} ("${filePath}").`);
@@ -155,6 +194,51 @@ async function main() {
 
   const track = await getTrackByRatingKey(ratingKey);
   recordNowPlaying(track);
+
+  // External scrobbling -- Last.fm + ListenBrainz (broadcast/scrobble.js,
+  // docs/scrobbling.md), SUB/WAVE's transition model: now-playing goes out
+  // for the INCOMING track (this one), and the eligibility-gated SUBMIT for
+  // the OUTGOING track (snapshotted at the top of main(), before
+  // recordNowPlaying overwrote it) is stamped with the outgoing's playedAt --
+  // the moment it STARTED, which is exactly Last.fm's timestamp contract, so
+  // submitting at the NEXT track's start is correct, not late. Off by
+  // default (config.scrobble.*, every flag false), so this whole block is a
+  // no-op for existing installs. submitScrobbles never throws; the try/catch
+  // is the same belt-and-braces the Plex scrobble above uses, and like every
+  // await in this detached process it only paces our exit -- playout moved on
+  // the moment the segment started.
+  if (config.scrobble?.lastfm?.enabled || config.scrobble?.listenbrainz?.enabled) {
+    try {
+      if (listenerCount === undefined) {
+        try {
+          listenerCount = await getListenerCount();
+        } catch (err) {
+          // Unknown listener count -- submitScrobbles fails closed on it.
+          log(`Listener count unavailable for external scrobbling: ${err.message}`);
+        }
+      }
+      await submitScrobbles({
+        outgoing,
+        outgoingStartedAt: outgoing?.playedAt ?? null,
+        incoming: track
+          ? {
+              title: track.title,
+              artist: track.artist,
+              album: track.album ?? null,
+              durationSec: Number(track.durationMs) > 0 ? track.durationMs / 1000 : null,
+            }
+          : null,
+        lastfm: config.scrobble?.lastfm,
+        listenbrainz: config.scrobble?.listenbrainz,
+        listenerCount,
+        nowMs: Date.now(),
+        fetchImpl: fetch,
+        log,
+      });
+    } catch (err) {
+      log(`ERROR scrobbling external "${filePath}": ${err.stack || err.message}`);
+    }
+  }
 
   // External now-playing metadata (TuneIn AIR + Discord webhook) -- both are
   // config-gated no-ops by default and pushNowPlaying itself never throws

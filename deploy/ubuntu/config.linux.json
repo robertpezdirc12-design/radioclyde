@@ -89,6 +89,21 @@
     "discordWebhook": null,
     "publicStreamUrl": null
   },
+  "scrobble": {
+    "lastfm": {
+      "enabled": false,
+      "apiKey": "CHANGE_ME",
+      "apiSecret": "CHANGE_ME",
+      "sessionKey": "",
+      "username": "",
+      "password": ""
+    },
+    "listenbrainz": {
+      "enabled": false,
+      "userToken": "",
+      "baseUrl": ""
+    }
+  },
   "lyrics": {
     "enabled": true
   },

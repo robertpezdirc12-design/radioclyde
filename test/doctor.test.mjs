@@ -13,10 +13,22 @@
 //      (two runs byte-identical), broken config -> fail + skips + corpus OK,
 //   H. feeds: dead probe -> WARN, NIKOLI fail (the P4 #28-#30 contract, pinned);
 //      any HTTP answer (even 4xx) counts as reachable; skip without --net.
-// No test touches the network -- fetchImpl is always stubbed.
+// SUB/WAVE 4-c nadgradnja (Finding model + šest novih preverjanj):
+//   I. FIXES zaprt nabor {id,label} + CHECK_ORDER 13 vnosov (zamrznjeno),
+//   J. icecast: vsak HTTP odgovor -> ok, mrtva povezava -> warn + fix,
+//   K. liquidsoap: živ "uptime" -> ok z izrezkom, napaka/prazno/ERROR -> warn,
+//   L. m3u: štetje ne-komentar vrstic, obe prazni -> warn (nujni seznam),
+//   M. storage: arhiv 20 GB meja (NAD, ne NA), disk 2 GB meja, statfs izpust,
+//   N. host: load1/mem meje, /proc neberljiv -> preskok,
+//   O. errors: sveže/stare/nečasovne/.log.1 vrstice, 21+ -> warn,
+//   P. runDoctor sestava: šest preskokov ob zlomljenem configu, polna
+//      injekcija -> 13 rezultatov, hint/fix SAMO na opozorilih, determinizem.
+// No test touches the network -- fetchImpl is always stubbed; /proc, statfs
+// in telnet so injicirane fike; datoteke so pravi tmp peskovniki.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +37,8 @@ import {
   STATUS,
   CHECK_ORDER,
   CORPUS_FLOORS,
+  FIXES,
+  STORAGE_LIMITS,
   checkConfig,
   checkDataDir,
   checkTts,
@@ -32,6 +46,12 @@ import {
   checkLedger,
   checkCorpora,
   checkFeeds,
+  checkIcecast,
+  checkLiquidsoap,
+  checkM3u,
+  checkStorage,
+  checkHost,
+  checkErrors,
   orderResults,
   doctorExitCode,
   doctorVerdict,
@@ -363,6 +383,467 @@ describe('P4 #31 doctor -- feeds probes (the P4 #28-#30 honesty contract)', () =
     });
     assert.equal(report.exitCode, 0);
     assert.equal(report.results.find((r) => r.id === 'feeds').status, 'warn');
+  });
+});
+
+// ---- SUB/WAVE 4-c: Finding model (hint + fix) in šest novih preverjanj ----
+// Skupni fiki: brez omrežja, brez /proc, brez telneta, brez statfs -- vse,
+// kar bi lahko seglo po pravi škatli, je injicirano, da so izpisi
+// deterministični in da test teče tudi na mizi brez interneta.
+const GB = 1024 ** 3;
+
+// statfs fake, ki za vsako pot pove isti prostor (bavail*bsize == freeBytes)
+const fakeStatfs = (freeBytes) => async () => ({ bsize: 1, blocks: freeBytes * 2, bfree: freeBytes, bavail: freeBytes });
+
+// /proc fake: loadavg z load1 ter meminfo z MemTotal/MemAvailable v kB
+const fakeProc = ({ load1, memTotalKb, memAvailKb }) => async (file) => {
+  if (file === '/proc/loadavg') return `${load1} 0.10 0.05 1/100 12345\n`;
+  if (file === '/proc/meminfo') {
+    return `MemTotal:       ${memTotalKb} kB\nMemFree:        ${Math.floor(memTotalKb / 2)} kB\nMemAvailable:   ${memAvailKb} kB\n`;
+  }
+  throw new Error(`ENOENT: ${file}`);
+};
+
+describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
+  test('FIXES je ZAPRT nabor {id, label} z nepraznimi nizi in zamrznjenimi id-ji', () => {
+    assert.deepEqual(Object.keys(FIXES), [
+      'check-icecast', 'restart-liquidsoap', 'regenerate-filler', 'prune-archives', 'free-disk', 'inspect-logs',
+    ]);
+    for (const [id, fix] of Object.entries(FIXES)) {
+      assert.equal(fix.id, id, 'id se mora ujemati s ključem');
+      assert.equal(typeof fix.label, 'string');
+      assert.ok(fix.label.length > 0, `label za ${id} ne sme biti prazna`);
+      assert.deepEqual(Object.keys(fix).sort(), ['id', 'label']);
+    }
+  });
+
+  test('CHECK_ORDER ima 13 vnosov v zamrznjenem redu (starih 7 + novih 6 za viri)', () => {
+    assert.deepEqual(CHECK_ORDER.map((c) => c.id), [
+      'config', 'dataDir', 'tts', 'library', 'ledger', 'corpus', 'feeds',
+      'icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors',
+    ]);
+    for (const c of CHECK_ORDER) {
+      assert.equal(typeof c.label, 'string');
+      assert.ok(c.label.length > 0, `label za ${c.id} ne sme biti prazna`);
+    }
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- icecast (oddajnik)', () => {
+  test('vsak HTTP odgovor (tudi 500) -> ok; merimo dostopnost, ne pravilnost', async () => {
+    const r = await checkIcecast({
+      icecastUrl: 'http://localhost:8001/status-json.xsl',
+      fetchImpl: async () => ({ status: 500 }),
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /oddajnik odgovarja na http:\/\/localhost:8001\/status-json\.xsl/);
+    assert.match(r.detail, /merimo dostopnost, ne pravilnost/);
+    assert.ok(!('hint' in r) && !('fix' in r), 'ok brez namiga in popravka');
+  });
+
+  test('mrtva povezava -> warn "poslušalci trenutno ne slišijo ničesar", program igra dalje + fix', async () => {
+    const r = await checkIcecast({
+      icecastUrl: 'http://localhost:8001/status-json.xsl',
+      fetchImpl: async () => { throw new Error('fetch failed'); },
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /poslušalci trenutno ne slišijo ničesar/);
+    assert.match(r.detail, /program igra dalje/);
+    assert.equal(typeof r.hint, 'string');
+    assert.ok(r.hint.length > 0);
+    assert.deepEqual(r.fix, FIXES['check-icecast']);
+  });
+
+  test('brez config.icecast bloka -> preskok s pošteno razlago (brez sonde)', async () => {
+    const r = await checkIcecast({});
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /config\.icecast ni nastavljen/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- liquidsoap (telnet)', () => {
+  test('živ odgovor na "uptime" -> ok z izrezkom odgovora', async () => {
+    const r = await checkLiquidsoap({ sendCommandImpl: async () => '5432.5', telnetPort: 1234 });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /uptime/);
+    assert.match(r.detail, /5432\.5/);
+    assert.ok(!('fix' in r) && !('hint' in r));
+  });
+
+  test('zavržena povezava -> warn + fix restart-liquidsoap + namig', async () => {
+    const r = await checkLiquidsoap({
+      sendCommandImpl: async () => { throw new Error('connect ECONNREFUSED'); },
+      telnetPort: 1234,
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /ne odgovarja/);
+    assert.equal(typeof r.hint, 'string');
+    assert.ok(r.hint.length > 0);
+    assert.deepEqual(r.fix, FIXES['restart-liquidsoap']);
+  });
+
+  test('"ERROR:" odgovor in prazen odgovor -> warn (strežnik živi, miza pa ne)', async () => {
+    const err = await checkLiquidsoap({ sendCommandImpl: async () => 'ERROR: no such command', telnetPort: 1234 });
+    assert.equal(err.status, STATUS.WARN);
+    assert.deepEqual(err.fix, FIXES['restart-liquidsoap']);
+    const empty = await checkLiquidsoap({ sendCommandImpl: async () => '   \n', telnetPort: 1234 });
+    assert.equal(empty.status, STATUS.WARN);
+    assert.deepEqual(empty.fix, FIXES['restart-liquidsoap']);
+  });
+
+  test('brez telnet porta v configu / brez odjemalca -> preskok', async () => {
+    const noPort = await checkLiquidsoap({ sendCommandImpl: async () => 'x' });
+    assert.equal(noPort.status, STATUS.SKIP);
+    assert.match(noPort.detail, /telnetPort ni nastavljen/);
+    const noImpl = await checkLiquidsoap({ telnetPort: 1234 });
+    assert.equal(noImpl.status, STATUS.SKIP);
+    assert.match(noImpl.detail, /odjemalec ni podan/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- predvajalne liste (m3u)', () => {
+  test('obe listi napolnjeni -> ok s štetjem obeh (ne-prazne, ne-komentar vrstice)', async () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'now_playing.m3u'), '# trenutna oddaja\nskladba-1.mp3\n\nskladba-2.mp3\n');
+    fs.writeFileSync(path.join(dir, 'filler.m3u'), 'filler-1.mp3\nfiller-2.mp3\nfiller-3.mp3\n');
+    const r = await checkM3u({
+      nowPlayingPath: path.join(dir, 'now_playing.m3u'),
+      fillerPath: path.join(dir, 'filler.m3u'),
+      readFileImpl: fsp.readFile,
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /now_playing\.m3u: 2 vnosa/);
+    assert.match(r.detail, /filler\.m3u: 3 vnosa/);
+  });
+
+  test('samo ena obstaja -> ok, manjkajoča pošteno zapisana v detailu', async () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'now_playing.m3u'), 'samo-ta.mp3\n');
+    const r = await checkM3u({
+      nowPlayingPath: path.join(dir, 'now_playing.m3u'),
+      fillerPath: path.join(dir, 'filler.m3u'),
+      readFileImpl: fsp.readFile,
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /now_playing\.m3u: 1 vnos/);
+    assert.match(r.detail, /filler\.m3u: manjka/);
+  });
+
+  test('obe prazni/manjkajoči -> warn "program bi padel na nujni seznam" + fix + namig', async () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'now_playing.m3u'), '# samo komentarji\n\n');
+    const r = await checkM3u({
+      nowPlayingPath: path.join(dir, 'now_playing.m3u'),
+      fillerPath: path.join(dir, 'filler.m3u'),
+      readFileImpl: fsp.readFile,
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /program bi padel na nujni seznam/);
+    assert.equal(typeof r.hint, 'string');
+    assert.ok(r.hint.length > 0);
+    assert.deepEqual(r.fix, FIXES['regenerate-filler']);
+  });
+
+  test('brez poti ali brez bralnika -> preskok (injekcija je dolžnost CLI-ja/testov)', async () => {
+    assert.equal((await checkM3u({})).status, STATUS.SKIP);
+    const r = await checkM3u({ nowPlayingPath: 'a', fillerPath: 'b' });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /bralnik datotek ni podan/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- shramba (arhiv/disk)', () => {
+  test('majhen arhiv in dovolj prostora -> ok z obema številoma', async () => {
+    const dir = tmpDir();
+    const archiveRoot = path.join(dir, 'archive');
+    fs.mkdirSync(path.join(archiveRoot, '2026-10-24'), { recursive: true });
+    fs.writeFileSync(path.join(archiveRoot, '2026-10-24', '10-00.mp3'), '12345678'); // 8 B
+    fs.writeFileSync(path.join(archiveRoot, '2026-10-24', 'opombe.txt'), 'ne urna datoteka'); // ne šteje
+    fs.mkdirSync(path.join(archiveRoot, 'ni-datum'), { recursive: true }); // ne šteje
+    const r = await checkStorage({ archiveRoot, archiveEnabled: true, dataDir: dir, statfsImpl: fakeStatfs(50 * GB) });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /arhiv: 0\.0 GB čez 1 dan/);
+    assert.match(r.detail, /prosto na disku: 50\.0 GB/);
+    assert.ok(!('fix' in r));
+  });
+
+  test('arhiv čez 20 GB -> warn "arhiv presega 20 GB" + fix prune-archives; TOČNO 20 GB še NI prekoračeno', async () => {
+    const dir = tmpDir();
+    const archiveRoot = path.join(dir, 'archive');
+    fs.mkdirSync(path.join(archiveRoot, '2026-10-24'), { recursive: true });
+    const hourFile = path.join(archiveRoot, '2026-10-24', '10-00.mp3');
+    fs.writeFileSync(hourFile, 'x');
+    // redka (sparse) datoteka: velikost je točno meja + 1 bajt, na disku pa
+    // ne zavzame nič -- meja je NAD 20 GB, +1 bajt jo sproži ...
+    fs.truncateSync(hourFile, STORAGE_LIMITS.archiveWarnBytes + 1);
+    const over = await checkStorage({ archiveRoot, archiveEnabled: true, dataDir: dir, statfsImpl: fakeStatfs(50 * GB) });
+    assert.equal(over.status, STATUS.WARN);
+    assert.match(over.detail, /arhiv presega 20 GB/);
+    assert.match(over.detail, /zadrževanje je milo napihnjeno/);
+    assert.equal(typeof over.hint, 'string');
+    assert.ok(over.hint.length > 0);
+    assert.deepEqual(over.fix, FIXES['prune-archives']);
+    // ... točno 20 GB pa meje (še) ni prekoračilo
+    fs.truncateSync(hourFile, STORAGE_LIMITS.archiveWarnBytes);
+    const exact = await checkStorage({ archiveRoot, archiveEnabled: true, dataDir: dir, statfsImpl: fakeStatfs(50 * GB) });
+    assert.equal(exact.status, STATUS.OK);
+  });
+
+  test('prosto pod 2 GB -> warn + fix free-disk; TOČNO 2 GB še ni', async () => {
+    const dir = tmpDir(); // tmpDir() mapo že ustvari (mkdtemp) -- dataDir obstaja
+    const below = await checkStorage({ archiveEnabled: false, dataDir: dir, statfsImpl: fakeStatfs(STORAGE_LIMITS.diskFreeWarnBytes - 1) });
+    assert.equal(below.status, STATUS.WARN);
+    assert.match(below.detail, /prosto na disku je le/);
+    assert.deepEqual(below.fix, FIXES['free-disk']);
+    const exact = await checkStorage({ archiveEnabled: false, dataDir: dir, statfsImpl: fakeStatfs(STORAGE_LIMITS.diskFreeWarnBytes) });
+    assert.equal(exact.status, STATUS.OK);
+  });
+
+  test('arhiv izklopljen -> del (i) pošteno preskočen v detailu (ne izmišljen)', async () => {
+    const dir = tmpDir();
+    const r = await checkStorage({ archiveRoot: path.join(dir, 'arhiv'), archiveEnabled: false, dataDir: dir, statfsImpl: fakeStatfs(10 * GB) });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /arhiv izklopljen/);
+    assert.match(r.detail, /velikost arhiva ni preverjena/);
+    assert.match(r.detail, /prosto na disku: 10\.0 GB/);
+  });
+
+  test('statfs ni na voljo ali pade -> podatek o prostoru IZPUSTIJO (ni lažnega števila)', async () => {
+    const dir = tmpDir();
+    const archiveRoot = path.join(dir, 'archive');
+    fs.mkdirSync(path.join(archiveRoot, '2026-10-24'), { recursive: true });
+    fs.writeFileSync(path.join(archiveRoot, '2026-10-24', '09-00.mp3'), 'x');
+    const absent = await checkStorage({ archiveRoot, archiveEnabled: true, dataDir: dir, statfsImpl: null });
+    assert.equal(absent.status, STATUS.OK);
+    assert.ok(!absent.detail.includes('prosto na disku'), 'brez statfs brez števila');
+    const throwing = await checkStorage({
+      archiveRoot, archiveEnabled: true, dataDir: dir,
+      statfsImpl: async () => { throw new Error('ENOSYS'); },
+    });
+    assert.equal(throwing.status, STATUS.OK);
+    assert.ok(!throwing.detail.includes('prosto na disku'), 'padel statfs tudi ne laže');
+  });
+
+  test('nič merjenega (arhiv izklopljen, statfs odsoten) -> preskok, ne izmišljena števila', async () => {
+    const r = await checkStorage({ archiveEnabled: false, statfsImpl: null });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /preskočeno/);
+    assert.doesNotMatch(r.detail, /\d+\.\d GB/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- gostitelj (CPU/spomin)', () => {
+  test('zdrav /proc -> ok s številkami obremenitve in pomnilnika', async () => {
+    const r = await checkHost({
+      readFileImpl: fakeProc({ load1: '0.52', memTotalKb: 16777216, memAvailKb: 8388608 }),
+      cpuCount: 4,
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /obremenitev: 0\.52 \(meja 8 = 2 × 4 jedri\)/);
+    assert.match(r.detail, /pomnilnik: 50\.0 % na voljo \(8\.0 GB od 16\.0 GB\)/);
+    assert.ok(!('fix' in r));
+  });
+
+  test('load1 nad 2×jedri -> warn "gostitelj je pod pritiskom ... produkcija lahko zamudi"; brez fixa (ni ukrepa v naboru)', async () => {
+    const r = await checkHost({
+      readFileImpl: fakeProc({ load1: '8.01', memTotalKb: 16777216, memAvailKb: 8388608 }),
+      cpuCount: 4,
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /gostitelj je pod pritiskom/);
+    assert.match(r.detail, /produkcija lahko zamudi/);
+    assert.equal(typeof r.hint, 'string');
+    assert.ok(r.hint.length > 0);
+    assert.ok(!('fix' in r), 'gostitelj nima popravka v FIXES -- pošteno brez');
+  });
+
+  test('meja obremenitve: load1 točno 2×jedri še NI prekoračena', async () => {
+    const r = await checkHost({
+      readFileImpl: fakeProc({ load1: '8.00', memTotalKb: 16777216, memAvailKb: 8388608 }),
+      cpuCount: 4,
+    });
+    assert.equal(r.status, STATUS.OK);
+  });
+
+  test('pomnilnik pod 10 % -> warn; točno 10 % še ni', async () => {
+    const below = await checkHost({
+      readFileImpl: fakeProc({ load1: '0.10', memTotalKb: 10000000, memAvailKb: 900000 }),
+      cpuCount: 4,
+    });
+    assert.equal(below.status, STATUS.WARN);
+    assert.match(below.detail, /pomnilnika je na voljo le 9\.0 %/);
+    const exact = await checkHost({
+      readFileImpl: fakeProc({ load1: '0.10', memTotalKb: 10000000, memAvailKb: 1000000 }),
+      cpuCount: 4,
+    });
+    assert.equal(exact.status, STATUS.OK);
+  });
+
+  test('/proc neberljiv (gostitelj ni Linux) -> preskok s pošteno opombo', async () => {
+    const r = await checkHost({ readFileImpl: async () => { throw new Error('ENOENT'); } });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /ni berljiv/);
+    assert.match(r.detail, /ni Linux/);
+  });
+
+  test('brez injiciranega bralnika -> preskok (pravi /proc bi bil nedeterminističen)', async () => {
+    const r = await checkHost({});
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /bralnik \/proc ni podan/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- dnevnik napak (24 h)', () => {
+  const NOW = Date.parse('2026-10-25T12:00:00+02:00');
+
+  function writeLogs(dir, files) {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+  }
+
+  test('sveže ERROR vrstice štejejo; stare, nečasovne in ne-ERROR ne; .log.1 se sploh ne bere', async () => {
+    const dir = tmpDir();
+    writeLogs(dir, {
+      'station.log': [
+        '[2026-10-25T11:00:00+02:00] ERROR tokrat je hudo',               // sveža -> šteje
+        '[2026-10-24T10:00:00+02:00] ERROR staro je čez 24 h',            // 26 h nazaj -> ne
+        '[21.10.2026 11:00] ERROR brez razumljivega ISO časa',            // nečasovna -> ne
+        '[2026-10-25T11:30:00+02:00] vse v redu, ni napake',              // ni ERROR -> ne
+      ].join('\n') + '\n',
+      'station.log.1': '[2026-10-25T11:45:00+02:00] ERROR rotirana kopija -- ne šteje dvakrat\n',
+    });
+    const r = await checkErrors({ logsDir: dir, nowMs: NOW, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /^1 napaka v 24 h/);
+    assert.match(r.detail, /čez 1 dnevnik/);
+  });
+
+  test('več kot 20 napak v 24 h -> warn "nekaj se vrti v zanki" + fix inspect-logs', async () => {
+    const dir = tmpDir();
+    const lines = Array.from({ length: 21 }, (_, i) => `[2026-10-25T0${i % 10}:00:00+02:00] ERROR napaka ${i}`);
+    writeLogs(dir, { 'web.log': lines.join('\n') + '\n' });
+    const r = await checkErrors({ logsDir: dir, nowMs: NOW, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /^21 napak v 24 h/);
+    assert.match(r.detail, /nekaj se vrti v zanki/);
+    assert.equal(typeof r.hint, 'string');
+    assert.ok(r.hint.length > 0);
+    assert.deepEqual(r.fix, FIXES['inspect-logs']);
+  });
+
+  test('manjkajoča mapa / brez aktivnih .log datotek -> preskok', async () => {
+    const r = await checkErrors({ logsDir: path.join(tmpDir(), 'ni-je'), nowMs: NOW, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /ne obstaja/);
+    const empty = tmpDir(); // že ustvarjena, a PRAZNA mapa
+    fs.writeFileSync(path.join(empty, 'station.log.1'), '[2026-10-25T11:00:00+02:00] ERROR samo rotirana\n');
+    const r2 = await checkErrors({ logsDir: empty, nowMs: NOW, readFileImpl: fsp.readFile });
+    assert.equal(r2.status, STATUS.SKIP);
+    assert.match(r2.detail, /ni aktivnih \.log datotek/);
+  });
+
+  test('brez poti ali brez bralnika -> preskok', async () => {
+    assert.equal((await checkErrors({ nowMs: NOW })).status, STATUS.SKIP);
+    const r = await checkErrors({ logsDir: tmpDir(), nowMs: NOW }); // prazna mapa, brez bralnika
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /bralnik datotek ni podan/);
+  });
+});
+
+describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrovom)', () => {
+  test('zlomljen config -> vseh šest novih preskoči z istim vzorcem "config ni berljiv"', async () => {
+    const report = await runDoctor({ configOrError: new Error('config.json not found'), netProbe: false });
+    for (const id of ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors']) {
+      const r = report.results.find((x) => x.id === id);
+      assert.equal(r.status, STATUS.SKIP, id);
+      assert.match(r.detail, /preskočeno -- config ni berljiv/, id);
+    }
+  });
+
+  test('brez injekcij -> šest poštenih preskokov (nobenega pravega omrežja, /proc ali statfs)', async () => {
+    const dir = tmpDir();
+    const cfg = healthyConfig(dir);
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    const report = await runDoctor({ configOrError: cfg, netProbe: false });
+    const ids = ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors'];
+    for (const id of ids) {
+      assert.equal(report.results.find((r) => r.id === id).status, STATUS.SKIP, id);
+    }
+    assert.match(report.results.find((r) => r.id === 'host').detail, /bralnik \/proc ni podan/);
+    assert.match(report.results.find((r) => r.id === 'icecast').detail, /config\.icecast ni nastavljen/);
+  });
+
+  test('polna injekcija -> 13 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
+    const dir = tmpDir();
+    const cfg = healthyConfig(dir);
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    fs.mkdirSync(cfg.autoRadio.music.localDirs[0], { recursive: true });
+    fs.writeFileSync(path.join(cfg.autoRadio.music.localDirs[0], 'a.mp3'), 'x');
+    const clips = path.join(cfg.dataDir, 'voice-clips');
+    fs.mkdirSync(clips);
+    fs.writeFileSync(path.join(clips, 'open.wav'), 'x');
+    fs.mkdirSync(path.join(cfg.dataDir, 'history'), { recursive: true });
+    const entry = { ratingKey: 'rk', artist: 'A', title: 'T', album: 'L', durationMs: 1, showId: 'j', playedAt: '2026-10-25T08:00:00+02:00' };
+    fs.writeFileSync(path.join(cfg.dataDir, 'history', 'aired.jsonl'), JSON.stringify(entry) + '\n');
+    fs.writeFileSync(path.join(cfg.dataDir, 'now_playing.m3u'), '# trenutna\nskladba-1.mp3\nskladba-2.mp3\n');
+    fs.writeFileSync(path.join(cfg.dataDir, 'filler.m3u'), 'filler-1.mp3\nfiller-2.mp3\nfiller-3.mp3\n');
+    const logsDir = path.join(cfg.dataDir, 'logs');
+    fs.mkdirSync(logsDir);
+    fs.writeFileSync(path.join(logsDir, 'station.log'), '[2026-10-25T11:00:00+02:00] ERROR ena sama, ne vzorec\n');
+    const archiveRoot = path.join(cfg.dataDir, 'archive');
+    fs.mkdirSync(path.join(archiveRoot, '2026-10-24'), { recursive: true });
+    fs.writeFileSync(path.join(archiveRoot, '2026-10-24', '10-00.mp3'), 'x');
+
+    // /proc fake IN pravi bralnik za datoteke v enem -- doctor dobi en
+    // readFileImpl, ki zná oboje (točno tako, kot bi ga sestavil resen CLI
+    // z zunanjim /proc, le da tu brez korena).
+    const readFileImpl = async (file, enc) => {
+      if (file === '/proc/loadavg') return '0.10 0.10 0.05 1/100 12345\n';
+      if (file === '/proc/meminfo') return 'MemTotal:       16777216 kB\nMemAvailable:   8388608 kB\n';
+      return fsp.readFile(file, enc);
+    };
+    const inputs = () => ({
+      configOrError: cfg,
+      netProbe: false,
+      nowMs: Date.parse('2026-10-25T12:00:00+02:00'),
+      fetchImpl: async () => ({ status: 200 }),
+      sendCommandImpl: async () => { throw new Error('connect ECONNREFUSED'); }, // mrtva miza -> warn z fixom
+      readFileImpl,
+      statfsImpl: fakeStatfs(50 * GB),
+      nowPlayingPath: path.join(cfg.dataDir, 'now_playing.m3u'),
+      fillerPath: path.join(cfg.dataDir, 'filler.m3u'),
+      archiveRoot,
+      archiveEnabled: true,
+      logsDir,
+      icecastUrl: 'http://localhost:8001/status-json.xsl',
+      telnetPort: 1234,
+    });
+
+    const report = await runDoctor(inputs());
+    assert.deepEqual(report.results.map((r) => r.id), CHECK_ORDER.map((c) => c.id));
+    assert.equal(report.exitCode, 0); // opozorilo, ne napaka
+    const byId = Object.fromEntries(report.results.map((r) => [r.id, r]));
+    assert.equal(byId.config.status, 'ok');
+    assert.equal(byId.icecast.status, 'ok');
+    assert.equal(byId.liquidsoap.status, 'warn');
+    assert.equal(byId.m3u.status, 'ok');
+    assert.equal(byId.storage.status, 'ok');
+    assert.equal(byId.host.status, 'ok');
+    assert.equal(byId.errors.status, 'ok');
+    assert.deepEqual(byId.liquidsoap.fix, FIXES['restart-liquidsoap']);
+    // Finding model: hint/fix nosijo SAMO opozorila -- ok/skip brez njiju
+    for (const r of report.results) {
+      if (r.status === 'warn') {
+        assert.equal(typeof r.hint, 'string', `${r.id}: opozorilo potrebuje namig`);
+        assert.ok(r.hint.length > 0, `${r.id}: namig ne sme biti prazen`);
+      } else {
+        assert.ok(!('hint' in r) && !('fix' in r), `${r.id}: ok/skip brez namiga in popravka`);
+      }
+    }
+    // determinizem: isti vhodi -> bajtno isti izpis
+    const report2 = await runDoctor(inputs());
+    assert.deepEqual(JSON.parse(JSON.stringify(report2.results)), JSON.parse(JSON.stringify(report.results)));
+    assert.equal(report2.verdict, report.verdict);
   });
 });
 

@@ -20,11 +20,19 @@
 // director + retries never hammer the sources, and every response is
 // shaped into plain template values ({station}, {condition}, {temp},
 // {headlines}, {year}, {name}, ...) that renderSlot() can substitute.
+//
+// P7 "rubrike kot skilli": the TTL defaults below (and, for the generic RSS
+// readers novice/sport, the feed URLs) resolve through rubriqueDefaults()
+// in ./skills.js -- operator-editable skills/<slug>/SKILL.md files with the
+// OLD literals as hardcoded fallbacks, so out-of-the-box behavior is
+// byte-identical. Precedence everywhere: an EXPLICIT caller parameter wins,
+// then the SKILL.md cooldown/feed, then the code literal.
 import { XMLParser } from 'fast-xml-parser';
 import { config } from '../config/index.js';
 import { pickOnThisDayMusic } from './onThisDayFacts.js';
 import { createLogger } from '../lib/logger.js';
 import { pickQuizQuestions } from './quizFacts.js';
+import { rubriqueDefaults } from './skills.js';
 import { activePollSummary } from '../server/pollsStore.js';
 import { readRequests } from '../server/requestsStore.js';
 
@@ -135,9 +143,15 @@ export function pickArsoItem(items, wanted) {
   return [...pool.values()].sort((a, b) => a.data.station.length - b.data.station.length)[0].item;
 }
 
-export async function fetchArsoCurrentWeather({ station, timeoutMs = 10_000, ttlMs = 15 * 60_000 } = {}) {
+export async function fetchArsoCurrentWeather({ station, timeoutMs = 10_000, ttlMs } = {}) {
+  // P7: explicit caller TTL > skills/arso-vreme/SKILL.md cooldown > the old
+  // 15-min literal (rubriqueDefaults's fallback). The ARSO feed URL stays a
+  // code constant -- the parser below is NOT a generic RSS reader (it mines
+  // station observations out of item titles), so a skill-level feed swap
+  // would only ever yield the offline line (documented in docs/skills.md).
+  const cooldownMs = ttlMs ?? rubriqueDefaults('weather').cooldownMs;
   const key = cacheKey(['arso', station]);
-  const hit = cacheGet(key, ttlMs);
+  const hit = cacheGet(key, cooldownMs);
   if (hit !== undefined) return hit;
   try {
     const xml = await fetchText(ARSO_OBSERVATIONS_RSS, timeoutMs);
@@ -168,12 +182,20 @@ export function joinSlovenianHeadlines(titles) {
   return `${cleaned.join('. ')}.`;
 }
 
-export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs = 30 * 60_000 } = {}) {
-  const key = cacheKey(['rtv-sport', limit]);
-  const hit = cacheGet(key, ttlMs);
+export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs } = {}) {
+  // P7: explicit caller TTL > skills/rtv-sport/SKILL.md cooldown > the old
+  // 30-min literal; same precedence for the feed URL (generic RSS reader,
+  // so the skill's `feed:` is wired). The URL rides along in the cache key
+  // so a swapped feed takes effect on the next fetch, not after the old
+  // entry's TTL.
+  const defaults = rubriqueDefaults('sport');
+  const cooldownMs = ttlMs ?? defaults.cooldownMs;
+  const feedUrl = defaults.feed ?? RTV_SPORT_RSS;
+  const key = cacheKey(['rtv-sport', limit, feedUrl]);
+  const hit = cacheGet(key, cooldownMs);
   if (hit !== undefined) return hit;
   try {
-    const xml = await fetchText(RTV_SPORT_RSS, timeoutMs);
+    const xml = await fetchText(feedUrl, timeoutMs);
     const titles = rssItems(xml).map((item) => item.title);
     if (titles.length === 0) {
       log('feeds/rtv-sport: empty feed -- sport rubric airs its offline line.');
@@ -193,12 +215,18 @@ export async function fetchSportHeadlines({ limit = 4, timeoutMs = 10_000, ttlMs
 // news: RTV Slovenija headlines
 // ---------------------------------------------------------------------------
 
-export async function fetchNewsHeadlines({ limit = 3, timeoutMs = 10_000, ttlMs = 30 * 60_000 } = {}) {
-  const key = cacheKey(['rtv-news', limit]);
-  const hit = cacheGet(key, ttlMs);
+export async function fetchNewsHeadlines({ limit = 3, timeoutMs = 10_000, ttlMs } = {}) {
+  // P7: explicit caller TTL > skills/rtv-novice/SKILL.md cooldown > the old
+  // 30-min literal; same precedence for the feed URL (generic RSS reader,
+  // so the skill's `feed:` is wired). URL in the cache key, see sport above.
+  const defaults = rubriqueDefaults('news');
+  const cooldownMs = ttlMs ?? defaults.cooldownMs;
+  const feedUrl = defaults.feed ?? RTV_NEWS_RSS;
+  const key = cacheKey(['rtv-news', limit, feedUrl]);
+  const hit = cacheGet(key, cooldownMs);
   if (hit !== undefined) return hit;
   try {
-    const xml = await fetchText(RTV_NEWS_RSS, timeoutMs);
+    const xml = await fetchText(feedUrl, timeoutMs);
     const titles = rssItems(xml).map((item) => item.title);
     if (titles.length === 0) {
       log('feeds/rtv-news: empty feed -- news rubric airs its offline line.');
@@ -364,8 +392,11 @@ function onThisDayTargetDate(date) {
   };
 }
 
-export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlMs = 6 * 60 * 60_000 } = {}) {
+export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlMs } = {}) {
   const { month, day } = onThisDayTargetDate(date);
+  // P7: explicit caller TTL > skills/wikidata-dan/SKILL.md cooldown > the
+  // old 6-hour literal. Cooldown only -- the SPARQL endpoint is not an RSS
+  // feed, so the skill deliberately carries no `feed:` key.
   return fetchOnThisDayBySparql({
     sparql: onThisDaySparql(month, day),
     month,
@@ -373,7 +404,7 @@ export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlM
     limit,
     timeoutMs,
     cacheKey: cacheKey(['onthisday', month, day, limit]),
-    ttlMs,
+    ttlMs: ttlMs ?? rubriqueDefaults('onthisday').cooldownMs,
     label: 'obzorje',
   });
 }
@@ -381,8 +412,10 @@ export async function fetchOnThisDay({ date, limit = 2, timeoutMs = 15_000, ttlM
 // P4 #19: "Na današnji dan v glasbi" -- same pipeline, musician-filtered
 // SPARQL, its own cache namespace. Nothing else changes (same skip-not-fail
 // contract, same Slovenian-labels-only rule).
-export async function fetchOnThisDayMusic({ date, limit = 2, timeoutMs = 15_000, ttlMs = 6 * 60 * 60_000 } = {}) {
+export async function fetchOnThisDayMusic({ date, limit = 2, timeoutMs = 15_000, ttlMs } = {}) {
   const { month, day } = onThisDayTargetDate(date);
+  // P7: same resolution as fetchOnThisDay -- both rubriques share the
+  // wikidata-dan skill (and therefore its cooldown).
   return fetchOnThisDayBySparql({
     sparql: onThisDayMusicSparql(month, day),
     month,
@@ -390,7 +423,7 @@ export async function fetchOnThisDayMusic({ date, limit = 2, timeoutMs = 15_000,
     limit,
     timeoutMs,
     cacheKey: cacheKey(['onthisdaymusic', month, day, limit]),
-    ttlMs,
+    ttlMs: ttlMs ?? rubriqueDefaults('onthisdaymusic').cooldownMs,
     label: 'obzorjeGlasba',
   });
 }

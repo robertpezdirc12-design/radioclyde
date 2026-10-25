@@ -23,7 +23,7 @@ import { setupTestConfig, writeWav, repoRoot } from './fixtures.mjs';
 
 setupTestConfig('bed-queue', {});
 
-const { pushBedFile, queueBeds, skipBed } = await import('../src/liquidsoap/bedQueue.js');
+const { pushBedFile, queueBeds, skipBed, ensureBedsLeadIn } = await import('../src/liquidsoap/bedQueue.js');
 const { config: liveConfig } = await import('../src/config/index.js');
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,28 @@ describe('radio.liq beds wiring (P3 #13 sidechain ducker)', () => {
     assert.ok(duckerAt > idAt, 'an announcement outranks the hour ID overlay');
     assert.ok(duckerAt > requestsAt, 'an announcement rides over a listener request too');
     assert.ok(duckerAt < detectAt, 'the program dead-air observer sees the MIXED output');
+  });
+
+  test('beds compressor (SUB/WAVE mic_chain) is %ifdef-gated, mix line intact either way', () => {
+    // %ifdef compress = the honest gate: the operator ships only with
+    // liquidsoap-libs-extra, so a build without it must boot byte-identically
+    // (the %else branch keeps the exact old mix line).
+    assert.match(liq, /%ifdef compress\nbeds_chain = compress\(attack=5\.0, release=120\.0, threshold=-18\.0, ratio=4\.0, knee=2\.0, gain=0\.0, beds_rms\)/);
+    assert.match(liq, /radio = add\(normalize=false, \[radio, amplify\(0\.8, beds_chain\)\]\)/);
+    // No makeup gain: subwave's gain=7.0 + amplify(1.4) is live-mic territory;
+    // our beds are produced clips -- makeup into add() would clip the mix.
+    assert.doesNotMatch(liq, /amplify\(1\.4/);
+    assert.doesNotMatch(liq, /gain=7\.0/);
+  });
+
+  test('broadcast bus limiter (SUB/WAVE) is %ifdef-gated and sits between the air guard and the outputs', () => {
+    assert.match(liq, /%ifdef compress\nradio = compress\(attack=1\.0, release=80\.0, threshold=-1\.0, ratio=20\.0, knee=0\.5, gain=0\.0, radio\)/);
+    const guardAt = liq.indexOf('blank.detect(dead_air_total');
+    const limiterAt = liq.indexOf('radio = compress(attack=1.0');
+    const outputAt = liq.indexOf('output.icecast(%mp3(bitrate=config.icecast.bitrate)');
+    assert.ok(guardAt !== -1 && limiterAt !== -1 && outputAt !== -1, 'chain anchors present');
+    assert.ok(guardAt < limiterAt, 'dead-air observers see pre-limiter frames');
+    assert.ok(limiterAt < outputAt, 'the limiter is the last operator before the encoder');
   });
 
   test('program core and safety net untouched', () => {
@@ -223,5 +245,153 @@ describe('queueBeds + skipBed (fake Liquidsoap telnet)', () => {
     } finally {
       fake.server.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tih uvod (lead-in, SUB/WAVE 1722-1746 adapted to the RMS-keyed ducker)
+// ---------------------------------------------------------------------------
+
+// Fake ffmpeg: "runs" by writing a real (tiny) WAV to the output path the
+// real runner would have produced. The real binary is exercised separately
+// below, gated on its presence.
+const fakeRunnerOk = async (cmd, args) => {
+  writeWav(args[args.length - 1], 1);
+  return { stdout: '' };
+};
+const fakeRunnerFails = async () => {
+  throw new Error('ffmpeg ni na voljo');
+};
+
+describe('ensureBedsLeadIn + pushBedFile lead-in (fake telnet)', () => {
+  const leadInPath = path.join(liveConfig.dataDir, 'beds-leadin.wav');
+
+  // Vsak test začne s SVEŽIM stanjem diska: predhodni push-testi (nadalje z
+  // realnim ffmpeg) že pustijo beds-leadin.wav v dataDir, cache na disku pa
+  // je ravno tako del pogodbe, da ga moramo za preizkus generiranja
+  // izrecno počistiti.
+  const freshLeadIn = () => {
+    try { fs.unlinkSync(leadInPath); } catch { /* ni ga */ }
+  };
+
+  test('generates the lead-in once into dataDir and caches it on disk', async () => {
+    freshLeadIn();
+    let calls = 0;
+    const counting = async (cmd, args) => {
+      calls += 1;
+      writeWav(args[args.length - 1], 1);
+      return { stdout: '' };
+    };
+    const first = await ensureBedsLeadIn({ runner: counting });
+    assert.equal(first, leadInPath);
+    assert.equal(calls, 1);
+    // Drugi klic vidi datoteko na disku in ffmpeg-a več ne pokliče.
+    const second = await ensureBedsLeadIn({ runner: counting });
+    assert.equal(second, leadInPath);
+    assert.equal(calls, 1);
+    assert.ok(fs.statSync(leadInPath).size > 1000, 'writeWav naredi dovolj veliko datoteko za cachne pogoj');
+  });
+
+  test('generation failure returns null honestly (bed still pushes without it)', async () => {
+    freshLeadIn();
+    const fake = await startFakeLiquidsoap(() => '7');
+    liveConfig.liquidsoap.telnetPort = fake.port;
+    try {
+      const outcome = await pushBedFile(BED_CLIP, { runner: fakeRunnerFails });
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.leadIn, false, 'uvod se ni zgeneriral -> prizadevno poročano');
+      assert.equal(outcome.requestId, '7');
+    } finally {
+      fake.server.close();
+    }
+  });
+
+  test('lead-in is pushed BEFORE the bed, and {leadIn:true} reports it', async () => {
+    const seenCommands = [];
+    const fake = await startFakeLiquidsoap((cmd) => {
+      seenCommands.push(cmd);
+      return String(seenCommands.length + 20);
+    });
+    liveConfig.liquidsoap.telnetPort = fake.port;
+    try {
+      const outcome = await pushBedFile(BED_CLIP, { runner: fakeRunnerOk });
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.leadIn, true);
+      assert.equal(seenCommands.length, 2, 'natanko dva pusha: uvod + postelja');
+      assert.equal(seenCommands[0], `beds.push ${leadInPath}`, 'uvod gre PRVI');
+      assert.equal(seenCommands[1], `beds.push ${BED_CLIP}`, 'postelja gre druga');
+    } finally {
+      fake.server.close();
+    }
+  });
+
+  test('a refused lead-in (ERROR reply) never blocks the bed', async () => {
+    const fake = await startFakeLiquidsoap((cmd) => {
+      // Uvod (edina komanda, ki omenja beds-leadin) dobi napako, postelja ne.
+      return cmd.includes('beds-leadin.wav') ? 'ERROR: nope' : '31';
+    });
+    liveConfig.liquidsoap.telnetPort = fake.port;
+    try {
+      const outcome = await pushBedFile(BED_CLIP, { runner: fakeRunnerOk });
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.leadIn, false, 'zavrnjen uvod ni lažno prijavljen');
+      assert.equal(outcome.requestId, '31');
+    } finally {
+      fake.server.close();
+    }
+  });
+
+  test('{ leadIn:false } skips the lead-in entirely (opt-out)', async () => {
+    const seenCommands = [];
+    const fake = await startFakeLiquidsoap((cmd) => {
+      seenCommands.push(cmd);
+      return '5';
+    });
+    liveConfig.liquidsoap.telnetPort = fake.port;
+    try {
+      const outcome = await pushBedFile(BED_CLIP, { leadIn: false, runner: fakeRunnerOk });
+      assert.equal(outcome.ok, true);
+      assert.equal(outcome.leadIn, false);
+      assert.deepEqual(seenCommands, [`beds.push ${BED_CLIP}`], 'samo postelja, brez uvoda');
+    } finally {
+      fake.server.close();
+    }
+  });
+
+  test('REAL ffmpeg integration (skips honestly when ffmpeg is absent)', { timeout: 20_000 }, async (t) => {
+    let ffmpegPresent = true;
+    try {
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      await promisify(execFile)('ffmpeg', ['-version']);
+    } catch {
+      ffmpegPresent = false;
+    }
+    if (!ffmpegPresent) {
+      t.skip('ffmpeg ni na voljo na tem stroju -- preskočeno pošteno');
+      return;
+    }
+    // Zgeneriraj sveč (izbriši morebitni iz prejšnjih testov), da vidimo
+    // PRAVI nastavek, potem pa preveri dolžino z ffprobe-jem.
+    try { fs.unlinkSync(leadInPath); } catch { /* ni ga */ }
+    const generated = await ensureBedsLeadIn({});
+    assert.equal(generated, leadInPath);
+    assert.ok(fs.statSync(leadInPath).size > 100_000, 'resnični stereo WAV ~141 kB, ne kostur');
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', leadInPath,
+    ]);
+    const duration = parseFloat(stdout);
+    assert.ok(Math.abs(duration - 0.8) < 0.05, `trajanje ~0,8 s (dobljeno ${duration})`);
+    // Kalibracijska trdnost: RMS mora biti nad pragom duhanja 0,02 (-34 dB),
+    // da uvod sploh prizhene duker -- pod pragom bi bil tiha ovira.
+    const stats = await execFileAsync('ffmpeg', [
+      '-i', leadInPath, '-af', 'astats=metadata=0', '-f', 'null', '-',
+    ]).catch(() => ({ stderr: '' }));
+    const rmsDb = parseFloat((stats.stderr.match(/RMS level dB: (-?[\d.]+)/) || [])[1]);
+    assert.ok(Number.isFinite(rmsDb) && rmsDb > -34 && rmsDb < -28, `RMS ~-30 dBFS (dobljeno ${rmsDb}) -- nad pragom duhanja, pod slišnostjo`);
   });
 });

@@ -174,6 +174,29 @@ phases hand off through.
   (−16 LUFS, the LS 2.2.5 default), positive gain clamped (no limiter in the
   chain), speech/imaging untouched, and everything degrades to today's
   behavior for any track without an analysis — [design](docs/autocue-loudness.md).
+- **Ending-aware crossfades**: the same offline scan now measures how every
+  track ENDS — one extra ffmpeg ebur128 pass over the last 20 s (`-sseof -20`)
+  yields a momentary-loudness series; a fade-out tail (last 1.5 s mean more
+  than 16.5 dB under the tail's p95, with a ≥ 3 s wind-down) earns a
+  `liq_cross_duration` stamp of 8–12 s (SUB/WAVE's decision table, shaped by
+  the body-to-tail loudness drop), and radio.liq's CROSS STAMPS rewrite feeds
+  it to `cross()` as per-track buffer sizes — the fade rides out at its own
+  length instead of being chopped at the 3.5 s station default. Cold endings,
+  speech and jingles stay unstamped (byte-identical seams), and the
+  hard-cut `sequence([a, b])` branch guarantees the DJ is never overlapped
+  whatever a stamp says — [design](docs/autocue-loudness.md).
+- **Voice-chain compression + silent lead-in (SUB/WAVE's mixer borrowed)**:
+  pushed beds are peak-tamed by a 5 ms-attack 4:1 compressor before they
+  hit the ducked mix, and the whole bus passes a brick-wall limiter
+  (20:1 at −1 dBFS) as the last operator before every encoder — the one
+  thing the R128 gain layer cannot do, catching MP3 inter-sample peaks.
+  Each bed push is also preceded by a 0.8 s calibrated lead-in clip, so the
+  RMS ducker finishes ducking BEFORE the first word (adapted honestly:
+  subwave's pure-silence trick would *release* our loudness-keyed ducker,
+  so the lead-in is near-inaudible brown noise just over the duck
+  threshold). Both compressors sit behind `%ifdef compress` — a Liquidsoap
+  build without the extra operator library boots byte-identically to
+  before.
 - **Smart rotation rules**: the off-air filler pool is no longer plain
   shuffle — tracks aired more often in the last 7 days surface later
   (weighted by a merged show+filler play counter), tracks added to the
@@ -326,7 +349,14 @@ prose for humans. The selection section supports:
   diagnostika; s `--cron` dodatno izpiše crontab vzorec, izpravljen iz
   station.json — vsak DISTINCT začetek termina dobi en predhodni pregled
   15 min pred začetkom (za polnočjo termini premaknejo dan-of-teden nazaj;
-  glej [docs/auto-radio.md](docs/auto-radio.md)).
+  glej [docs/auto-radio.md](docs/auto-radio.md)). Sedaj v SUB/WAVE-ovem
+  Finding modelu: trinajst preverjanj, opozorila nosijo »namig« (kje
+  poglej) in »popravi« (kaj stori), novih šest pa pokriva oddajno verigo
+  sam — icecast dosegljivost, liquidsoap telnet (`uptime`), stanje
+  predvajalnih list (m3u), arhiv/prostor na disku (20 GB / 2 GB meji),
+  obremenitev gostitelja (CPU/spomin) in število napak v dnevnikih zadnjih
+  24 h. Vse pošteno preskoči, ko config ni berljiv, in nobeno
+  preverjanje ne more sesati doctorja samega.
 - **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
   deterministic standalone five-minute episode — talk, music, talk, music,
   talk — from the real library + the offline rock-facts corpus, in the
@@ -378,6 +408,53 @@ prose for humans. The selection section supports:
   generated into `show-descriptions/themed/` (now with a real quiz question
   before the middle track, P4 #23), and the standard pipeline
   (rules + rubrics + trivia) runs it unchanged
+- **Ogg-Opus and Ogg-FLAC mounts (optional)**: alongside the primary MP3
+  output the station can open `/stream.opus` (%opus 96–320 kbps constrained
+  VBR, SUB/WAVE's encoder shape) and `/stream.flac` (lossless Ogg-FLAC) —
+  the Liquidsoap blocks live in a generated `liquidsoap/streams.liq`
+  rewritten from `config.json` by the web server on boot
+  (`src/liquidsoap/streamsLiqWriter.js`), so a config flip plus a Liquidsoap
+  restart is the whole deployment. `/api/now-playing` carries `station.streams`,
+  `/listen.m3u`+`/listen.pls` list every enabled mount, the web player
+  upgrades itself to Opus when the browser really supports it (with the
+  iOS-Safari/Firefox exclusions and an automatic session-level MP3 fallback
+  SUB/WAVE measured), and the same-origin proxy serves all three paths.
+  Default: off — a station that never touches the config boots exactly as
+  before — [guide](docs/stream-mounts.md).
+- **Hourly archive (optional)**: `output.file` with `reopen_when={0m0s}` and
+  a strftime getter writes one MP3 per hour under `data/archive/YYYY-MM-DD/`,
+  day-granular retention prunes it from the scheduler, and the studio can
+  browse, download and delete days. Off by default (~1.4 GB/day at 128 kbps
+  when on) — [guide](docs/stream-mounts.md).
+- **Synced song lyrics (LRCLIB)**: every music track can get looked up on
+  [lrclib.net](https://lrclib.net) (keyless, throttled to one request per
+  second, 404 = a definitive miss), parsed from LRC into a line timeline,
+  cached in `data/lyrics-cache.json` with a 30-day recheck, and served at
+  `GET /api/lyrics/current`. The lookup is lazy — it starts when a listener
+  first opens the "Besedila" panel, which then shows honest pending /
+  no-lyrics / unsynced states while it resolves and follows the on-air track
+  line by line (500 ms clock), with a per-device offset correction for
+  imperfect syncs. Zero new dependencies; `lyrics.enabled: false` switches
+  the layer off honestly — [design](docs/lyrics-lrclib.md).
+- **Scrobbling to Last.fm + ListenBrainz (optional, off by default)**: every
+  eligible aired track (Last.fm's own rule — longer than 30 s and at least
+  half-played or 4 minutes) is submitted at the NEXT track's start with the
+  correct start timestamp, plus a now-playing ping for the incoming track.
+  Last.fm's auth is the headless mobile-session flow: username+password are
+  used ONCE to mint a session key that is cached (0600, atomic) under
+  `dataDir/`, after which the password can be removed from the config
+  entirely. ListenBrainz just needs a user token. Both fail closed when the
+  Icecast listener count is unknown or zero, never throw near the playout
+  process, and have no retry queue — [guide (sl)](docs/scrobbling.md).
+- **Rubrique cadence as SKILL.md files**: the auto-mode service segments'
+  data freshness (cooldown) and, where the reader is a generic RSS consumer,
+  the feed URL live in operator-editable `skills/<slug>/SKILL.md` files
+  (SUB/WAVE's drop-in format, restricted to a flat frontmatter — no YAML
+  dependency). The four shipped skills carry today's exact defaults, so
+  behavior is byte-identical out of the box; edit a cooldown and the next
+  fetch honors it without touching code or restarting anything. A malformed
+  skill file is ignored and the code default silently takes over —
+  [format (sl)](docs/skills.md).
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
@@ -438,7 +515,9 @@ neural TTS model on your hardware:
 - **Rubriques from live Slovenian data**: ARSO current weather, RTV
   Slovenija news + sport headlines, Wikidata "on this day" — enabled per-show with
   one brief line, cached in-process, hard-timeout-guarded, and always
-  skip-not-fail.
+  skip-not-fail. Each rubrique's data-freshness cooldown (and the news/sport
+  feed URLs) now lives in an editable `skills/<slug>/SKILL.md` — see
+  [docs/skills.md](docs/skills.md) (Slovenian).
 - **Everything else is the same station**: scheduling, prewarm, directing,
   the web page, the apps. Scripts, transcripts and playlists are identical
   in shape to AI mode's.
@@ -477,6 +556,17 @@ Full Slovenian reference with every config knob:
   native Android phone/tablet client. What's different from the TV app
   (touch UI, no clock/weather, the dual server-profile auto-reachability
   design), package layout, key design decisions.
+- [docs/stream-mounts.md](docs/stream-mounts.md): the optional Opus/FLAC
+  mounts and the hourly MP3 archive — config, restart semantics, bitrate
+  ladders, published surfaces, and the player upgrade rules.
+- [docs/lyrics-lrclib.md](docs/lyrics-lrclib.md): the LRCLIB synced-lyrics
+  stack (Slovenian) — client constants, LRC parsing rules, cache/recheck
+  semantics, the response contract and its honest-state table.
+- [docs/scrobbling.md](docs/scrobbling.md): Last.fm + ListenBrainz
+  scrobbling (Slovenian) — eligibility, the mobile-session auth flow, the
+  privacy note and the honest limitations.
+- [docs/skills.md](docs/skills.md): the SKILL.md rubrique format
+  (Slovenian) — frontmatter grammar, precedence rules, honest degradation.
 
 ## Credits & data sources
 

@@ -63,7 +63,22 @@ docs mostly in Slovenian.
   gaps ranked (P5 #2).
 - [autocue-loudness.md](autocue-loudness.md) — EBU R128 loudness alignment
   via a narrowly-scoped slice of the autocue pattern: only `liq_amplify`,
-  the one field our Liquidsoap 2.2.4 build actually reads.
+  the one field our Liquidsoap 2.2.4 build actually reads. Now also the
+  ending-aware crossfade tail pass (the extra `-sseof -20` ebur128
+  measurement and the 8–12 s `liq_cross_duration` decision table).
+- [stream-mounts.md](stream-mounts.md) — the optional Ogg-Opus/Ogg-FLAC
+  mounts and the hourly MP3 archive: generated `streams.liq`, restart
+  semantics, bitrate ladders, every published surface, and the player
+  upgrade rules.
+- [lyrics-lrclib.md](lyrics-lrclib.md) — the LRCLIB synced-lyrics stack
+  (Slovenian): client constants, LRC parsing rules, cache/recheck semantics,
+  the `GET /api/lyrics/current` contract and its honest-state table.
+- [scrobbling.md](scrobbling.md) — Last.fm + ListenBrainz scrobbling
+  (Slovenian): the eligibility rule, the headless mobile-session auth flow,
+  the privacy note, and the honest limitations.
+- [skills.md](skills.md) — the SKILL.md rubrique format (Slovenian):
+  frontmatter grammar, cooldown precedence, feed wiring, and why the
+  SUB/WAVE trust gate is deliberately not ported.
 - [plex-library-notes.md](plex-library-notes.md) — empirical facts about this
   specific Plex library and its API behavior, confirmed live against the
   real server (not assumptions from Plex's general documentation).

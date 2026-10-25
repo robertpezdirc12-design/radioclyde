@@ -554,7 +554,28 @@ radio.on_frame(synchronous=true, duck_update)
 radio = source.on_frame(radio, duck_update)
 %endif
 radio = amplify(id="beds-duck", override=null(), {duck_gain()}, radio)
+# Voice processing on the beds channel (SUB/WAVE mic_chain,
+# radio.liq:1811-1827): fast attack (5 ms), gentle 4:1 ratio, soft knee --
+# tames TTS/clip peaks BEFORE they hit the 0.8 add, so a bed peak summed
+# with a program peak cannot clip the encoder. Gated on %ifdef compress:
+# the operator lives in src/core/operators/compress.ml but only reaches
+# scripts through src/libs/extra/audio.liq, which ships in the separate
+# liquidsoap-libs-extra package and is %include_extra'd by stdlib.liq
+# (silently skipped when absent, verified against the v2.2.4 tarball).
+# DEVIATION from subwave, on purpose: their gain=7.0 + amplify(1.4) makeup
+# is for a QUIET LIVE MIC; our beds are produced clips at proper level, and
+# makeup gain into add() would clip the mix -- gain stays 0.0. attack and
+# release are MILLISECONDS at the script boundary (compress.ml divides by
+# 1000 internally), so 5.0/120.0 are subwave's "fast attack / slow release"
+# verbatim. The ducker still keys on the UNCOMPRESSED beds_rms (conservative:
+# it may over-duck slightly, never under-duck). track_sensitive keeps its
+# default false, matching subwave's call.
+%ifdef compress
+beds_chain = compress(attack=5.0, release=120.0, threshold=-18.0, ratio=4.0, knee=2.0, gain=0.0, beds_rms)
+radio = add(normalize=false, [radio, amplify(0.8, beds_chain)])
+%else
 radio = add(normalize=false, [radio, amplify(0.8, beds_rms)])
+%endif
 # Dead-air guard, program layer: detect observes, strip reacts. strip wraps
 # detect so both see identical frames -- detect passes audio through
 # untouched, and strip's synthetic breaks stay invisible to the observer.
@@ -606,6 +627,24 @@ radio = blank.detect(dead_air_total, on_noise=sound_total,
 # after it -- see the P3 #11 block there: the 2.4.6 cross deduplication
 # drops the outgoing replay, so post-cross registration fires exactly once
 # per track, and the crossed chain including requests stays covered.)
+
+# BROADCAST BUS -- brick-wall limiter (SUB/WAVE radio.liq:2082-2096): the
+# ONLY bus processing, on purpose. Per-track levels are already aligned by
+# the R128 amplify(override="liq_amplify") above; this 20:1 knee at -1 dBFS
+# catches what that chain cannot: inter-sample peaks the MP3 encoder
+# creates during coding (~0.5-1 dB over source, the reason subwave kept
+# this one limiter after removing their normalizer/stereo widener). On
+# normal program it does 0 dB of reduction. Position: AFTER the air-layer
+# dead-air guard (its observers must see pre-limiter frames) and BEFORE
+# output.icecast -- the last operator before every encoder, so the optional
+# Opus/FLAC/archive outputs in streams.liq inherit it too (they include
+# this same `radio` variable). mksafe's synthetic blank passes at unity:
+# a limiter never amplifies below threshold. Gated on %ifdef compress for
+# the same liquidsoap-libs-extra reason as the beds compressor above --
+# a build without the extra libs boots byte-identically to pre-limiter.
+%ifdef compress
+radio = compress(attack=1.0, release=80.0, threshold=-1.0, ratio=20.0, knee=0.5, gain=0.0, radio)
+%endif
 
 output.icecast(%mp3(bitrate=config.icecast.bitrate),
   host = config.icecast.sourceHost, port = config.icecast.port,
