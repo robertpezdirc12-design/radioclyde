@@ -26,7 +26,7 @@ export async function resolveLiveLine({ persona, kind, brief }) {
   if (kind === 'weather' || kind === 'time-weather') {
     const current = await fetchCurrentWeather();
     facts.push(
-      `Current conditions: ${describeWeatherCode(current.weather_code)}, ${Math.round(current.temperature_2m)}°F, wind ${Math.round(current.wind_speed_10m)} mph.`
+      `Current conditions: ${describeWeatherCode(current.weather_code)}, ${Math.round(current.temperature_2m)}°C, wind ${Math.round(current.wind_speed_10m)} km/h.`
     );
   }
 

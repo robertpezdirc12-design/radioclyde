@@ -108,11 +108,24 @@ export function timeBlockKey(now = new Date(), blocks = timeBlocks()) {
 }
 
 // Optional soft genre preference for a block, e.g. night -> ["Instrumental"].
-// "Soft" means: applied only as a candidate-pool narrowing that gives up
-// immediately when it would leave too few tracks, never as a hard ban.
+// ACTIVE since Val 20 (A4): produce.js calls this at PRODUCTION time and
+// passes the result into buildTrackQueue's preferredGenres, which narrows the
+// candidate pool via narrowPoolByPreferredGenres (producer/trackSelection/
+// queue.js) -- soft semantics: the narrowing gives up immediately when the
+// matching pool cannot fill the show's estimated track need (neededCount
+// there), never a hard ban. Honest caveat: the block is the wall-clock block
+// of the PRODUCTION moment, not the airtime block -- prewarm runs in the
+// downtime window before the slot, so a 23:30 show produced at 22:50 steers
+// by "evening". That is the SAME semantics the open/close greeting variants
+// use (scriptBuilder receives the same resolved block), so one production
+// run speaks with one voice either way.
 export function blockGenrePreference(blockKey) {
   const blocks = timeBlocks();
-  return blocks[blockKey]?.preferredGenres ?? [];
+  // Array guard: a config typo like "preferredGenres": "Instrumental" (a
+  // string instead of an array) must degrade to "no preference" rather than
+  // flow into queue.js's array-only steering path.
+  const pref = blocks[blockKey]?.preferredGenres;
+  return Array.isArray(pref) ? pref : [];
 }
 
 // ---------------------------------------------------------------------------

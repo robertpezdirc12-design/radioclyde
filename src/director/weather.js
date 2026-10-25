@@ -46,11 +46,16 @@ export function describeWeatherCode(code) {
 // resolveLiveLine()) awaits it directly -- a single hung request here froze
 // the entire shared production queue indefinitely with no error logged,
 // exactly like the un-timed-out LM Studio call in src/llm/client.js.
-// Units default to the station's historical US settings (fahrenheit/mph) so
-// the AI path's spoken lines keep their facts; the auto-radio template path
-// passes celsius/kmh explicitly (see auto/liveLines.js) since its Slovenian
-// templates read "°C" and "km/h" literally.
-export async function fetchCurrentWeather({ temperatureUnit = 'fahrenheit', windSpeedUnit = 'mph' } = {}) {
+// Units default to metric (celsius/kmh): the station is Slovenian and every
+// spoken surface speaks metric -- the auto-radio templates read "°C" and
+// "km/h" literally (DEFAULT_TEMPLATES.live.weather, auto/templates.js) and
+// the AI live segments state the same labels (director/liveSegments.js's
+// fact line). The auto path's explicit celsius/kmh params (auto/liveLines.js)
+// are therefore redundant but kept deliberately -- self-documenting at the
+// call site. /api/weather passes its own temperatureUnit from
+// config.weather.temperatureUnit either way (server/weatherApi.js), so the
+// public page is unaffected by this default.
+export async function fetchCurrentWeather({ temperatureUnit = 'celsius', windSpeedUnit = 'kmh' } = {}) {
   const { url, latitude, longitude, timezone } = config.weather;
   const qs = new URLSearchParams({
     latitude: String(latitude),

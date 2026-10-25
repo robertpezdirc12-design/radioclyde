@@ -397,6 +397,16 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Naslednja oddaja po urniku -- informativna vrstica pod DJ-jem: tišja od
+   naslova in podnaslova (dopolnilo, ne tekmec trenutni skladbi), a berljiva
+   na prvi pogled. */
+.hero-next {
+  margin: 6px 0 0;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
 .hero-progress { margin-top: 16px; max-width: 460px; }
 .progress-bar { height: 6px; border-radius: 999px; background: var(--progress-track); overflow: hidden; }
 .progress-fill {

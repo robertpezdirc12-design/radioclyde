@@ -32,13 +32,15 @@
 // modes are exactly "normal" | "random" | "randomize" (invalid -> severe log
 // + randomize); "randomize" shuffles at load, on every watch reload AND on
 // every loop (randomize() is applied in reload() and in the loop branch), so
-// wheel order only survives with mode="normal" -- a one-word operator edit
-// documented next to filler_source in radio.liq. normal() takes list head ->
+// wheel order only survives with mode="normal". normal() takes list head ->
 // tail in written order and replays the same order on loop; watch reload
-// swaps in the freshly written file's order at the next track boundary. With
-// the shipped mode="randomize" the wheel is still WRITTEN correctly (this
-// module + tests), it just gets scrambled before air -- runClockwheel logs a
-// standing reminder on every regeneration so the mismatch can't hide.
+// swaps in the freshly written file's order at the next track boundary. The
+// repo's radio.liq ships filler_source with mode="normal" (Paket A1,
+// docs/programming-research.md §5), so the written wheel order reaches air.
+// A DEPLOYED radio.liq from an older install may still carry
+// mode="randomize" -- deploy/ubuntu/install.sh only writes that file on
+// first install -- and would scramble the wheel before air; runClockwheel
+// logs one compatibility line per regeneration so that mismatch can't hide.
 //
 // Everything is plain data + plain functions -- no model anywhere. The whole
 // feature degrades honestly: no config.filler.clockwheel block = exactly the
@@ -250,7 +252,7 @@ export function walkWheel(steps, queues, targetCount = Number.POSITIVE_INFINITY)
 // track list (length <= poolSize), or null when the resolved wheel is empty
 // (caller falls back to the plain rotation path). All degradation is visible
 // in the log: which daypart won, dropped entry counts, per-pool yields, and
-// the standing mode="normal" reminder.
+// the deployed-radio.liq compatibility line.
 export function runClockwheel({ eligible, wheel, rot, counts, poolSize, now = Date.now() }) {
   const resolved = daypartSteps(wheel, now);
   if (!resolved || resolved.steps.length === 0) return null;
@@ -279,8 +281,8 @@ export function runClockwheel({ eligible, wheel, rot, counts, poolSize, now = Da
     log(`clockwheel: pool(s) [${missing.join(', ')}] contributed no tracks (unknown step name, empty pool, or caps)`);
   }
   log(
-    'clockwheel: NOTE -- wheel order reaches air only with the filler playlist in mode="normal" ' +
-      '(radio.liq); mode="randomize" reshuffles every reload and destroys the sequence.'
+    'clockwheel: wheel order plays as written (radio.liq filler_source mode="normal"); ' +
+      'an older deployed radio.liq still on mode="randomize" scrambles it before air.'
   );
   return ordered;
 }

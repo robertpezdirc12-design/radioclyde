@@ -343,3 +343,51 @@ describe('filler integration (end-to-end, real WAV library in genre folders)', (
     }
   });
 });
+
+// Wheel AUDIBILITY (Paket A1, docs/programming-research.md §5): everything
+// above proves the wheel is WRITTEN correctly into filler.m3u; these pins
+// prove the Liquidsoap side actually PLAYS that written order. Liquidsoap
+// can't run in CI, so (same comment-stripping approach as
+// radioLiqImaging.test.mjs) the test scans radio.liq's SOURCE and pins the
+// playlist mode contract:
+//   - filler_source must be mode="normal" -- verified against this build's
+//     src/libs/playlist.liq, "randomize" shuffles at load, on every watch
+//     reload AND on every loop, destroying the wheel sequence before air;
+//   - the stinger and hour-ID pools must STAY mode="randomize" -- a random
+//     pick from a pool of short clips is the correct behavior there, and
+//     this pin exists so a future "make everything normal" edit fails loudly
+//     instead of silently;
+//   - the emergency bed must stay mode="normal" (it loops one clip);
+//   - deploy/ubuntu/install.sh writes its own simplified radio.liq on first
+//     install -- its filler_source must not drift from the repo copy.
+describe('wheel audibility (radio.liq mode contract)', () => {
+  // Same stripping as test/radioLiqImaging.test.mjs: radio.liq's comments
+  // deliberately NAME the modes ("randomize shuffles at load...", "stays
+  // mode=normal because it loops") -- those mentions are documentation, not
+  // code, so every assertion runs against comment-free source only.
+  const stripComments = (raw) =>
+    raw
+      .split('\n')
+      .map((line) => line.replace(/#.*$/, ''))
+      .join('\n');
+
+  const liq = stripComments(fs.readFileSync(path.join(repoRoot(), 'liquidsoap', 'radio.liq'), 'utf8'));
+
+  test('filler_source is mode="normal" -- the written wheel order reaches air', () => {
+    assert.match(liq, /filler_source = playlist\(reload_mode="watch", mode="normal", config\.dataDir \^ "\/filler\.m3u"\)/);
+  });
+
+  test('stingers and the hour ID stay mode="randomize" (random pick from a clip pool is correct)', () => {
+    assert.match(liq, /stinger_source = playlist\(id="imaging_stingers", reload_mode="watch", mode="randomize"/);
+    assert.match(liq, /id_source = playlist\(id="imaging_id", reload_mode="watch", mode="randomize"/);
+  });
+
+  test('the emergency bed stays mode="normal" (one recognizable clip, looped)', () => {
+    assert.match(liq, /emergency_source = playlist\(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,/);
+  });
+
+  test('install.sh writes the same filler_source mode="normal" (the two radio.liq copies cannot drift)', () => {
+    const sh = stripComments(fs.readFileSync(path.join(repoRoot(), 'deploy', 'ubuntu', 'install.sh'), 'utf8'));
+    assert.match(sh, /filler_source = playlist\(id="filler_source", reload_mode="watch", mode="normal", "\/opt\/radioclyde\/data\/filler\.m3u"\)/);
+  });
+});

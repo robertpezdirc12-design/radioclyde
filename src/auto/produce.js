@@ -27,7 +27,7 @@ import { parseShowBrief } from '../producer/showBrief.js';
 import { recordPlayed } from '../producer/history.js';
 import { produceTrackQueryDeterministic, parseBriefRubrics } from './briefQuery.js';
 import { listGenreTagsAny, listAlbumGenreTagsAny } from './librarySource.js';
-import { artistCooldownFilter, popularityShare, timeBlockKey } from './rules.js';
+import { artistCooldownFilter, popularityShare, timeBlockKey, blockGenrePreference } from './rules.js';
 import { buildSegmentsAuto } from './scriptBuilder.js';
 import { collectRubricData } from './feeds.js';
 import { collectArtistTrivia } from './trivia.js';
@@ -63,6 +63,20 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   });
   debug.trackQuery = query;
 
+  // ONE block resolution per production run, BEFORE Phase A's selection: the
+  // same wall-clock truth feeds both the genre steering (preferredGenres
+  // below) and, via buildSegmentsAuto's block parameter, the open/close
+  // greeting variants. Resolving it once here -- not inside renderSlot (which
+  // resolves nothing) and not per slot -- means track selection and speech
+  // can never disagree about what time of day it is. Honest caveat carried
+  // from rules.js's blockGenrePreference: this is the PRODUCTION-time block
+  // (prewarm runs in the downtime window before the slot), not the airtime
+  // block, which is exactly the semantics the greeting variants have always
+  // documented.
+  const block = timeBlockKey();
+  debug.timeBlock = block;
+  const preferredGenres = blockGenrePreference(block);
+
   const cooldown = artistCooldownFilter();
   debug.cooldownHours = cooldown.cooldownHours;
   const popularShare = popularityShare();
@@ -71,14 +85,20 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   // Selection names a saved block, the block IS the selection -- its own
   // criteria/limit/order expand deterministically instead of the generic
   // duration-fitting queue. Deliberately NOT layered with the auto rules
-  // (cooldown/popularShare/decadeSpread): those rewrite a themed selection
-  // to fight repetition across a whole schedule, while a block is an
-  // operator-curated unit whose exact shape is the point -- same reason
-  // LibreTime smart blocks don't get auto-alterations. Same eligibility
+  // (cooldown/popularShare/decadeSpread/preferredGenres): those rewrite a
+  // themed selection to fight repetition across a whole schedule, while a
+  // block is an operator-curated unit whose exact shape is the point -- same
+  // reason LibreTime smart blocks don't get auto-alterations. Same eligibility
   // rules still apply underneath (recently-played, neverPlay, dedupe,
   // durations), so a block can never schedule what a show could not.
   let trackQueueResult;
   if (query.smartBlock) {
+    // NOTE: this branch's `block` (the saved smart block) deliberately
+    // shadows the time-of-day `block` resolved above -- the smart-block path
+    // takes none of the auto rules, so the time-of-day block is simply not
+    // this branch's business. Renaming it would break test/smartBlocks.test.mjs's
+    // structural pin on the expandSmartBlock call, so the shadow stays, with
+    // this comment as the guardrail.
     const block = findSmartBlock(query.smartBlock);
     if (!block) {
       const available = smartBlocksConfig().map((b) => b.name).join(', ') || '(none defined)';
@@ -99,6 +119,7 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
       excludeArtists: cooldown.excludeArtists,
       popularShare,
       decadeSpread: config.autoRadio?.rules?.decadeSpread ?? true,
+      preferredGenres,
     });
   }
   debug.trackQueueResult = {
@@ -113,6 +134,15 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
     smartBlock: trackQueueResult.block?.name ?? null,
     shortfall: trackQueueResult.shortfall ?? null,
     limitNote: trackQueueResult.limitNote ?? null,
+    // A4 steering outcome -- null when no preference was configured (or the
+    // smart-block branch ran, which deliberately takes no auto rules), so the
+    // debug transcript stays honest for AI-parity debugging: an auto run and
+    // an AI run with the same inputs differ by exactly what these say.
+    preferredGenres: trackQueueResult.preferredGenres ?? null,
+    genrePoolMatched: trackQueueResult.genrePoolMatched ?? null,
+    genreSteeringApplied: trackQueueResult.genreSteeringApplied ?? null,
+    genrePoolBefore: trackQueueResult.genrePoolBefore ?? null,
+    genreNeededCount: trackQueueResult.genreNeededCount ?? null,
   };
   const tracks = trackQueueResult.tracks;
   if (tracks.length === 0) {
@@ -120,12 +150,20 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
   }
   log(
     `[${id}] Phase A done (auto): ${tracks.length} tracks, cooldown excluded ${debug.trackQueueResult.cooldownExcluded}, ` +
-      `pool ${trackQueueResult.poolSize}.`
+      `pool ${trackQueueResult.poolSize}` +
+      // Only the generic queue branch reports steering fields: a smart block
+      // deliberately takes none of the auto rules, so it must not log a
+      // misleading "skipped (null matches)" line just because a preference
+      // happens to be configured for that part of the day.
+      (!query.smartBlock && preferredGenres.length > 0
+        ? debug.trackQueueResult.genreSteeringApplied
+          ? `, genre steering applied ${debug.trackQueueResult.genrePoolBefore} -> ${debug.trackQueueResult.genrePoolMatched}`
+          : `, genre steering skipped (${debug.trackQueueResult.genrePoolMatched} matches < ~${debug.trackQueueResult.genreNeededCount} needed)`
+        : '') +
+      '.'
   );
 
   log(`[${id}] Phase C+D (auto): rendering template segments...`);
-  const block = timeBlockKey();
-  debug.timeBlock = block;
 
   // Phase B' -- rubrics (ARSO weather / RTV sport / Wikidata on-this-day /
   // P4 #19 music on-this-day), requested by the brief's "Rubrikes:" line.
@@ -168,7 +206,7 @@ export async function runAutoProducerPipeline({ id, descriptionText, durationMin
       (debug.rubrics.resolved.listeners != null ? `, poslusalci=${debug.rubrics.resolved.listeners}` : ''));
   }
 
-  const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData });
+  const { segments } = buildSegmentsAuto({ tracks, brief, showId: id, date, rubricData, block });
   debug.segments = segments.length;
   log(`[${id}] Phase D done (auto): ${segments.length} segments assembled (time block: ${block ?? 'n/a'}).`);
 

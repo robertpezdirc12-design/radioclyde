@@ -21,6 +21,7 @@ const els = {
   trackTitle: $('track-title'),
   trackArtist: $('track-artist'),
   djTalking: $('dj-talking'),
+  heroNext: $('hero-next'),
   progress: $('track-progress'),
   progressFill: $('track-progress-fill'),
   elapsed: $('track-elapsed'),
@@ -488,6 +489,32 @@ function upcomingRow(show) {
   return li;
 }
 
+// Hero "next up" line -- the FIRST row of the same /api/upcoming response
+// the list below renders, so the hero announcement costs no extra request.
+// shows[0] is genuinely the next show to START (nextOccurrences skips today's
+// already-started slots), which is exactly what a listener glancing at the
+// hero wants to know. Honest degradation mirrors the rest of the hero: an
+// empty schedule hides the line; a transient fetch failure keeps the last
+// state (the catch branch never touches it).
+function renderHeroNext(show) {
+  if (!show || !show.name) {
+    els.heroNext.hidden = true;
+    return;
+  }
+  let when;
+  const day = new Date(`${show.date}T${show.startTime}:00`);
+  if (Number.isNaN(day.getTime())) {
+    when = `${show.weekday} ${show.startTime}`;
+  } else {
+    // Same wall-clock rendering as upcomingRow: the station-local timestamp
+    // parsed without a zone suffix displays as the same wall time in any
+    // listener timezone -- no silent conversion either way.
+    when = day.toLocaleString('sl-SI', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  els.heroNext.textContent = `Naprej: ${show.name} — ${when}`;
+  els.heroNext.hidden = false;
+}
+
 async function fetchUpcoming() {
   const mine = upcomingSeq.next();
   try {
@@ -498,6 +525,7 @@ async function fetchUpcoming() {
     els.upcomingList.replaceChildren(...(shows ?? []).map(upcomingRow));
     show(els.upcomingEmpty, (shows ?? []).length === 0);
     show(els.upcomingError, false);
+    renderHeroNext((shows ?? [])[0]);
   } catch {
     if (upcomingSeq.isNewest(mine)) show(els.upcomingError, true);
   }

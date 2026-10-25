@@ -255,7 +255,7 @@ Arhiv vsebuje **PLAINTEXT gesla** (studio, icecast, plex, lastfm) **in VAPID zas
 | vir | datoteka | način |
 |---|---|---|
 | `show_source` | `data/now_playing.m3u` | `mode="normal"`, `loop=false` — ena producirana oddaja; ko se izprazni, preide na filler |
-| `filler_source` | `data/filler.m3u` | `mode="randomize"` — glasba med oddajami; razporejevalnik jo obnavlja |
+| `filler_source` | `data/filler.m3u` | `mode="normal"` — glasba med oddajami v zapisanem vrstnem redu (nastavljeno kolo kvadrantov je tako slišno); razporejevalnik jo obnavlja in vsaka regeneracija vrstni red znova premeša |
 
 `fallback([show_source, filler_source])` pomeni: **producirana oddaja gre v eter, takoj ko obstaja**; filler pokrije le vrzeli. Če vaš `radio.liq` ima *samo* `filler.m3u` (kot starejša različica `install.sh`), urnik nikoli ne pride v eter in poslušalci slišijo isto neskončno zankco — točno to je bil prijavljen problem ponavljanja.
 

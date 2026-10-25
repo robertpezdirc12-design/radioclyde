@@ -88,25 +88,31 @@ show_source = playlist(id="show_source", reload_mode="watch", mode="normal", loo
 # actually fixed upstream first.
 show_source = fade.in(duration=0., show_source)
 
-# Off-air filler: a big shuffled pool from the whole music library
-# (scheduler/generateFillerPlaylist.js, regenerated periodically by scheduler/scheduler.js),
-# no DJ talk. mode="randomize" so it doesn't play the same order every time
-# it loops back around. Same fade-up-only annotate as show_source's tracks.
-#
-# Clockwheel (P2 #10, docs/ready-made-scripts-analysis.md §4.5): when
-# config.json defines filler.clockwheel, the Node scheduler writes THIS file
-# in strict wheel order (steps -> named pools, N tracks per step, dayparts).
-# A wheel is only audible with mode="normal" here -- verified against this
+# Off-air filler: a big pool from the whole music library
+# (scheduler/generateFillerPlaylist.js, regenerated on the scheduler's filler
+# cadence -- default every 6h, config.filler.regenerateIntervalMinutes),
+# no DJ talk. mode="normal" (Paket A1, docs/programming-research.md §5): the
+# file's WRITTEN order plays exactly as written. Two honest behaviors:
+#   - With config.filler.clockwheel configured (P2 #10,
+#     docs/ready-made-scripts-analysis.md §4.5) the Node scheduler writes
+#     THIS file in strict wheel order (steps -> named pools, N tracks per
+#     step, dayparts), and that daypart sequence is finally AUDIBLE on air.
+#   - Without a clockwheel block it is the plain weighted-shuffle pool --
+#     also played in written order.
+# Variety comes from REGENERATION, not from the mode: every regeneration
+# reshuffles the plain pool / re-walks the wheel, and the swap lands at the
+# next track boundary via reload_mode="watch". Honest caveat: looping before
+# the next regeneration replays the same written sequence -- default
+# poolSize 200 (~13h of music) vs the 6h cadence means a full loop rarely
+# completes, but a small library loops audibly sooner (the backfill keeps
+# the pool full -- see generateFillerPlaylist.js). Verified against this
 # build's src/libs/playlist.liq: "randomize" shuffles at load, on every
-# watch reload AND on every loop, so it would scramble the wheel sequence
-# before air (generateFillerPlaylist logs a standing reminder while a wheel
-# is configured). To enable, flip ONE word on the next line:
-# filler_source = playlist(reload_mode="watch", mode="normal", config.dataDir ^ "/filler.m3u")
-# With mode="normal" the written order plays as written; each regeneration
-# swaps in the new file's order at the next track boundary, and looping
-# before the next regeneration replays the same written sequence (Node
-# reshuffles every regeneration, which is where the variety comes from).
-filler_source = playlist(reload_mode="watch", mode="randomize", config.dataDir ^ "/filler.m3u")
+# watch reload AND on every loop, so it must not return here -- it would
+# scramble the wheel sequence before air; random picking stays CORRECT for
+# the short-clip pools below (stingers, hour ID), and the emergency bed
+# stays mode="normal" because it loops. Same fade-up-only annotate as
+# show_source's tracks.
+filler_source = playlist(reload_mode="watch", mode="normal", config.dataDir ^ "/filler.m3u")
 filler_source = fade.in(duration=0., filler_source)
 
 # fallback() plays show_source whenever it has queued content and drops to

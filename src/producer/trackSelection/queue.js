@@ -13,6 +13,7 @@ import { dedupeByTitle, isBannedTrack, matchesExcludedKeyword, popularityWeight,
 import { recentlyPlayedRatingKeys, recentlyPlayedAlbumKeys, recentlyPlayedAlbumTitles, albumKey } from '../history.js';
 import { shuffle } from '../../lib/format.js';
 import { loadNeverPlay } from '../../scheduler/scheduleUtil.js';
+import { fold } from '../../scheduler/rotationRules.js';
 import { createLogger } from '../../lib/logger.js';
 
 const log = createLogger('station');
@@ -231,6 +232,40 @@ export async function buildSingleAlbumTrackQueue({
   throw lastError ?? new Error(`Could not find a suitable album after ${maxAlbumAttempts} attempts.`);
 }
 
+// Time-of-day genre steering (Val 20, A4 -- the activation of the
+// preferredGenres field auto/rules.js's blockGenrePreference has carried since
+// the auto rules were written). PURE on purpose: buildTrackQueue only decides
+// WHEN to call it and what neededCount to pass; everything a test (or a future
+// consumer) needs to reason about lives in the return value.
+//
+// Semantics, all of them soft:
+//   - preferredGenres is ANY-OF against track.genre[]: a track matching any
+//     one preferred genre survives. Matching is folded (case- and
+//     diacritics-insensitive) via rotationRules.js's fold() -- the exact same
+//     normalization clockwheel.js's poolMatches uses for its genres filter, so
+//     "Rock" in a config and "rock" on a tag (or "Šanson" vs "sanson") land
+//     in one group everywhere a genre is compared in this repo.
+//   - A track with no/empty .genre never matches -- it simply falls to the
+//     give-up side when the pool is thin, it is never "assumed" into the
+//     preference.
+//   - neededCount comes from the CALLER (buildTrackQueue's average-duration
+//     estimate, see below); matching < neededCount is an honest give-up with
+//     the pool untouched: the brief's own identity (its artist/genre/decade
+//     query) always wins over the block's mood.
+// Returns { pool, matched, applied } -- pool is the ORIGINAL array (same
+// identity) whenever applied is false, so the no-op paths are exact.
+export function narrowPoolByPreferredGenres(eligible, preferredGenres, neededCount) {
+  if (!Array.isArray(preferredGenres) || preferredGenres.length === 0 || !eligible?.length) {
+    return { pool: eligible, matched: 0, applied: false };
+  }
+  const wanted = preferredGenres.map(fold);
+  const matching = eligible.filter((t) => (Array.isArray(t.genre) ? t.genre : []).some((g) => wanted.includes(fold(g))));
+  if (matching.length < neededCount) {
+    return { pool: eligible, matched: matching.length, applied: false };
+  }
+  return { pool: matching, matched: matching.length, applied: true };
+}
+
 export async function buildTrackQueue({
   artist,
   genre,
@@ -260,9 +295,20 @@ export async function buildTrackQueue({
   //     popular half (median popularityWeight split), e.g. 0.7 = ~70/30 mix.
   //   decadeSpread -- round-robin the ordered candidates across decades so a
   //     multi-decade pool alternates instead of weighted-shuffle clumping.
+  //   preferredGenres -- array of genre strings (auto/rules.js's
+  //     blockGenrePreference, resolved by produce.js from the production-time
+  //     time-of-day block): soft steering that narrows the eligible pool to
+  //     tracks matching ANY preferred genre (folded, case-insensitive --
+  //     narrowPoolByPreferredGenres above). Gives up immediately (pool
+  //     untouched, honest log line) when the matching pool is too small to
+  //     fill the show's estimated track need; the outcome is reported back as
+  //     genrePoolMatched / genreSteeringApplied. Single-album shows never see
+  //     it: the early-return path above runs before any of these rules, and a
+  //     one-record show's shape IS the point.
   excludeArtists = null,
   popularShare = null,
   decadeSpread = false,
+  preferredGenres = [],
 } = {}) {
   if (singleAlbum) {
     return buildSingleAlbumTrackQueue({
@@ -328,6 +374,56 @@ export async function buildTrackQueue({
     cooldownBypassed = true;
     log(`buildTrackQueue: artist cooldown starved the pool -- retrying without it (${eligible.length} candidate(s) still available).`);
   }
+  // Captured BEFORE genre steering can replace `eligible` below: the
+  // cooldownExcluded report in the return must stay about the COOLDOWN only,
+  // not accidentally absorb the genre narrowing's count (poolSize,
+  // deliberately, does describe the final steered pool selection draws from).
+  const poolAfterCooldown = eligible.length;
+
+  // Time-of-day genre steering (A4): the production-time block's preferred
+  // genres narrow the candidate pool BEFORE any ordering/selection happens,
+  // so every downstream rule (weighted shuffle, decade spread, popularity
+  // walkers, duration fitting) works on the steered pool. Soft, never a hard
+  // ban: when the matching pool cannot fill the show, the narrowing gives up
+  // (and logs it) and the brief's own identity wins.
+  //
+  // neededCount is an average-duration ESTIMATE of how many tracks the show
+  // consumes -- Math.ceil(targetMs / (avgDurationMs + overheadMs)) over the
+  // FULL eligible pool -- padded by +2: the estimate is a guess from average
+  // durations, and a narrowed pool that only just fits would still shorten
+  // shows whenever the real durations drawn run long, so the margin keeps a
+  // "fits on paper" pool from becoming an on-air shortfall. avgDurationMs is
+  // computed over the full (pre-narrowing) pool deliberately: the estimate
+  // must describe the show's track budget, not the subset we are about to
+  // test for sufficiency (which would beg the question).
+  const targetMs = targetDurationMinutes * 60 * 1000;
+  const overheadMs = djOverheadSeconds * 1000;
+  const preferredConfigured = Array.isArray(preferredGenres) && preferredGenres.length > 0;
+  let genrePoolMatched = 0;
+  let genreSteeringApplied = false;
+  let genrePoolBefore = poolAfterCooldown;
+  let genreNeededCount = null;
+  if (preferredConfigured && eligible.length > 0) {
+    const avgDurationMs = eligible.reduce((sum, t) => sum + (t.durationMs ?? 0), 0) / eligible.length;
+    genreNeededCount = Math.ceil(targetMs / (avgDurationMs + overheadMs)) + 2;
+    const narrowed = narrowPoolByPreferredGenres(eligible, preferredGenres, genreNeededCount);
+    if (narrowed.applied) {
+      eligible = narrowed.pool;
+      log(
+        `buildTrackQueue: time-of-day genre steering narrowed the pool ${genrePoolBefore} -> ${eligible.length} (preferred: ${preferredGenres.join(', ')}).`
+      );
+    } else if (narrowed.matched > 0) {
+      // Honest give-up: the matching pool is real but too small to fill the
+      // show, so the preference is skipped entirely (pool untouched) -- a
+      // half-applied preference would skew the mix without delivering the
+      // block's mood, which is the worst of both worlds.
+      log(
+        `buildTrackQueue: time-of-day genre steering skipped -- matching pool (${narrowed.matched} track(s)) is too small to fill the show (~${genreNeededCount} needed); the brief's own selection stands (preferred: ${preferredGenres.join(', ')}).`
+      );
+    }
+    genrePoolMatched = narrowed.matched;
+    genreSteeringApplied = narrowed.applied;
+  }
 
   let ordered = weightPopular ? weightedShuffle(eligible, popularityWeight) : shuffle(eligible);
 
@@ -377,8 +473,6 @@ export async function buildTrackQueue({
     }
   }
 
-  const targetMs = targetDurationMinutes * 60 * 1000;
-  const overheadMs = djOverheadSeconds * 1000;
   const usedArtists = new Set();
   const usedAlbums = new Set();
   const selected = [];
@@ -434,11 +528,20 @@ export async function buildTrackQueue({
     poolSize: eligible.length,
     ...(excludeArtists?.size
       ? {
-          cooldownExcluded: cooldownBypassed ? 0 : withoutCooldown.length - eligible.length,
+          cooldownExcluded: cooldownBypassed ? 0 : withoutCooldown.length - poolAfterCooldown,
           cooldownBypassed,
         }
       : {}),
     ...(popularShare != null ? { popularShare } : {}),
     ...(decadeSpread ? { decadeSpread: true } : {}),
+    // Same conditional-spread stance as the rules above: the steering fields
+    // exist only when a preference was actually configured, so an ordinary
+    // (non-steered) queue keeps its exact pre-A4 shape. genrePoolBefore and
+    // genreNeededCount ride along so produce.js's Phase A summary can state
+    // the real numbers ("120 -> 40", "12 matches < ~22 needed") instead of
+    // restating what its own log already said less precisely.
+    ...(preferredConfigured
+      ? { preferredGenres, genrePoolMatched, genreSteeringApplied, genrePoolBefore, genreNeededCount }
+      : {}),
   };
 }

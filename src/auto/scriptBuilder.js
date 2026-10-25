@@ -13,6 +13,7 @@
 // layer (auto/voice.js, clips mode) uses it to pick which pre-recorded clip
 // plays -- the clip and the transcript line stay in sync by construction.
 import { renderSlot, trackValues, currentValues, showName } from './templates.js';
+import { timeBlockKey } from './rules.js';
 
 // Every dj segment carries the EXACT seed its template variant was drawn
 // with (script/format.js persists it as a `seed:` field; director/index.js
@@ -293,7 +294,21 @@ function triviaSegments({ trivia, track, index, persona, commonValues, showId, d
   return segments;
 }
 
-export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = null }) {
+export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = null, block: blockParam }) {
+  // The time-of-day block, resolved ONCE per show build. The wall-clock truth
+  // lives at PRODUCE time: produce.js resolves it before Phase A and passes it
+  // in, so the genre steering and the open/close greeting variants share one
+  // resolution and can never disagree about what part of the day it is.
+  // renderSlot itself does NO block resolution -- it only reads the block it
+  // is handed (or values.block) -- so a caller that skips the parameter would
+  // silently fall back to the default greeting pools. The timeBlockKey()
+  // fallback below keeps such standalone callers (tests, preview tooling)
+  // honest instead: the block is still the caller's wall clock, just resolved
+  // here rather than earlier. Production-time, not airtime: prewarm runs in
+  // the downtime window before the slot (see rules.js's blockGenrePreference
+  // for the same caveat).
+  const block = blockParam ?? timeBlockKey();
+
   const segments = [];
   const n = tracks.length;
 
@@ -335,7 +350,9 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     seed: openSeed,
     body: renderSlot('open', {
       values: commonValues(),
-      block: undefined, // resolved inside renderSlot from the wall clock
+      // Production-time block, resolved once at the top of this build -- the
+      // only source a block-pooled slot (open/close) ever gets its block from.
+      block,
       seed: openSeed,
     }),
   });
@@ -468,7 +485,10 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     seed: closeSeed,
     body: renderSlot('close', {
       values: commonValues(),
-      block: undefined,
+      // Same single production-time resolution as the open slot above --
+      // open and close bookend ONE show, so they must speak the same part of
+      // the day even if the show is produced long before it airs.
+      block,
       seed: closeSeed,
     }),
   });

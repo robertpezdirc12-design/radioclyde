@@ -94,8 +94,17 @@ Vse pravile so neobvezna; privzete vrednosti so navedene v oklepaju.
   zgostil v eno.
 - **`timeOfDayBlocks`** — preslikava ure v blok (jutro/dan/večer/noč,
   prehodi čez polnoč so pravilni). Blok določa, katero različico pozdrava
-  izgovori DJ (glej predloge); bloku se lahko doda tudi `preferredGenres`
-  kot mehko žanrsko usmerjanje za prihodnost.
+  izgovori DJ (glej predloge); njegov neobvezni `preferredGenres`
+  (npr. `"night": { "preferredGenres": ["Instrumental"] }`) pa je aktivno
+  mehko žanrsko usmerjanje: žanri bloka zožijo bazen kandidatov na skladbe,
+  ki ustrezajo kateremu koli od njih (ujemanje neodvisno od velikosti črk in
+  diakritikov). Ko ustreznih skladb ni dovolj, da bi napolnile ocenjeno
+  potrebo oddaje po številu skladb, zožitev takoj odneha — in to pošteno
+  zabeleži —; briefova lastna izbira vedno zmaga nad razpoloženjem bloka,
+  žanrski filter ni nikoli trdna prepoved. Blok se razreši ob produkciji
+  (predgretje teče v oknu mrtvega časa pred slotom, torej produkcijska ura,
+  ne ura predvajanja) — enaka semantika kot različice pozdravov, ki zdaj
+  resnično pridejo na zrak.
 
 Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 (posamezna skladba), `neverPlay` (station.json), trajanjske omejitve briefa
@@ -330,7 +339,9 @@ izmenjujejo brez modela. Vrednosti, ki jih lahko uporabiš:
 | `{condition}` / `{temp}` / `{wind}` | vreme (slovensko, °C, km/h) |
 
 Sloti: `open` in `close` imajo tudi različice po časovnih blokih
-(`morning`/`daytime`/`evening`/`night` + `default`); `recap` se sam odloči
+(`morning`/`daytime`/`evening`/`night` + `default`) — različico izbere blok,
+razrešen ob produkciji (`scriptBuilder` ga razreši enkrat na izgradnjo
+oddaje, isti blok kot žanrsko usmerjanje); `recap` se sam odloči
 med različicami z albumom+letom, samo letom ali splošno — glede na to, kaj
 knjižnica res ve. Preprost kviz (ugibanje leta) uporablja `quizIntro` in
 `quizReveal`.
@@ -996,8 +1007,6 @@ način, da izpis ostane determinističen).
 
 - `artistList` teme ostajajo ročne (brez modela ni razširjanja konceptov).
 - `singleAlbum` v lokalnem načinu ni podprt (Plex albumni metadata).
-- Bloki še ne vplivajo na izbiro žanrov (`preferredGenres` je pripravljeno
-  polje, uporabe še ni).
 - Popolna determiniranost zaporedja je zavestno zmehčana: izbira uporablja
   naključni miks znotraj pravil (kot prej), le različice predlog in posnetkov
   so povsem odločene z zgoščevalom.
