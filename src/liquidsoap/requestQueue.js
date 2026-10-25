@@ -24,6 +24,7 @@ import { fetchAllTracksAny } from '../auto/librarySource.js';
 import { toLocalPath } from '../plex/musicLibrary.js';
 import { mergeTrackRatingKeys } from '../plex/ratingKeyIndex.js';
 import { getRequest, updateRequestStatus } from '../server/requestsStore.js';
+import { prefetchLyrics } from '../lyrics/lyricsService.js';
 
 const log = createLogger('station');
 
@@ -136,6 +137,11 @@ export async function queueRequest(id) {
       return pushed;
     }
     note(`V predvajalni vrsti (Liquidsoap request #${pushed.requestId}) -- zaigra na naslednji meji skladbe.`);
+    // The request airs at the NEXT track boundary -- minutes away at most:
+    // start its owed lyric lookup now (flag-gated, fire-and-forget) so the
+    // answer is likely cached before a listener opens the "Besedila" panel.
+    // Same shared service the /api/lyrics/current route uses in this process.
+    prefetchLyrics([track]);
     return { ok: true, requestId: pushed.requestId, track: { artist: track.artist, title: track.title } };
   } catch (err) {
     const message = `Liquidsoap ni dosegljiv (${err.message}) -- zahtevek ostaja odobren, poskusi znova.`;

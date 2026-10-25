@@ -19,6 +19,7 @@ import * as scheduleUtil from './scheduleUtil.js';
 import { annotateTrackEntry } from '../director/playlist.js';
 import { recentFillerPlays, rotationWindowHours, pruneLedger } from './fillerRotation.js';
 import { clockwheelConfig, runClockwheel } from './clockwheel.js';
+import { prefetchLyrics } from '../lyrics/lyricsService.js';
 import {
   capPerArtist,
   capPerArtistAlbum,
@@ -147,6 +148,20 @@ export async function generateFillerPlaylist() {
     `Wrote filler playlist: ${pool.length} tracks -> ${config.paths.fillerPath} ` +
       `(excluded ${fillerRecentlyAired.size} filler-aired within ${rotationWindowHours()}h)`
   );
+
+  // Enqueue-time lyrics prefetch (the dual-trigger's early half -- inert
+  // unless config.lyrics.prefetch is true): every pool track that still owes
+  // LRCLIB an answer starts its lookup NOW, hours before it airs, on the same
+  // shared service the /api/lyrics/current route uses in this process (one
+  // throttle, one in-flight map). Fire-and-forget: the scheduler's in-process
+  // runs land the lookups in the background; the one-shot CLI's pending
+  // fetches pace its exit (first run only -- a warm cache with the 30-day
+  // recheck starts ~zero lookups). See lyricsService.prefetchLyrics.
+  const lyricsStarted = prefetchLyrics(pool);
+  if (lyricsStarted > 0) {
+    log(`lyrics prefetch: ${lyricsStarted}/${pool.length} pool track(s) owed a lookup -- started now, ahead of airtime`);
+  }
+
   pruneLedger();
   return { trackCount: pool.length };
 }

@@ -82,10 +82,14 @@ describe('filler rotation (hourly repetition regression)', () => {
 
   test('torn ledger lines never crash a regeneration', async () => {
     const ledgerFile = fillerLedgerPath();
+    // playedAt is RELATIVE (an hour ago), not a hard-coded date: a fixed
+    // timestamp silently falls out of the 24 h window once the clock moves
+    // past it (caught live on 2026-10-25 10:09 UTC, when yesterday's
+    // hard-coded 10:00 slipped out) and the test starts failing forever.
     fs.writeFileSync(
       ledgerFile,
       '{"ratingKey":"abc123",\n' + // torn line (simulated interrupted append)
-        '{"ratingKey":"def456","playedAt":"2026-10-24T10:00:00.000Z"}\n'
+        `{"ratingKey":"def456","playedAt":"${new Date(Date.now() - 60 * 60 * 1000).toISOString()}"}\n`
     );
     const recent = recentFillerPlays(24);
     assert.equal(recent.size, 1, 'only the well-formed line counts');

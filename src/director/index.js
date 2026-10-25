@@ -18,6 +18,7 @@ import { resolveLiveLine } from './liveSegments.js';
 import { loadValidatedScript } from './scriptLoader.js';
 import { synthesizeSpeechToPath, getCachedDjAudio } from './djAudio.js';
 import { annotateSpeechEntry, annotateJingleEntry, annotateTrackEntry } from './playlist.js';
+import { prefetchLyrics } from '../lyrics/lyricsService.js';
 
 const log = createLogger('station');
 
@@ -57,6 +58,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
   const speechPersonas = new Map(); // finalized speech path -> ordered, deduped persona names that spoke in it -- feeds annotateSpeechEntry's `dj` field, which is how plex/scrobbleTrack.js's real-time hook (and the web page) knows who's talking.
   let jinglePath = null; // set below if this occurrence has one -- kept separate from speechPaths since it gets its own fade treatment (annotateJingleEntry), not annotateSpeechEntry's
   const ratingKeyEntries = []; // [localPath, ratingKey] for track segments -- feeds the scrobble hook's path->ratingKey lookup
+  const showTracks = []; // the same track segments as OBJECTS -- feeds the enqueue-time lyrics prefetch below (duplicates kept; ensureLyrics dedupes via the in-flight map/cache)
   const liveLog = []; // resolved live-segment text, for the historical record
   const ttsLog = []; // one entry per synthesized/reused clip, with timing
   let liveSeq = 0;
@@ -160,6 +162,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
       const localPath = track.localPath ?? toLocalPath(track.plexPath);
       segments.push(localPath);
       ratingKeyEntries.push([localPath, track.ratingKey]);
+      showTracks.push(track);
     } else if (seg.type === 'dj') {
       speechSegmentSeq++;
       const startedAt = Date.now();
@@ -252,6 +255,17 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // playlist.m3u so the mapping is already in place by the time
   // scheduler/updateNowPlaying.js could pick this occurrence up.
   await mergeTrackRatingKeys(ratingKeyEntries);
+
+  // Enqueue-time lyrics prefetch (flag-gated, default off -- see
+  // lyricsService.prefetchLyrics): this occurrence airs at its scheduled
+  // start, minutes-to-hours from now, so every track that still owes LRCLIB
+  // an answer gets the lookup started while there is still throttle/retry
+  // budget to clear a refusal before airtime. Fire-and-forget on the same
+  // shared service the /api/lyrics/current route uses in this process.
+  const lyricsStarted = prefetchLyrics(showTracks);
+  if (lyricsStarted > 0) {
+    log(`lyrics prefetch: ${lyricsStarted}/${showTracks.length} track(s) of this show owed a lookup -- started now, ahead of airtime`);
+  }
 
   // DJ speech clips carry no ID3/metadata tags of their own (they're raw
   // Chatterbox/ffmpeg output), so plain playlist entries leave Icecast's

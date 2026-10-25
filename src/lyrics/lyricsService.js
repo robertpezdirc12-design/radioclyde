@@ -26,12 +26,16 @@
 //   503             { error: 'lyrics-disabled' } when config.lyrics.enabled
 //                   === false -- TERMINAL, the panel stops polling.
 //
-// Lookup triggers: the route is the REQUIRED lazy trigger (on every hit,
-// resolve the airing track, check cache freshness/backoff, and if an answer
-// is owed, start the lookup and answer pending:true -- never waiting on it).
-// ensureLyrics(entry) is the optional enqueue-time trigger for the
-// orchestrator to wire (minutes before airtime); it lives on the default
-// service so src/director / src/scheduler stay untouched by this module.
+// Lookup triggers (the dual-trigger design): the route is the REQUIRED lazy
+// trigger (on every hit, resolve the airing track, check cache
+// freshness/backoff, and if an answer is owed, start the lookup and answer
+// pending:true -- never waiting on it). prefetchLyrics(tracks) below is the
+// optional enqueue-time half (flag-gated on config.lyrics.prefetch, default
+// OFF) that the orchestrator calls with tracks about to be queued for
+// airtime; ensureLyrics(track) is the single-track primitive it builds on.
+// Both live on the default service so the deployed layout gets ONE shared
+// service (one LRCLIB throttle, one in-flight map, one failure backoff)
+// between the route's lazy lookups and the scheduler-side prefetch.
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { composeNowPlaying } from '../server/nowPlaying.js';
@@ -229,4 +233,43 @@ export function registerLyricsRoute(fastify, { service = defaultService, resolve
 /** The enqueue-time trigger on the shared service (see createLyricsService). */
 export function ensureLyrics(track) {
   return defaultService.ensureLyrics(track);
+}
+
+/** Batch enqueue-time prefetch -- the early half of the dual-trigger design
+ *  (the route above is the lazy half). Call it with the tracks that are ABOUT
+ *  TO BE QUEUED for airtime (the finalized filler pool, a show's track list,
+ *  an approved listener request) and every entry that still owes an answer
+ *  gets its lookup started NOW, minutes-to-hours before it airs, so a
+ *  refused/throttled link has time to clear before the on-air route asks.
+ *
+ *  Gated on config.lyrics.prefetch === true (DEFAULT OFF): existing installs
+ *  stay byte-identical, and the lazy route trigger alone still covers the
+ *  whole contract -- this is a head start, never a requirement. Also inert
+ *  when lyrics.enabled is false (ensureLookup's own first guard).
+ *
+ *  Fire-and-forget by design: each ensureLyrics promise never rejects and
+ *  callers never await. In the deployed layout the scheduler runs inside the
+ *  web-server process, so these lookups share ONE service with the route's
+ *  own lazy lookups (the in-flight map dedupes across both). In a one-shot
+ *  CLI process (generate-filler-playlist, direct-show) the pending fetches
+ *  simply pace that process's exit; steady state (warm cache, 30-day
+ *  recheck) starts ~zero lookups, so the wait is a first-run-only cost.
+ *
+ *  Tracks without a positive durationMs are skipped: the LRCLIB client
+ *  refuses them anyway (nothing tells two cuts apart), and caching a
+ *  definitive miss under the bare song key would be pollution, not an
+ *  answer. Returns how many tracks got an answer in motion -- a fresh start,
+ *  or a JOIN on an already-running lookup when the same cut repeats in the
+ *  batch (ensureLyrics hands out the same in-flight promise; only one
+ *  request ever goes out per key). 0 = nothing owed / flag off / all fresh.
+ *  A number to log, not a promise to await. */
+export function prefetchLyrics(tracks, { service = defaultService } = {}) {
+  if (config.lyrics?.prefetch !== true) return 0;
+  let started = 0;
+  for (const track of Array.isArray(tracks) ? tracks : []) {
+    if (!track?.artist || !track?.title) continue; // ensureLyrics would no-op anyway; keep the count honest
+    if (!(Number(track.durationMs) > 0)) continue;
+    if (service.ensureLyrics(track)) started += 1;
+  }
+  return started;
 }

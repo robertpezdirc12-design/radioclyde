@@ -20,6 +20,7 @@ const {
   createLyricsService,
   registerLyricsRoute,
   ensureLyrics,
+  prefetchLyrics,
   lyricsEnabled,
   songKey,
   cacheKeyFor,
@@ -336,5 +337,98 @@ describe('GET /api/lyrics/current (real now-playing + cache files)', () => {
     const api = fs.readFileSync(`${repoRoot()}/src/server/api.js`, 'utf8');
     assert.match(api, /registerLyricsRoute\(fastify\)/);
     assert.match(api, /lyrics\/lyricsService\.js/);
+  });
+});
+
+// ---------- prefetchLyrics (the enqueue-time half of the dual trigger) ----------
+
+describe('prefetchLyrics (enqueue-time trigger, flag-gated)', () => {
+  test('flag off (the default): nothing starts, even for a fully owed track', async () => {
+    fs.rmSync(lyricsCachePath(), { force: true });
+    assert.equal(config.lyrics, undefined, 'fixtures write no lyrics block -> prefetch defaults off');
+    const client = fakeClient(() => {
+      throw new Error('must not be called');
+    });
+    const service = createLyricsService({ client, now: () => Date.now(), logger: () => {} });
+    assert.equal(prefetchLyrics([TRACK], { service }), 0);
+    assert.equal(client.calls.length, 0);
+    assert.equal(service.lookupInFlight(TRACK.artist, TRACK.title, TRACK.durationMs), false);
+  });
+
+  test('flag on: one lookup per owed track, the duplicate joins it, keyless/durationless junk is skipped, a warm cache starts nothing', async () => {
+    fs.rmSync(lyricsCachePath(), { force: true });
+    config.lyrics = { enabled: true, prefetch: true };
+    try {
+      const client = fakeClient(() => ({ syncedLyrics: SYNCED_LRC, plainLyrics: null, instrumental: false }));
+      const service = createLyricsService({ client, now: () => Date.now(), logger: () => {} });
+      const batch = [
+        TRACK,
+        { ...TRACK }, // same cut: joins the running lookup, never a second request
+        { artist: 'X' }, // no title: not a track we can even key
+        {}, // junk
+        { artist: 'A', title: 'B', durationMs: 0 }, // no duration: the client would refuse it anyway; skipping keeps a definitive miss off the bare song key
+      ];
+      const started = prefetchLyrics(batch, { service });
+      // 2, not 1: the duplicate JOINS the running lookup (ensureLyrics hands
+      // it the same in-flight promise, which is truthy) -- the count is
+      // "tracks whose answer is now in motion", while the request count
+      // below proves only ONE went out.
+      assert.equal(started, 2);
+      assert.ok(await waitFor(() => getCacheEntry(KEY) !== null), 'the prefetch lookup landed in the cache');
+      assert.equal(client.calls.length, 1, 'the duplicate joined the in-flight lookup');
+      // Cached and fresh: the panel's read is instant, pending false.
+      const payload = service.currentLyrics(TRACK);
+      assert.equal(payload.pending, false);
+      assert.equal(payload.lines.length, 3);
+      // A second batch over the same tracks starts nothing at all.
+      assert.equal(prefetchLyrics(batch, { service }), 0);
+      assert.equal(client.calls.length, 1);
+    } finally {
+      config.lyrics = undefined;
+    }
+  });
+
+  test('lyrics.enabled = false wins over prefetch = true (ensureLookup first guard)', async () => {
+    fs.rmSync(lyricsCachePath(), { force: true });
+    config.lyrics = { enabled: false, prefetch: true };
+    try {
+      const client = fakeClient(() => {
+        throw new Error('must not be called');
+      });
+      const service = createLyricsService({ client, now: () => Date.now(), logger: () => {} });
+      assert.equal(prefetchLyrics([TRACK], { service }), 0);
+      assert.equal(client.calls.length, 0);
+    } finally {
+      config.lyrics = undefined;
+    }
+  });
+
+  // Structural, same standard as the radio.liq wiring tests in
+  // requestQueue.test.mjs: the flag defaults OFF in every test process (no
+  // test may touch the network), so the three enqueue call sites are
+  // asserted on source. Their BEHAVIOR is the unit-tested helper above; a
+  // removed or misplaced call is exactly the regression this catches.
+  test('the three enqueue call sites are wired (filler pool / listener request / show tracks)', () => {
+    const filler = fs.readFileSync(`${repoRoot()}/src/scheduler/generateFillerPlaylist.js`, 'utf8');
+    assert.match(filler, /import \{ prefetchLyrics \} from '\.\.\/lyrics\/lyricsService\.js';/);
+    assert.ok(
+      filler.indexOf('fs.renameSync(fillerTmp') < filler.indexOf('prefetchLyrics(pool)'),
+      'prefetch fires only after the atomic playlist swap succeeded'
+    );
+
+    const requests = fs.readFileSync(`${repoRoot()}/src/liquidsoap/requestQueue.js`, 'utf8');
+    assert.match(requests, /import \{ prefetchLyrics \} from '\.\.\/lyrics\/lyricsService\.js';/);
+    assert.ok(
+      requests.indexOf('V predvajalni vrsti') < requests.indexOf('prefetchLyrics([track])'),
+      'prefetch fires only after the queued-note is written (a failed push never prefetches)'
+    );
+
+    const director = fs.readFileSync(`${repoRoot()}/src/director/index.js`, 'utf8');
+    assert.match(director, /import \{ prefetchLyrics \} from '\.\.\/lyrics\/lyricsService\.js';/);
+    assert.match(director, /showTracks\.push\(track\);/);
+    assert.ok(
+      director.indexOf('await mergeTrackRatingKeys(ratingKeyEntries);') < director.indexOf('prefetchLyrics(showTracks)'),
+      'prefetch fires after the scrobble index is fed, exactly where the enqueue moment is'
+    );
   });
 });

@@ -132,13 +132,31 @@ mirujoče, SAMO dokler je panel odprt in glasba na etru.
   ne skriva se).
 - `Cache-Control: no-store` na vseh odgovorih.
 
-Sprožilci iskanja: ruta je OBVEZNI leni sprožilnik (vsak zadetek razreši
-skladbo na etru, preveri predalnik/zamik, sproži iskanje če je dolžno in
-ODGOVORI takoj — nikoli ne čaka na LRCLIB). Dodatno je na voljo
-`ensureLyrics(entry)` iz `src/lyrics/lyricsService.js` kot enqueue-sprožilnik
-(minuti pred etrom, da zavrnitev pride pravočasno prek) — orkestrator ga
-priklene kadarkoli pozneje; `src/director/*` in `src/scheduler/*` tega modula
-NE spreminjajo.
+Sprožilci iskanja (dvojna sprožilnika): ruta je OBVEZNI leni sprožilnik
+(vsak zadetek razreši skladbo na etru, preveri predalnik/zamik, sproži
+iskanje če je dolžno in ODGOVORI takoj — nikoli ne čaka na LRCLIB). Drugi,
+ZGODNJI sprožilnik je `prefetchLyrics(tracks)` iz
+`src/lyrics/lyricsService.js`, ki ga trije enqueue-priključki kličejo s
+tvorijo, ki komaj nastopajo: končni filler pool (`generateFillerPlaylist.js`,
+za atomarno zamenjavo playliste), skladbe režirane oddaje
+(`director/index.js`, za `mergeTrackRatingKeys`) in odobren poslušalski
+zahtevek (`requestQueue.js`, takoj za uspešnim pushom — zaigra na naslednji
+meji skladbe). Vsak dolžni vnos tako dobi iskanje ŽE ob uvrstitvi v vrsto,
+minute do ure pred etrom, da throttle/retry zamik pride pravočasno prek.
+Oba sprožilnika delita ISTI servis (en LRCLIB throttle, ena tabela tekočih
+iskanj, en 10-minutni zamik) — v produkcijski razporeditvi urnik teče v
+procesu spletnega strežnika, zato se lena in zgodnja iskanja dedupirata.
+`ensureLyrics(track)` ostaja primitiv ene skladbe, na katerem je prefetch
+zgrajen.
+
+Vklop zgodnjega sprožilnika: `config.lyrics.prefetch: true` (PRIVZETO
+IZKLOP — obstoje namestitve ostanejo bajtno identične, lena ruta sama
+pokriva celo pogodbo). Pogoj je tudi `lyrics.enabled !== false` (prva
+preverba v `ensureLookup`). Pošteno opomba o enkratnih CLI procesih: `npm
+run generate-filler-playlist` / `direct-show` z vklopljenim prefetchom
+počakata, da tekoča iskanja pridejo do konca (prvič ~velikost poola × 1,1 s;
+topol predalnik s 30-dnevno ponovno preverbo prične ~nič iskanj), urnikov
+in-proces klic pa vse to odvede v ozadju.
 
 ## Zasebnost
 
@@ -161,6 +179,7 @@ ugasne, omrežnih prošenj ni več. Predalnik ostane na disku (brisanje
 | DJ govori / nič na etru | `songId: null`, panel pokaže svoje „zdaj na etru ni skladbe“ |
 | predalnik pokvarjen | beremo kot prazen (fail-open) — vse je spet dolžno |
 | `lyrics.enabled = false` | 503 terminalno, brez prošenj |
+| `lyrics.prefetch` izklopljen (privzeto) | zgodnji sprožilnik mrtv; iskanja sproži samo lena ruta, obnašanje identično staremu |
 
 ## Verifikacija
 

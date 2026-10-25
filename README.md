@@ -430,11 +430,16 @@ prose for humans. The selection section supports:
   [lrclib.net](https://lrclib.net) (keyless, throttled to one request per
   second, 404 = a definitive miss), parsed from LRC into a line timeline,
   cached in `data/lyrics-cache.json` with a 30-day recheck, and served at
-  `GET /api/lyrics/current`. The lookup is lazy — it starts when a listener
-  first opens the "Besedila" panel, which then shows honest pending /
-  no-lyrics / unsynced states while it resolves and follows the on-air track
-  line by line (500 ms clock), with a per-device offset correction for
-  imperfect syncs. Zero new dependencies; `lyrics.enabled: false` switches
+  `GET /api/lyrics/current`. Dual lookup triggers: the required lazy one
+  starts when a listener first opens the "Besedila" panel, which then shows
+  honest pending / no-lyrics / unsynced states while it resolves and follows
+  the on-air track line by line (500 ms clock), with a per-device offset
+  correction for imperfect syncs; the optional enqueue-time one
+  (`lyrics.prefetch: true`, default off) starts every owed lookup the moment
+  a track is queued for airtime — the filler pool, a directed show's track
+  list, an approved listener request — minutes-to-hours before it airs, on
+  the same shared service (one throttle, one in-flight map) as the route.
+  Zero new dependencies; `lyrics.enabled: false` switches
   the layer off honestly — [design](docs/lyrics-lrclib.md).
 - **Scrobbling to Last.fm + ListenBrainz (optional, off by default)**: every
   eligible aired track (Last.fm's own rule — longer than 30 s and at least

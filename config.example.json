@@ -224,7 +224,8 @@
     }
   },
   "lyrics": {
-    "enabled": true
+    "enabled": true,
+    "prefetch": true
   },
   "scripts": {
     "maxToolIterations": 60,
