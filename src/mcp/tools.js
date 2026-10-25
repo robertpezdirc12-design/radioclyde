@@ -11,8 +11,13 @@
 // same config.json (secrets included) the station user already owns. The
 // write-side kill-switch is config.mcp.allowWriteTools: false (tools/list
 // omits every write tool, a direct call is refused with an isError naming
-// it), and mcp.enabled: false refuses to boot at all. If a REMOTE transport
-// ever appears, this decision must be revisited first.
+// it), and mcp.enabled: false refuses to boot at all. The REMOTE transport
+// question this header flagged was revisited in Val 17: a remote transport
+// now EXISTS (src/server/studioMcpApi.js, POST /studio/api/mcp), is
+// default-OFF (mcp.remote.enabled, the web.publicPaths explicit-opt-in
+// precedent) and is gated by the studio Basic realm -- identical trust
+// level to every other studio write route, so it adds no new ceiling
+// beyond the existing /studio HTTP surface.
 //
 // LAYER DISCIPLINE: handlers import the station's existing store/service
 // modules directly -- NEVER the Fastify route registrars as routes, never

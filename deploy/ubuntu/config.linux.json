@@ -110,7 +110,10 @@
   },
   "mcp": {
     "enabled": true,
-    "allowWriteTools": true
+    "allowWriteTools": true,
+    "remote": {
+      "enabled": false
+    }
   },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",

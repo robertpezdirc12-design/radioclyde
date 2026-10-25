@@ -26,6 +26,7 @@ import { registerStudioAnalyticsApi } from './studioAnalyticsApi.js';
 import { registerStudioPodcastRoutes } from './studioPodcastApi.js';
 import { registerStudioPushRoutes } from './studioPushApi.js';
 import { registerStudioArchivesApi } from './studioArchivesApi.js';
+import { registerStudioMcpApi } from './studioMcpApi.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -92,4 +93,14 @@ export async function registerStudioRoutes(fastify) {
   // under <dataDir>/archive/ is the truth, the routes only read/remove
   // whole day dirs -- see studioArchivesApi.js.
   registerStudioArchivesApi(fastify);
+  // Oddaljeni MCP prenos (POST /studio/api/mcp, privzeto izklopljen): edini
+  // studio modul, ki je registriran PREK fastify.register namesto z golo
+  // klicjo. Razlog je encapsulacija: modul znotraj svojega obsega doda LASTEN
+  // nizovni parser za application/json (protocol.js mora biti edini lastnik
+  // JSON-RPC semantik -- pokvarjen JSON odgovori -32700 iz jedra), gola klic
+  // pa bi ta parser razlila na VSE studio rute zgoraj. fastify.register
+  // zgradi svoj obseg (kopija parserjev), predpona /studio se podeduje, pot
+  // znotraj modula je brez lastne predpone (lekcija 17-b) in await ni
+  // potreben -- cel /studio vtičnik se že awaited v index.js.
+  fastify.register(registerStudioMcpApi);
 }

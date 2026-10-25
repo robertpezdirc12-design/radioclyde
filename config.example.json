@@ -231,7 +231,10 @@
   },
   "mcp": {
     "enabled": true,
-    "allowWriteTools": true
+    "allowWriteTools": true,
+    "remote": {
+      "enabled": false
+    }
   },
   "scripts": {
     "defaultRepeatWindowDays": 7

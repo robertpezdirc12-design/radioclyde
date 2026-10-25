@@ -514,13 +514,17 @@ prose for humans. The selection section supports:
   always wins. The PWA shell is cached stale-while-revalidate (`sw.js`),
   so a changed default reaches returning visitors on their second load.
   `embed.html` stays self-contained and unthemed.
-- **MCP server (stdio)**: `npm run mcp` starts a standalone JSON-RPC
-  process (`src/mcp/server.js`) that lets an AI client such as Claude
-  Desktop inspect and control the station — 29 tools (now-playing, history,
-  schedule editing, station meta, polls, request moderation, skip /
+- **MCP server (stdio + remote HTTP)**: `npm run mcp` starts a standalone
+  JSON-RPC process (`src/mcp/server.js`) that lets an AI client such as
+  Claude Desktop inspect and control the station — 29 tools (now-playing,
+  history, schedule editing, station meta, polls, request moderation, skip /
   force-next show, ...) wired straight to the stores the routes use, with
   `mcp.enabled` and `mcp.allowWriteTools` kill-switches in `config.json` and
-  zero new dependencies — [guide (sl)](docs/mcp-server.md).
+  zero new dependencies. For clients that can't launch a local process, the
+  same 29 tools are also reachable over HTTP at `POST /studio/api/mcp`
+  (studio Basic credentials — same auth and same power as the studio's own
+  write routes; off by default, opt in with `mcp.remote.enabled` plus a
+  station restart) — [guide (sl)](docs/mcp-server.md).
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
