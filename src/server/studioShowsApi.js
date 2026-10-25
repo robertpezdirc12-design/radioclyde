@@ -40,30 +40,36 @@ function firstScheduledDuration(id, schedule) {
   return null;
 }
 
-export function registerStudioShowsApi(fastify) {
-  fastify.get('/api/shows', () => {
-    const schedule = loadSchedule();
-    const shows = [];
-    for (const id of listShowIds()) {
-      // Per-brief tolerance: one unreadable/torn brief must not 500 the
-      // whole list -- it's skipped, the rest of the library still renders
-      // (resolveShowInfo's fail-open discipline for a single missing brief).
-      let brief;
-      try {
-        brief = parseShowBrief(fs.readFileSync(`${config.paths.showDescriptionsDir}/${id}.md`, 'utf8'));
-      } catch {
-        continue;
-      }
-      shows.push({
-        id,
-        title: brief.title ?? id,
-        personas: [brief.primaryPersona, brief.weatherPersona].filter(Boolean),
-        segments: [brief.hasQuiz && 'quiz', brief.hasWeather && 'weather', brief.hasNews && 'news'].filter(Boolean),
-        durationMinutes: firstScheduledDuration(id, schedule),
-      });
+// The list body shared by GET /api/shows and the MCP list_shows tool
+// (src/mcp/tools.js): one summary row per show-descriptions/*.md brief.
+// Extracted when the MCP server needed the exact same loop -- the route's
+// response stays byte-identical (pinned by test/promptsFailOpen.test.mjs).
+export function listShowSummaries() {
+  const schedule = loadSchedule();
+  const shows = [];
+  for (const id of listShowIds()) {
+    // Per-brief tolerance: one unreadable/torn brief must not 500 the
+    // whole list -- it's skipped, the rest of the library still renders
+    // (resolveShowInfo's fail-open discipline for a single missing brief).
+    let brief;
+    try {
+      brief = parseShowBrief(fs.readFileSync(`${config.paths.showDescriptionsDir}/${id}.md`, 'utf8'));
+    } catch {
+      continue;
     }
-    return { shows };
-  });
+    shows.push({
+      id,
+      title: brief.title ?? id,
+      personas: [brief.primaryPersona, brief.weatherPersona].filter(Boolean),
+      segments: [brief.hasQuiz && 'quiz', brief.hasWeather && 'weather', brief.hasNews && 'news'].filter(Boolean),
+      durationMinutes: firstScheduledDuration(id, schedule),
+    });
+  }
+  return shows;
+}
+
+export function registerStudioShowsApi(fastify) {
+  fastify.get('/api/shows', () => ({ shows: listShowSummaries() }));
 
   fastify.get('/api/shows/:id', (request, reply) => {
     try {

@@ -108,6 +108,10 @@
     "enabled": true,
     "prefetch": true
   },
+  "mcp": {
+    "enabled": true,
+    "allowWriteTools": true
+  },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
     "telnetPort": 1234

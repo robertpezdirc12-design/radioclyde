@@ -226,6 +226,10 @@
     "enabled": true,
     "prefetch": true
   },
+  "mcp": {
+    "enabled": true,
+    "allowWriteTools": true
+  },
   "scripts": {
     "defaultRepeatWindowDays": 7
   },

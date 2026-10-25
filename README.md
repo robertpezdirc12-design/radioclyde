@@ -512,6 +512,13 @@ prose for humans. The selection section supports:
   static file with no templating, so the per-listener choice (Klasika by
   default) is the only choice that actually exists; `embed.html` stays
   self-contained and unthemed.
+- **MCP server (stdio)**: `npm run mcp` starts a standalone JSON-RPC
+  process (`src/mcp/server.js`) that lets an AI client such as Claude
+  Desktop inspect and control the station — 25 tools (now-playing, history,
+  polls, request moderation, skip / force-next show, ...) wired straight to
+  the stores the routes use, with `mcp.enabled` and `mcp.allowWriteTools`
+  kill-switches in `config.json` and zero new dependencies —
+  [guide (sl)](docs/mcp-server.md).
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts
