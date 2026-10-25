@@ -28,9 +28,12 @@
 // isti vzorec kot polls glasovanje) -- na javni postaji je to edina
 // anonimna pisalna ruta in ne sme biti odprta za poplavo.
 import { config } from '../config/index.js';
+import { createLogger } from '../lib/logger.js';
 import { isTrustedIp } from '../lib/ipRange.js';
 import { loadOrCreateVapidKeys } from '../push/vapid.js';
 import { addSubscription, removeSubscription, countSubscriptions } from '../push/subscriptions.js';
+
+const log = createLogger('web');
 
 // Ena prijava na IP na 30 s -- zadostuje za vse resnicne primere
 // (poskusaj/preklic/poskusaj znova), ustavi pa ročno strganje.
@@ -94,6 +97,17 @@ export function registerPushRoutes(fastify) {
       const count = addSubscription({ endpoint, keys: body.keys });
       return reply.code(201).send({ ok: true, subscribers: count });
     } catch (err) {
+      // addSubscription javi slab vnos (validacija, strop naročnin) kot čist
+      // Error brez code/syscall -- ta je 400 s posteno vrstico vzroka. Vse
+      // ostalo so napake datotečnega sistema (ENOSPC, EACCES, EISDIR ...), katerih
+      // sporočilo nosi absolutno pot strežnikovega dataDir -- to mora ostati
+      // v dnevniku, ne pri morečnem anonimnem klicatelju.
+      const filesystemFailure =
+        !(err instanceof Error) || typeof err.code === 'string' || typeof err.syscall === 'string';
+      if (filesystemFailure) {
+        log(`push subscribe: shramba naročnin ni zapisljiva (${err?.code ?? err?.message})`);
+        return reply.code(500).send({ error: 'Prijava na obvestila trenutno ni uspela.' });
+      }
       reply.code(400);
       return { error: err.message };
     }

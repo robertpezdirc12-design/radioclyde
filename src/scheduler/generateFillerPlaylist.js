@@ -47,7 +47,11 @@ export async function generateFillerPlaylist() {
   // Station-wide never-play list (keywords + artists) lives on station.json,
   // not config.json -- config.filler keeps poolSize/intervals/max duration.
   const neverPlay = scheduleUtil.loadNeverPlay();
-  const maxTrackDurationMs = config.filler.maxTrackDurationSeconds
+  // ?. + ?? (F2 pattern, same as rotationRules.fillerRotationConfig): a
+  // hand-edited config without a filler block used to TypeError this job on
+  // every 6h tick. Defaults are config.example.json's shipped values, so a
+  // complete config behaves byte-identically.
+  const maxTrackDurationMs = config.filler?.maxTrackDurationSeconds
     ? config.filler.maxTrackDurationSeconds * 1000
     : undefined;
   const eligible = dedupeByTitle(all).filter(
@@ -75,7 +79,7 @@ export async function generateFillerPlaylist() {
   // dayparts) instead of one flat weighted shuffle. The rotation rules above
   // still apply -- per pool. No block (or a wheel that resolves to nothing)
   // = exactly the plain path below.
-  const poolSize = config.filler.poolSize;
+  const poolSize = config.filler?.poolSize ?? 200;
   const wheel = clockwheelConfig();
   let afterAlbumCap = null;
   if (wheel) {

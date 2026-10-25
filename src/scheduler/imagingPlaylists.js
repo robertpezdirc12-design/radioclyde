@@ -75,10 +75,28 @@ export function buildImagingEntries(dir) {
   return { entries, dirMissing: false };
 }
 
+// Atomic tmp-<pid>+rename swap AND a byte-identical skip -- writeStreamsLiq's
+// idempotency pattern (src/liquidsoap/streamsLiqWriter.js), for two reasons:
+// radio.liq watches all three of these files (reload_mode="watch"), so (a) a
+// plain writeFileSync lets Liquidsoap catch a layer half-written -- the
+// emergency bed included -- and momentarily reads it as empty; and (b) the
+// tick fires every 30 minutes, so an unconditional rewrite would bump the
+// mtime on every tick even when the clip SET is identical, firing the
+// watch-reload for nothing. Stable files mean the reload only fires when the
+// set actually changes -- this module's own contract (see buildImagingEntries).
 function writeImagingPlaylistFile(entries, outPath, tag) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   const content = entries.length ? entries.map((entry) => entryLine(entry, tag)).join('\n') + '\n' : '';
-  fs.writeFileSync(outPath, content);
+  let existing = null;
+  try {
+    existing = fs.readFileSync(outPath, 'utf8');
+  } catch {
+    existing = null; // no playlist yet (fresh install) -- plain write below
+  }
+  if (existing === content) return; // identical clip set -- leave the file (and its watched mtime) alone
+  const tmp = `${outPath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, outPath);
 }
 
 // Writes all three layer playlists. Returns a plain summary object so tests

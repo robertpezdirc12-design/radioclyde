@@ -141,10 +141,37 @@ function makeShowSelect(selectedId) {
   return select;
 }
 
-function makeHeaderCell(text, isToday) {
+function makeHeaderCell(text, isToday, weekday) {
   const el = document.createElement('div');
   el.className = isToday ? 'schedule-day-header is-today' : 'schedule-day-header';
-  el.textContent = text;
+  const label = document.createElement('span');
+  label.textContent = text;
+  el.appendChild(label);
+  if (weekday) {
+    // Keyboard-reachable "add" affordance: the empty-column click path reads
+    // the pointer's Y to pick a start time, so it is pointer-only. This
+    // button opens the same popover without a pointer; its start time
+    // defaults to the next half-hour boundary (the grid's snap grain),
+    // which the popover's owner can still change via the weekday/time path.
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn btn-small';
+    // btn-small alone is ~26px tall -- inline sizing for the touch target,
+    // same pattern as the per-block inline styles elsewhere in this file.
+    add.style.minHeight = '44px';
+    add.style.minWidth = '44px';
+    add.style.marginLeft = '6px';
+    add.style.verticalAlign = 'middle';
+    add.textContent = '+';
+    add.setAttribute('aria-label', `Dodaj oddajo na ${DAY_LABELS[weekday]}`);
+    add.title = 'Dodaj oddajo';
+    add.addEventListener('click', () => {
+      const startTime = minutesToTime((Math.floor(nowMinutes() / DRAG_SNAP_MIN) + 1) * DRAG_SNAP_MIN);
+      const rect = add.getBoundingClientRect();
+      openAddPopover(weekday, startTime, rect.left, rect.bottom + 6);
+    });
+    el.appendChild(add);
+  }
   return el;
 }
 
@@ -215,7 +242,19 @@ function makeBlock(weekday, occ) {
   time.className = 'schedule-block-time';
   time.textContent = `${occ.startTime}–${endTimeLabel(occ)}`;
   body.append(title, time);
+  // Keyboard path into the edit popover: the body acts as a button --
+  // Enter/Space open the same popover a click does. Arrow-key move/resize
+  // stays deliberately unwired; the popover's time and duration fields are
+  // the keyboard path for those.
+  body.tabIndex = 0;
+  body.setAttribute('role', 'button');
+  body.setAttribute('aria-label', `Uredi: ${showTitles[occ.id] ?? occ.id} ${occ.startTime}–${endTimeLabel(occ)}`);
   body.addEventListener('click', () => openEditPopover(weekday, occ, body.getBoundingClientRect()));
+  body.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault(); // Space would scroll the grid instead of activating
+    openEditPopover(weekday, occ, body.getBoundingClientRect());
+  });
 
   const resizeHandle = document.createElement('div');
   resizeHandle.className = 'schedule-block-resize';
@@ -380,11 +419,34 @@ function wireDrag(handle, el, weekday, occ) {
             body: { startTime: newStartTime },
           });
         } else {
-          await api(`/api/schedule/${weekday}/${timeKeyOf(occ.startTime)}`, { method: 'DELETE' });
+          // Cross-day move: POST to the target weekday FIRST, DELETE the
+          // source only after that succeeded. The old order (DELETE, then
+          // POST) permanently lost the occurrence from BOTH days whenever
+          // the POST failed -- a 400 "no room left" from reorderAndPack or
+          // a network drop landed after the DELETE had already gone through.
           await api(`/api/schedule/${newWeekday}`, {
             method: 'POST',
             body: { id: occ.id, startTime: newStartTime, durationMinutes: occ.durationMinutes, description: occ.description },
           });
+          try {
+            await api(`/api/schedule/${weekday}/${timeKeyOf(occ.startTime)}`, { method: 'DELETE' });
+          } catch (err) {
+            // The target copy exists but the source delete failed: restore
+            // the source copy so the schedule never silently loses the
+            // occurrence. If the DELETE was merely rejected (the source slot
+            // is still occupied), the restore can leave a momentary
+            // duplicate -- visible in the grid and fixable by hand; silent
+            // divergence is not fixable at all.
+            try {
+              await api(`/api/schedule/${weekday}`, {
+                method: 'POST',
+                body: { id: occ.id, startTime: occ.startTime, durationMinutes: occ.durationMinutes, description: occ.description },
+              });
+              showToast(`Prestavitev ni uspela (${err.message}) -- oddaja je ostala na izvornem dnevu.`);
+            } catch (rollbackErr) {
+              showToast(`Prestavitev ni uspela (${err.message}); povrnitev na izvorni dan prav tako ni uspela (${rollbackErr.message}) -- preveri urnik ročno.`);
+            }
+          }
         }
       } catch (err) {
         showToast(err.message);
@@ -431,14 +493,20 @@ function wireResize(handle, el, weekday, occ) {
   });
 }
 
+let renderSeq = 0; // last-completed-wins: a visit-reload racing a drag-triggered render
+
 async function render() {
   closePopover();
+  const mine = ++renderSeq;
   try {
     const [{ schedule }, , { readiness }] = await Promise.all([
       api('/api/schedule'),
       loadShowTitles(),
       api('/api/schedule/readiness'),
     ]);
+    // A newer render completed while this one was asking -- its grid is the
+    // truth; repainting from this older answer would rewind the view.
+    if (mine !== renderSeq) return;
     currentSchedule = schedule;
     currentReadiness = readiness;
     gridEl.innerHTML = '';
@@ -446,7 +514,7 @@ async function render() {
 
     const today = todayWeekday();
     gridEl.appendChild(makeHeaderCell(''));
-    for (const day of WEEKDAYS) gridEl.appendChild(makeHeaderCell(DAY_LABELS[day], day === today));
+    for (const day of WEEKDAYS) gridEl.appendChild(makeHeaderCell(DAY_LABELS[day], day === today, day));
 
     const hourCol = document.createElement('div');
     hourCol.style.position = 'relative';

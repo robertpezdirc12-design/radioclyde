@@ -31,6 +31,21 @@ import { sampleNow } from '../analytics/listenerSamples.js';
 
 const log = createLogger('station');
 
+// Cadence guard for every() registration below. The ?. + ?? chains already
+// saved the missing-key case, but 10 of 14 jobs still passed garbage
+// straight through: an explicit 0/negative -> setInterval(0) = a 1ms tick
+// storm, and a string like 'abc' -> 'abc' * 60000 = NaN -> setInterval(NaN)
+// ALSO clamps to 1ms. The four Math.max(1, ...) sites didn't help either --
+// Math.max(1, 'abc') is NaN (?? only catches null/undefined, and Number
+// coercion inside Math.max turns junk into NaN before the max runs). One
+// central refusal instead: finite AND > 0 passes through (fractional values
+// included -- nowPlayingCheckIntervalMinutes defaults to 0.1 = 6 s, which
+// must keep working), anything else falls back to the job's default.
+export function cadence(value, fallbackMinutes) {
+  const n = Number(value ?? fallbackMinutes);
+  return Number.isFinite(n) && n > 0 ? n : fallbackMinutes;
+}
+
 function every(minutes, label, fn) {
   const tick = async () => {
     try {
@@ -160,7 +175,7 @@ export function startScheduler() {
   // overlaps their TTS/LLM work), but startup itself doesn't block on it.
   rebuildIncompleteOccurrences().catch((err) => log(`Startup rebuild-check ERROR: ${err.stack || err.message}`));
 
-  every(config.schedule?.scheduleWatchIntervalMinutes ?? 1, 'schedule_watch', checkScheduleChanged);
+  every(cadence(config.schedule?.scheduleWatchIntervalMinutes, 1), 'schedule_watch', checkScheduleChanged);
   // F2 class of defect, eliminated everywhere below: every cadence knob is
   // optional-chained + defaulted. A hand-edited config missing one of these
   // keys used to read as undefined -> undefined * 60000 = NaN, and
@@ -170,9 +185,9 @@ export function startScheduler() {
   // startScheduler() where every()'s per-tick try/catch can't help.) Defaults
   // are the shipped config.example.json values, so a complete config boots
   // byte-identically to before.
-  every(config.schedule?.scriptCheckIntervalMinutes ?? 15, 'schedule_scripts', checkAndTriggerScripts);
-  every(config.schedule?.directCheckIntervalMinutes ?? 2, 'schedule_direct', checkAndTriggerDirect);
-  every(config.schedule?.prewarmCheckIntervalMinutes ?? config.schedule?.scriptCheckIntervalMinutes ?? 15, 'schedule_prewarm', checkAndTriggerPrewarmAudio);
+  every(cadence(config.schedule?.scriptCheckIntervalMinutes, 15), 'schedule_scripts', checkAndTriggerScripts);
+  every(cadence(config.schedule?.directCheckIntervalMinutes, 2), 'schedule_direct', checkAndTriggerDirect);
+  every(cadence(config.schedule?.prewarmCheckIntervalMinutes ?? config.schedule?.scriptCheckIntervalMinutes, 15), 'schedule_prewarm', checkAndTriggerPrewarmAudio);
   // Kept far tighter than the other jobs' intervals -- this is the one that
   // gates on-air continuity: show_source's playlist (radio.liq) empties out
   // the instant a show's real audio ends, and fallback() drops to filler
@@ -180,29 +195,29 @@ export function startScheduler() {
   // noticing and rewriting now_playing.m3u is audible dead-air-filler on
   // every single transition (listener report, 2026-08-27). The job itself is
   // cheap (a couple of small local file reads), so polling this often is fine.
-  every(config.schedule?.nowPlayingCheckIntervalMinutes ?? 0.1, 'now_playing', updateNowPlaying);
-  every(config.filler?.regenerateIntervalMinutes ?? 360, 'filler', generateFillerPlaylist);
-  every(config.cleanup?.intervalMinutes ?? 360, 'cleanup', cleanupOldShows);
-  every(config.backup?.intervalMinutes ?? 1440, 'backup', backupStation);
+  every(cadence(config.schedule?.nowPlayingCheckIntervalMinutes, 0.1), 'now_playing', updateNowPlaying);
+  every(cadence(config.filler?.regenerateIntervalMinutes, 360), 'filler', generateFillerPlaylist);
+  every(cadence(config.cleanup?.intervalMinutes, 360), 'cleanup', cleanupOldShows);
+  every(cadence(config.backup?.intervalMinutes, 1440), 'backup', backupStation);
   // Hourly-archive retention (SUB/WAVE's day-granular prune): default
   // sweep once a day -- day-granular pruning needs no tighter cadence. ?.
   // + ?? like every other optional block: configs without an archive
   // block (the shipped default -- the feature is opt-in) register a
   // no-op tick instead of throwing the F2-class boot TypeError.
-  every(config.archive?.pruneIntervalMinutes ?? 1440, 'archive_prune', pruneArchives);
+  every(cadence(config.archive?.pruneIntervalMinutes, 1440), 'archive_prune', pruneArchives);
   // ?. matters: config.linux.json ships WITHOUT a chatterbox block (auto-radio
   // installs have no Chatterbox to restart), and reading
   // config.chatterbox.restartIntervalMinutes unguarded threw TypeError at boot
   // -- which silently killed every job registered AFTER it (auditor's F2 class
   // of defect, caught by the listener-analytics smoke test on 2026-10-24).
-  every(config.chatterbox?.restartIntervalMinutes ?? 1440, 'chatterbox_restart', restartChatterbox);
+  every(cadence(config.chatterbox?.restartIntervalMinutes, 1440), 'chatterbox_restart', restartChatterbox);
   // Audience memory: one Icecast status poll per minute appended to the
   // listener-samples ledger (analytics/listenerSamples.js) -- the studio
   // Analytics view charts it and joins it with aired.jsonl for per-track
   // impact. Optional-chained + defaulted everywhere so existing configs
   // without an analytics block keep booting exactly as before; the sample
   // itself is also honest on failure (a gap entry, not a skipped tick).
-  every(Math.max(1, config.analytics?.sampleIntervalMinutes ?? 1), 'listener_sample', sampleNow);
+  every(cadence(config.analytics?.sampleIntervalMinutes, 1), 'listener_sample', sampleNow);
   // Imaging layer: refresh the id/stingers/emergency .m3u playlists from their
   // clip directories (scheduler/imagingPlaylists.js -- Liquidsoap watches the
   // files; a rewrite is also what refills an exhausted layer's pool).
@@ -211,14 +226,14 @@ export function startScheduler() {
   // caught by the chatterbox regression on 2026-10-24 -- must not come back).
   // The rescan is cheap (three small dir listings); it runs at boot too via
   // every()'s immediate first tick, so the .m3u files exist from the start.
-  every(Math.max(1, config.imaging?.checkIntervalMinutes ?? 30), 'imaging', writeImagingPlaylists);
+  every(cadence(config.imaging?.checkIntervalMinutes, 30), 'imaging', writeImagingPlaylists);
   // R128 loudness alignment (lib/autocue.js + radio.liq's amplify()): one
   // pass over the library per tick, budgeted to maxAnalyzePerRun analyses so
   // a first-ever sweep is spread across ticks. Optional-chained + defaulted
   // like every other optional block: configs without an autocue block boot
   // exactly as before, and a no-ffmpeg or empty-library box simply logs a
   // zero-work scan each tick.
-  every(Math.max(1, config.autocue?.checkIntervalMinutes ?? 60), 'autocue', runAutocueScan);
+  every(cadence(config.autocue?.checkIntervalMinutes, 60), 'autocue', runAutocueScan);
   // P5 #4 push obvestila: oddaje se zacikajo tocno na startTime, zato je
   // minuto natancnost tu kljucna (leadMinutes se nadalje skraja okno).
   // ?. + ?? povsod: config.linux.json NE vsebuje push bloka, branje brez
@@ -231,7 +246,7 @@ export function startScheduler() {
   // odgovorijo posteno (503). Odsoten blok = prizanesljivo prazen tick
   // (en JSON read), zato default ON ohranja obnasanje obstojecih konfigov.
   if (config.push?.enabled !== false) {
-    every(Math.max(1, config.push?.checkIntervalMinutes ?? 1), 'push_dispatch', pushDispatchTick);
+    every(cadence(config.push?.checkIntervalMinutes, 1), 'push_dispatch', pushDispatchTick);
   }
 
   log('Scheduler started.');

@@ -23,7 +23,15 @@ function boolText(b) {
 }
 
 export async function loadVoice() {
-  const v = await api('/api/voice');
+  let v;
+  try {
+    v = await api('/api/voice');
+  } catch (err) {
+    // Same alert-on-error pattern as shows.js -- a failed load must not
+    // leave silently stale status cards behind.
+    window.alert('Napaka pri nalaganju stanja glasu: ' + err.message);
+    return;
+  }
 
   const summary = el('voice-summary');
   summary.replaceChildren(

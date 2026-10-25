@@ -4,15 +4,27 @@ import { config } from '../config/index.js';
 const HARD_CAP = 200;
 
 function readAiredEntries() {
+  let lines = [];
   try {
-    return fs
-      .readFileSync(config.paths.airedHistoryFile, 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    lines = fs.readFileSync(config.paths.airedHistoryFile, 'utf8').split('\n');
   } catch {
     return []; // nothing aired yet since deploy
   }
+  // Per-line tolerance (requestsStore.readRequests contract): one torn line
+  // -- an append interleaved with cleanupOldShows's retention rewrite, or a
+  // crash mid-append -- used to fail the bare .map and zero the ENTIRE
+  // history for the listener page, the studio rotation view, and the repeat
+  // detector alike; now only that line is lost.
+  const out = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+      continue;
+    }
+  }
+  return out;
 }
 
 // Raw entries (with ratingKey) for server-side analysis that must NOT go

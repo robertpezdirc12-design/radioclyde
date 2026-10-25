@@ -30,7 +30,9 @@ export async function synthesizeSpeechToPath(persona, text, filePath, slot = 'dj
   const startedAt = Date.now();
   const audio = await withLock(config.paths.chatterboxLockPath, () => synthesizeVoice(text, voiceFile));
   const ttsDurationMs = Date.now() - startedAt;
-  const amplified = await applyGain(audio, config.djDrops.gain, config.dataDir);
+  // Mirror of director/index.js's own ttsLog guard (config.djDrops?.gain ?? 1):
+  // a config without a djDrops block must not kill speech synthesis.
+  const amplified = await applyGain(audio, config.djDrops?.gain ?? 1, config.dataDir);
   fs.writeFileSync(filePath, amplified);
   return { skipped: false, ttsDurationMs };
 }

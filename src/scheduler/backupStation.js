@@ -14,6 +14,15 @@ import { dateKey } from './scheduleUtil.js';
 const log = createLogger('station');
 
 export async function backupStation() {
+  // No sane default for a backup destination (a guessed path could point at
+  // the same disk as the data it's supposed to protect) -- a config without
+  // a backup block skips the job with a NOTE instead of the per-tick
+  // TypeError an unguarded config.backup.dir read produced. Honest no-op,
+  // same shape pruneArchives uses for a missing archive block.
+  if (!config.backup?.dir) {
+    log('NOTE: no config.backup.dir -- skipping station backup this tick (backup block missing).');
+    return { skipped: true };
+  }
   const backupDir = config.backup.dir;
   const destDir = path.join(backupDir, dateKey(new Date()));
   fs.mkdirSync(destDir, { recursive: true });
@@ -39,8 +48,12 @@ export async function backupStation() {
 }
 
 async function main() {
-  const { destDir } = await backupStation();
-  console.log(`Backup complete: ${destDir}`);
+  const result = await backupStation();
+  if (result.skipped) {
+    console.log('Backup skipped: no config.backup.dir configured.');
+    return;
+  }
+  console.log(`Backup complete: ${result.destDir}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -2,10 +2,16 @@ import { config } from '../config/index.js';
 import { plexGet, TYPE_ALBUM, TYPE_TRACK } from './client.js';
 
 let genreTagsCache = null;
+let genreTagsCacheAt = 0;
+// TTL refresh, same rationale as artists.js's allArtistsCache: genre tags
+// added in Plex become visible without a restart. Failed fetch propagates
+// like the cold case; no in-flight dedup.
+const GENRE_TAGS_CACHE_TTL_MS = 10 * 60 * 1000;
 async function fetchGenreTags() {
-  if (genreTagsCache) return genreTagsCache;
+  if (genreTagsCache && Date.now() - genreTagsCacheAt < GENRE_TAGS_CACHE_TTL_MS) return genreTagsCache;
   const data = await plexGet(`/library/sections/${config.plex.librarySectionId}/genre?type=${TYPE_TRACK}`);
   genreTagsCache = data.MediaContainer.Directory ?? [];
+  genreTagsCacheAt = Date.now();
   return genreTagsCache;
 }
 
@@ -39,10 +45,16 @@ export async function resolveGenreId(name) {
 // reliable, so this needs its own fetch/resolve/cache, not a reuse of
 // fetchGenreTags/resolveGenreId).
 let albumGenreTagsCache = null;
+let albumGenreTagsCacheAt = 0;
+// TTL refresh, same as the track-genre cache above.
+const ALBUM_GENRE_TAGS_CACHE_TTL_MS = 10 * 60 * 1000;
 async function fetchAlbumGenreTags() {
-  if (albumGenreTagsCache) return albumGenreTagsCache;
+  if (albumGenreTagsCache && Date.now() - albumGenreTagsCacheAt < ALBUM_GENRE_TAGS_CACHE_TTL_MS) {
+    return albumGenreTagsCache;
+  }
   const data = await plexGet(`/library/sections/${config.plex.librarySectionId}/genre?type=${TYPE_ALBUM}`);
   albumGenreTagsCache = data.MediaContainer.Directory ?? [];
+  albumGenreTagsCacheAt = Date.now();
   return albumGenreTagsCache;
 }
 

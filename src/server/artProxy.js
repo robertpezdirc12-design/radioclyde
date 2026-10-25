@@ -44,17 +44,37 @@ export function registerArtRoute(fastify) {
     }
     if (!track.art) return reply.code(404).send();
 
-    const res = await fetch(`${config.plex.baseUrl}${track.art}?X-Plex-Token=${config.plex.token}`);
-    if (!res.ok) {
-      log(`/api/art/${ratingKey}: Plex art fetch failed: ${res.status} ${res.statusText}`);
+    let bytes;
+    let contentType;
+    try {
+      const res = await fetch(`${config.plex.baseUrl}${track.art}?X-Plex-Token=${config.plex.token}`);
+      if (!res.ok) {
+        log(`/api/art/${ratingKey}: Plex art fetch failed: ${res.status} ${res.statusText}`);
+        return reply.code(502).send();
+      }
+      bytes = Buffer.from(await res.arrayBuffer());
+      contentType = res.headers.get('content-type') ?? 'image/jpeg';
+    } catch (err) {
+      // A network-level rejection (DNS, ECONNREFUSED, connection cut
+      // mid-body) used to escape as a raw 500 -- it is the same "Plex didn't
+      // hand us art" failure the !res.ok branch above answers with 502.
+      log(`/api/art/${ratingKey}: Plex art fetch failed: ${err.message}`);
       return reply.code(502).send();
     }
 
-    const bytes = Buffer.from(await res.arrayBuffer());
     fs.mkdirSync(config.paths.artCacheDir, { recursive: true });
-    fs.writeFileSync(cached, bytes);
+    // Atomic tmp+rename (the write discipline requestsStore/pollsStore/
+    // subscriptions.js already apply): a crash mid-write left a torn jpg
+    // that existsSync above would then serve FOREVER -- unlike the state
+    // files rewritten every tick (now_playing_track.json and friends, which
+    // self-heal), this cache is write-once, so a torn write is permanent.
+    // The pid suffix keeps concurrent art fetches from racing onto the same
+    // temp name.
+    const tmp = `${cached}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, bytes);
+    fs.renameSync(tmp, cached);
 
-    reply.header('content-type', res.headers.get('content-type') ?? 'image/jpeg');
+    reply.header('content-type', contentType);
     return bytes;
   });
 }

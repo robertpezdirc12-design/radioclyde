@@ -610,3 +610,13 @@ body {
 .lyrics-offset .chip-btn { padding: 4px 10px; font-size: 0.78rem; }
 .lyrics-offset .chip-btn:disabled { opacity: 0.55; cursor: default; }
 #lyrics-offset-value { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* ---- anketa ---- */
+/* Glasovanje poslusalcev: obstojeci razredi (btn-secondary ~44 px visine,
+   progress-bar/progress-fill iz predvajalnika) + minimalna zalepitev
+   razporeda nic drugega. */
+.poll-options { display: flex; flex-direction: column; gap: 12px; margin-top: 2px; }
+.poll-option .btn-secondary { width: 100%; margin-top: 0; text-align: left; overflow-wrap: anywhere; }
+.poll-option .btn-secondary[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.poll-option .progress-bar { margin-top: 6px; }
+.poll-count { margin: 4px 0 0; font-size: 0.8rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }

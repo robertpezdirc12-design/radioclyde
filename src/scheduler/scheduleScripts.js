@@ -36,7 +36,7 @@ export async function checkAndTriggerScripts() {
   // nothing needs the resource.
   const horizon = scheduleUtil.isDowntime(downtime, now)
     ? scheduleUtil.minutesUntilNextDowntimeStart(downtime, now)
-    : config.schedule.scriptLeadTimeMinutes ?? 120;
+    : config.schedule?.scriptLeadTimeMinutes ?? 120;
 
   for (const { show, weekday, date } of scheduleUtil.upcomingOccurrences(schedule, now, horizon)) {
     const showDateDir = scheduleUtil.dateDir(weekday, show.id, date);
@@ -52,7 +52,7 @@ export async function checkAndTriggerScripts() {
     // same-day repeat (e.g. Elvis at 10am and 2pm) will just have this
     // check fail on the 10am iteration and succeed on the 2pm one.
     if (!scheduleUtil.hasLeadTime(date, show, new Date())) {
-      log(`Show "${show.id}" (${weekday} ${date}) -- less than ${config.schedule.minLeadTimeMinutes ?? 30}min before air, skipping instead of starting something that can't finish in time.`);
+      log(`Show "${show.id}" (${weekday} ${date}) -- less than ${config.schedule?.minLeadTimeMinutes ?? 30}min before air, skipping instead of starting something that can't finish in time.`);
       continue;
     }
 
@@ -76,7 +76,7 @@ export async function checkAndTriggerScripts() {
         // triggered this) so a same-day repeat still gets its script as long
         // as a later showing still has enough runway.
         if (!scheduleUtil.anyOccurrenceHasLeadTime(schedule, weekday, show.id, date, new Date())) {
-          log(`Show "${show.id}" (${weekday} ${date}) -- less than ${config.schedule.minLeadTimeMinutes ?? 30}min before every remaining occurrence today, skipping script production instead of catching up.`);
+          log(`Show "${show.id}" (${weekday} ${date}) -- less than ${config.schedule?.minLeadTimeMinutes ?? 30}min before every remaining occurrence today, skipping script production instead of catching up.`);
           return;
         }
         return generateScript({ id: show.id, weekday, date });

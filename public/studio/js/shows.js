@@ -43,8 +43,26 @@ function renderTable() {
     const duration = document.createElement('td');
     duration.className = 'mono';
     duration.textContent = show.durationMinutes ? `${show.durationMinutes}m` : '—';
-    tr.append(title, id, personas, segments, duration);
+    // Row click opens the editor, and so does Enter on the focused row --
+    // but the real button in the trailing cell is the accessible path (a
+    // table row must keep its row semantics, so it gets no role="button").
+    tr.tabIndex = 0;
     tr.addEventListener('click', () => openEditor(show.id));
+    tr.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') openEditor(show.id);
+    });
+    const actions = document.createElement('td');
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'btn btn-small';
+    edit.textContent = 'Uredi';
+    edit.setAttribute('aria-label', `Uredi: ${show.title}`);
+    edit.addEventListener('click', (event) => {
+      event.stopPropagation(); // the row's own click listener would re-open the same editor
+      openEditor(show.id);
+    });
+    actions.appendChild(edit);
+    tr.append(title, id, personas, segments, duration, actions);
     tableBodyEl.appendChild(tr);
   }
 }

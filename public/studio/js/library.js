@@ -32,57 +32,76 @@ function historyRow(e) {
   return li;
 }
 
+// Debounced typing fires one search per keystroke: 'ab' -> 'abc' puts two
+// asks in flight, and an older answer resolving last would repaint 'ab'
+// results under an 'abc' input. Only the newest ask may render.
+let librarySeq = 0;
+
 export async function loadLibrary() {
   const search = el('library-search').value.trim();
-  const data = await api(`/api/library${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+  const mine = ++librarySeq;
+  try {
+    const data = await api(`/api/library${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+    if (mine !== librarySeq) return; // a newer keystroke's search already answered
 
-  el('library-count').textContent = `${data.filteredTotal} of ${data.total} tracks`;
-  const note = el('library-note');
-  if (data.note) {
-    note.textContent = data.note;
-    note.hidden = false;
-  } else {
-    note.hidden = true;
+    el('library-count').textContent = `${data.filteredTotal} of ${data.total} tracks`;
+    const note = el('library-note');
+    if (data.note) {
+      note.textContent = data.note;
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
+
+    const tbody = el('library-table-body');
+    tbody.replaceChildren(
+      ...data.tracks.map((t) => {
+        const tr = document.createElement('tr');
+        const cells = [t.artist, t.title, t.album, (t.genres ?? []).join(', '), fmtDuration(t.durationSeconds)];
+        for (const c of cells) {
+          const td = document.createElement('td');
+          td.textContent = c || '—';
+          tr.appendChild(td);
+        }
+        return tr;
+      })
+    );
+  } catch (err) {
+    // Same alert-on-error pattern as shows.js -- a failed load must not
+    // leave a silently stale table behind. Only the newest ask may report:
+    // an older failed search stays quiet when a newer one owns the view.
+    if (mine === librarySeq) window.alert('Napaka pri nalaganju knjižnice: ' + err.message);
   }
-
-  const tbody = el('library-table-body');
-  tbody.replaceChildren(
-    ...data.tracks.map((t) => {
-      const tr = document.createElement('tr');
-      const cells = [t.artist, t.title, t.album, (t.genres ?? []).join(', '), fmtDuration(t.durationSeconds)];
-      for (const c of cells) {
-        const td = document.createElement('td');
-        td.textContent = c || '—';
-        tr.appendChild(td);
-      }
-      return tr;
-    })
-  );
 }
 
 export async function loadRotation() {
-  const data = await api('/api/rotation');
-  const summary = el('rotation-summary');
-  summary.replaceChildren();
+  try {
+    const data = await api('/api/rotation');
+    const summary = el('rotation-summary');
+    summary.replaceChildren();
 
-  summary.append(
-    kv('Rotation window', `${data.windowHours} h`),
-    kv('Filler pool size', data.poolSize ?? 'not configured'),
-    kv('Recently played entries', String(data.recentlyPlayed.length))
-  );
+    summary.append(
+      kv('Rotation window', `${data.windowHours} h`),
+      kv('Filler pool size', data.poolSize ?? 'not configured'),
+      kv('Recently played entries', String(data.recentlyPlayed.length))
+    );
 
-  const offenders = data.offenders ?? [];
-  const offenderBlock = document.createElement('div');
-  offenderBlock.className = offenders.length ? 'warn-block' : 'ok-block';
-  offenderBlock.textContent = offenders.length
-    ? `${offenders.length} track(s) aired 2+ times inside the ${data.windowHours}h window:`
-    : `No track repeated inside the ${data.windowHours}h rotation window.`;
-  summary.append(offenderBlock);
-  for (const o of offenders.slice(0, 10)) {
-    summary.append(kv(`${o.artist} — ${o.title}`, `${o.count}× (last ${new Date(o.lastPlayedAt).toLocaleString('sl-SI')})`, o.count >= 3 ? 'bad' : 'warn'));
+    const offenders = data.offenders ?? [];
+    const offenderBlock = document.createElement('div');
+    offenderBlock.className = offenders.length ? 'warn-block' : 'ok-block';
+    offenderBlock.textContent = offenders.length
+      ? `${offenders.length} track(s) aired 2+ times inside the ${data.windowHours}h window:`
+      : `No track repeated inside the ${data.windowHours}h rotation window.`;
+    summary.append(offenderBlock);
+    for (const o of offenders.slice(0, 10)) {
+      summary.append(kv(`${o.artist} — ${o.title}`, `${o.count}× (last ${new Date(o.lastPlayedAt).toLocaleString('sl-SI')})`, o.count >= 3 ? 'bad' : 'warn'));
+    }
+
+    el('rotation-history').replaceChildren(...data.recentlyPlayed.slice(0, 15).map(historyRow));
+  } catch (err) {
+    // Same alert-on-error pattern as shows.js.
+    window.alert('Napaka pri nalaganju rotacije: ' + err.message);
   }
-
-  el('rotation-history').replaceChildren(...data.recentlyPlayed.slice(0, 15).map(historyRow));
 }
 
 // app.js re-runs startLibraryView() on every visit to this tab -- bind the

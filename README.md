@@ -327,6 +327,26 @@ npm run preview-auto-show -- <show-name> --offline
 npm run direct-show -- --id=<show-name> --weekday=<weekday> --date=<yyyy-mm-dd> --time=<HH:MM>
 ```
 
+### Rarely used config keys
+
+A few `config.example.json` keys have no home in the feature docs; what they
+actually do (verified against the consuming code):
+
+- `scripts.defaultRepeatWindowDays` (number, default `7`) — the repeat
+  window applied when a show brief carries no `**Repeat window:**` line of
+  its own (`src/producer/showBrief.js`).
+- `plex.librarySectionId` (string) — the Plex music library's section id;
+  every `/library/sections/<id>/...` call in `src/plex/` (tracks, albums,
+  artists, genres) bakes it in.
+- `musicLibrary.plexPathPrefix` + `musicLibrary.localMountPath` (strings) —
+  together they map a Plex-served file path to the same file on local disk
+  (`toLocalPath()` in `src/plex/musicLibrary.js`), which is how the
+  director, the filler generator and the request queue hand Liquidsoap a
+  playable local path.
+- `push.subject` (string, default `mailto:radio-markec@example.com`) — the
+  VAPID `mailto:` contact carried in Web Push authorization headers
+  (`src/push/dispatch.js`).
+
 ## Writing a show's Track Selection brief
 
 Briefs are plain markdown. `**Personas:**`, `**Duration:**` and a
@@ -398,6 +418,21 @@ prose for humans. The selection section supports:
   writes elsewhere. `config.push.enabled: false` disables the layer honestly
   (no scheduler job, 503 on subscribe). The studio gets the subscriber count,
   the last-sent truth from the ledger and a test-send button.
+- **Listener polls ("anketa")**: the listener page's "Zdaj" panel shows the
+  active poll — question, options and an honest tally — and lets the
+  audience vote. `GET /api/polls/active` is the public read;
+  `POST /api/polls/vote` takes one vote per IP per 30 s (capped in-memory
+  anti-flood map — restarts forget it: a mood gauge, not elections). The
+  owner opens and closes polls over the API with studio credentials
+  (`POST /api/polls {question, options[]}` — opening a new poll closes the
+  previous one — and `POST /api/polls/close`, which freezes the tally and
+  stops the on-air mentions); a studio polls UI does not exist yet, and the
+  on-air anketa rubric mentions the open poll automatically. Private
+  stations need nothing — the browser rides the listener Basic auth. A
+  public station must open `/api/polls/active` in `web.publicPaths` and
+  `/api/polls/vote` in `web.publicWritePaths` (the separate
+  anonymous-write lever, same as push subscribe) or anonymous listeners
+  cannot vote.
 - **Themed shows (P4 #18)**: a curated 10-show catalog (rock history, guitar
   history, legendary concerts, decade portraits, ex-Yugoslav rock, punk/new
   wave, whole-album night) renders real briefs on demand — no hand-writing.
@@ -435,12 +470,15 @@ prose for humans. The selection section supports:
   honest pending / no-lyrics / unsynced states while it resolves and follows
   the on-air track line by line (500 ms clock), with a per-device offset
   correction for imperfect syncs; the optional enqueue-time one
-  (`lyrics.prefetch: true`, default off) starts every owed lookup the moment
+  (`lyrics.prefetch`) starts every owed lookup the moment
   a track is queued for airtime — the filler pool, a directed show's track
   list, an approved listener request — minutes-to-hours before it airs, on
   the same shared service (one throttle, one in-flight map) as the route.
-  Zero new dependencies; `lyrics.enabled: false` switches
-  the layer off honestly — [design](docs/lyrics-lrclib.md).
+  The flag is off by default in code, but the shipped `config.example.json`
+  (and the Ubuntu deploy config) set `"prefetch": true`, so a fresh install
+  that copies the example boots with the early trigger ON — `"prefetch":
+  false` turns it off. Zero new dependencies; `lyrics.enabled: false`
+  switches the layer off honestly — [design](docs/lyrics-lrclib.md).
 - **Scrobbling to Last.fm + ListenBrainz (optional, off by default)**: every
   eligible aired track (Last.fm's own rule — longer than 30 s and at least
   half-played or 4 minutes) is submitted at the NEXT track's start with the
@@ -536,7 +574,7 @@ Full Slovenian reference with every config knob:
   `station.json` and a real set of `show-descriptions/*.md` briefs,
   including the auto-mode `80s-rock-auto` show — plus
   **`station-auto.json`**, a ready-made 24/7 professional weekly schedule
-  (five Slovenian shows from "Dobro jutro" at 05:00 to "No\u010dni express"
+  (five Slovenian shows from "Dobro jutro" at 05:00 to "Nočni express"
   overnight, hourly occurrences, all rubriques wired in).
 - [docs/auto-radio.md](docs/auto-radio.md): complete Slovenian reference for
   auto mode — rules, templates, voice engines, rubriques, config.

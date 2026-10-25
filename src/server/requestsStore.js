@@ -154,13 +154,21 @@ export function publicView(entry) {
 }
 
 // Owner moderation: set status (+ optional note) and persist atomically.
-// Returns the updated entry, or null when the id is unknown, or
-// { invalid: true } when the status transition itself is nonsense.
+// Returns the updated entry, null when the id is unknown, or
+// { invalid: true } when the status value is unknown OR the transition is
+// refused: a request that already left 'pending' can never go BACK to it
+// (no resurrection). Re-pending a decided request would re-open moderation
+// on it -- an approved one may already sit on Liquidsoap's request queue or
+// have aired, and re-pending also re-counts it toward the listener's
+// pending cap -- and the shipped studio UI offers no such button anyway
+// (Approve/Reject only; changing one's mind between those two stays legal,
+// which is why approved <-> rejected is NOT blocked).
 export function updateRequestStatus(id, status, note = '') {
   if (!STATUSES.has(status)) return { invalid: true };
   const all = readRequests();
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return null;
+  if (status === 'pending' && all[idx].status !== 'pending') return { invalid: true };
   all[idx] = {
     ...all[idx],
     status,
@@ -179,7 +187,13 @@ export function updateRequestStatus(id, status, note = '') {
 // triage is exactly what they're for) but stripped of anything beyond the
 // raw string the store already held.
 export function listRequests({ status, limit = 500 } = {}) {
+  // Clamp BOTH ways, mirroring historyApi.getRecentHistory: the old bare
+  // slice(0, limit) let ?limit=-5 through as slice(0,-5), which drops the
+  // NEWEST rows (inverted semantics for a "show me fewer" request) and let
+  // huge values bypass the 500 cap the default implies. A negative limit
+  // now honestly means "no rows".
+  const safe = Number.isFinite(limit) ? Math.max(0, Math.min(Math.trunc(limit), 500)) : 500;
   let all = readRequests().reverse();
   if (status && STATUSES.has(status)) all = all.filter((r) => r.status === status);
-  return all.slice(0, limit);
+  return all.slice(0, safe);
 }

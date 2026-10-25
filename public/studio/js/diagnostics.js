@@ -47,7 +47,20 @@ function playlistKv(container, name, stats) {
 }
 
 export async function loadDiagnostics() {
-  const d = await api('/api/diagnostics');
+  let d;
+  try {
+    d = await api('/api/diagnostics');
+  } catch (err) {
+    // The 15 s interval below keeps calling this loader for the tab's
+    // lifetime, so a blocking alert() would freeze the page on every tick
+    // (schedule.js's toast comment documents the alert-freezes-the-tab
+    // behavior). The failure instead renders as one honest bad row in the
+    // first card; the other cards keep their last-known values, which the
+    // row flags as stale. Self-heals on the next successful tick -- and no
+    // more unhandled rejection per tick either.
+    el('diag-process').replaceChildren(kv('Load', `napaka pri nalaganju diagnostike: ${err.message}`, 'bad'));
+    return;
+  }
 
   el('diag-process').replaceChildren(
     kv('PID', String(d.process.pid)),
@@ -127,6 +140,9 @@ export async function loadDiagnostics() {
 
 export function startDiagnosticsView() {
   loadDiagnostics();
-  // A monitoring view should stay current while it's open.
+  // The 15 s refresh runs for the rest of the tab's lifetime once the
+  // diagnostics view has been opened -- acceptable for an admin tab; clearing
+  // it on hashchange-away would churn (app.js re-runs each view's starter on
+  // every visit, so the timer would be torn down and re-armed constantly).
   if (!startDiagnosticsView._t) startDiagnosticsView._t = setInterval(loadDiagnostics, 15000);
 }

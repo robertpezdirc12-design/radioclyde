@@ -81,8 +81,8 @@ export function invalidateStaleProduction(schedule, now) {
   // overnight run sitting there unnoticed.
   const downtime = scheduleUtil.loadDowntime();
   const horizonMinutes = downtime
-    ? Math.max(config.schedule.scriptLeadTimeMinutes ?? 120, scheduleUtil.minutesUntilNextDowntimeStart(downtime, now))
-    : config.schedule.scriptLeadTimeMinutes ?? 120;
+    ? Math.max(config.schedule?.scriptLeadTimeMinutes ?? 120, scheduleUtil.minutesUntilNextDowntimeStart(downtime, now))
+    : config.schedule?.scriptLeadTimeMinutes ?? 120;
   const occurrences = scheduleUtil.upcomingOccurrences(schedule, now, horizonMinutes);
 
   let invalidatedCount = 0;

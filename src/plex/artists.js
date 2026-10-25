@@ -8,12 +8,22 @@ import { plexGet, TYPE_ARTIST } from './client.js';
 // "Fleetwood Mac". So resolving an artist name needs its own substring pass
 // over the full artist list rather than relying on the title= filter.
 let allArtistsCache = null;
+let allArtistsCacheAt = 0;
+// TTL refresh for a cache that used to live for the WHOLE process: new
+// artists added to Plex stayed invisible until the next restart, exactly
+// when an operator is most likely to test a freshly-added act. A stale
+// cache re-fetches on the next read; a failed fetch propagates like the
+// cold-cache case (the old entry stays in place for the next successful
+// read). No in-flight dedup on purpose: two concurrent stale readers can
+// both fetch -- last write wins, both answers are correct.
+const ALL_ARTISTS_CACHE_TTL_MS = 10 * 60 * 1000;
 async function fetchAllArtists() {
-  if (allArtistsCache) return allArtistsCache;
+  if (allArtistsCache && Date.now() - allArtistsCacheAt < ALL_ARTISTS_CACHE_TTL_MS) return allArtistsCache;
   const data = await plexGet(
     `/library/sections/${config.plex.librarySectionId}/all?type=${TYPE_ARTIST}&X-Plex-Container-Start=0&X-Plex-Container-Size=5000`
   );
   allArtistsCache = data.MediaContainer.Metadata ?? [];
+  allArtistsCacheAt = Date.now();
   return allArtistsCache;
 }
 

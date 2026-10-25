@@ -33,8 +33,12 @@ const inFlight = new Map();
 // happened to go looking. Even a worst-case all-uncached show (20+ lines,
 // several CPU-only minutes each) finishes well under this; anything still
 // stuck past it is stalled, not slow, and worth a loud log line instead of
-// staying invisible for hours.
-const STALL_WARNING_MS = (config.schedule.directStallWarningMinutes ?? 90) * 60 * 1000;
+// staying invisible for hours. ?. + ?? because this is MODULE level: an
+// unguarded read of a missing config.schedule block threw at import time,
+// which killed the whole web-server boot (startScheduler imports this file
+// from server/index.js's startup path) -- the F2-class defect, in its most
+// expensive spot.
+const STALL_WARNING_MS = (config.schedule?.directStallWarningMinutes ?? 90) * 60 * 1000;
 
 async function directOccurrence(show, weekday, date, timeKey, showOccurrenceDir) {
   const existing = inFlight.get(showOccurrenceDir);
@@ -58,7 +62,7 @@ async function directOccurrence(show, weekday, date, timeKey, showOccurrenceDir)
   // calls this for the former; rebuildIncompleteOccurrences's startup sweep
   // can hand it either).
   if (!scheduleUtil.hasLeadTime(date, show, new Date(), weekday)) {
-    log(`Show "${show.id}" (${weekday} ${date} ${timeKey}) -- less than ${config.schedule.minLeadTimeMinutes ?? 30}min before air, skipping instead of starting something that can't finish in time.`);
+    log(`Show "${show.id}" (${weekday} ${date} ${timeKey}) -- less than ${config.schedule?.minLeadTimeMinutes ?? 30}min before air, skipping instead of starting something that can't finish in time.`);
     return;
   }
 
@@ -79,7 +83,7 @@ async function directOccurrence(show, weekday, date, timeKey, showOccurrenceDir)
       // occurrence (the one still worth airing) gets the queue instead of it
       // grinding sequentially through everything that's gone stale.
       if (!scheduleUtil.hasLeadTime(date, show, new Date(), weekday)) {
-        log(`Show "${show.id}" (${weekday} ${date} ${timeKey}) -- less than ${config.schedule.minLeadTimeMinutes ?? 30}min before air, skipping instead of catching up.`);
+        log(`Show "${show.id}" (${weekday} ${date} ${timeKey}) -- less than ${config.schedule?.minLeadTimeMinutes ?? 30}min before air, skipping instead of catching up.`);
         return;
       }
       return directShow({ id: show.id, weekday, date, timeKey });
@@ -94,7 +98,7 @@ async function directOccurrence(show, weekday, date, timeKey, showOccurrenceDir)
 export async function checkAndTriggerDirect() {
   const schedule = scheduleUtil.loadSchedule();
   const now = new Date();
-  const horizon = config.schedule.directLeadTimeMinutes ?? 15;
+  const horizon = config.schedule?.directLeadTimeMinutes ?? 15;
 
   for (const { show, weekday, date, timeKey } of scheduleUtil.upcomingOccurrences(schedule, now, horizon)) {
     const showDateDir = scheduleUtil.dateDir(weekday, show.id, date);
@@ -131,9 +135,13 @@ function findIncompleteOccurrences(schedule, now) {
   const runningDir = config.paths.runningDir;
   if (!fs.existsSync(runningDir)) return [];
 
+  // Yesterday's date key via addCalendarDays, never a -24h epoch step: on
+  // the DST fall-back day's last local hour (23:xx CET = 24+ real hours past
+  // midnight) a -24h step re-lands on the SAME date, so yesterday's half-
+  // built occurrences would drop out of exactly this startup rebuild sweep.
   const relevantDates = new Set([
     scheduleUtil.dateKey(now),
-    scheduleUtil.dateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+    scheduleUtil.dateKey(scheduleUtil.addCalendarDays(now, -1)),
   ]);
 
   const results = [];

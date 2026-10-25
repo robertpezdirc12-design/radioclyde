@@ -49,8 +49,9 @@ the encoding differs.
 ## Wiring and restart semantics
 
 `liquidsoap/streams.liq` is **generated** — do not hand-edit it. At every
-`radioclyde-web` boot, `src/liquidsoap/streamsLiqWriter.js` rewrites it from
-`config.json` (atomically: tmp file + rename; idempotently: byte-identical
+boot of the `radioclyde` unit, `src/liquidsoap/streamsLiqWriter.js`
+rewrites it from `config.json` (atomically: tmp file + rename;
+idempotently: byte-identical
 content means no write at all, so the file's mtime stays stable).
 `liquidsoap/radio.liq` `%include`s it right after the primary MP3 output,
 where the `radio` variable is in scope.
@@ -58,11 +59,15 @@ where the `radio` variable is in scope.
 To change anything: edit `config.json`, then
 
 ```sh
-sudo systemctl restart radioclyde-web    # regenerates streams.liq
-sudo systemctl restart liquidsoap        # the running process already parsed the old file
+sudo systemctl restart radioclyde            # regenerates streams.liq
+sudo systemctl restart liquidsoap-radioclyde  # the running process already parsed the old file
 ```
 
-The web restart alone changes the *published surfaces* (playlists,
+Unit names as installed by `deploy/ubuntu/install.sh`: `radioclyde` (web
+server + scheduler in one process — the old separate `radioclyde-web` unit
+no longer exists) and `liquidsoap-radioclyde`.
+
+The `radioclyde` restart alone changes the *published surfaces* (playlists,
 `/api/now-playing`, proxy routes); the Liquidsoap restart is what actually
 builds or tears down encoders. With everything disabled the generated file is
 comment-only, so fresh clones, configs without the new blocks, and pre-2.4.6
@@ -165,19 +170,25 @@ opt-in, so a default install never needs them.
 
 ## Verification
 
-After enabling a mount and restarting both services:
+After enabling a mount and restarting both services, check the pieces —
+the two ports below come from `config.web.port` vs `config.icecast.port`
+(`/admin/stats.xml` is an Icecast endpoint, the proxy and the playlists
+are the web server; the numbers are this repo's example values, your
+install may differ):
 
 ```sh
 # generated file carries the mount with the literal clamped bitrate
 grep -n 'stream.opus' liquidsoap/streams.liq
 
-# Icecast sees the source (source clients connected)
-curl -s -u admin:ADMINPW http://127.0.0.1:8000/admin/stats.xml | grep -o 'mount-name>[^<]*'
+# Icecast sees the source (source clients connected) -- ICECAST port
+# (config.icecast.port; 8001 in config.example.json)
+curl -s -u admin:ADMINPW http://127.0.0.1:8001/admin/stats.xml | grep -o 'mount-name>[^<]*'
 
 # the public proxy answers (mount enabled => 200-family from Icecast, not 404)
+# -- WEB port (config.web.port; 8000 in config.example.json)
 curl -sI http://127.0.0.1:8000/stream.opus | head -1
 
-# playlists list every enabled entry
+# playlists list every enabled entry -- WEB port
 curl -s http://127.0.0.1:8000/listen.pls
 
 # archive hours land on disk at the hour boundary

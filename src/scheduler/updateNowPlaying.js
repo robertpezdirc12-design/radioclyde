@@ -42,8 +42,17 @@ export function readNowPlayingState() {
   }
 }
 
+// Atomic tmp-<pid>+rename: THREE processes read this state (the scheduler
+// tick, every detached scrobbleTrack, the studio Force Next route) while any
+// of them can be writing it -- a torn read parses as null state, which
+// updateNowPlaying treats as "resynchronize to wall-clock" and rewrites
+// now_playing.m3u mid-show, replaying the current show from track 1 (audible).
+// The rename makes every reader see either the whole old state or the whole
+// new one, never a partial file.
 function writeState(state) {
-  fs.writeFileSync(config.paths.nowPlayingStatePath, JSON.stringify(state));
+  const tmp = `${config.paths.nowPlayingStatePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(state));
+  fs.renameSync(tmp, config.paths.nowPlayingStatePath);
 }
 
 // now_playing.m3u is WATCHED by Liquidsoap (reload_mode="watch") -- a plain
@@ -132,7 +141,17 @@ function loadOccurrence({ show, weekday, date, timeKey }, now) {
   const contextPath = path.join(occDir, 'context.json');
   if (!fs.existsSync(playlistPath) || !fs.existsSync(contextPath)) return false;
 
-  const { durationSeconds } = JSON.parse(fs.readFileSync(contextPath, 'utf8'));
+  // Tolerant read, matching confirmOccurrenceStart's own: a corrupted
+  // context.json used to throw out of this 6 s tick on EVERY pass (the
+  // station sits on filler until someone deletes the occurrence dir by
+  // hand); an unparseable context just means "not safely loadable" -- the
+  // same false the missing-file check above returns.
+  let durationSeconds;
+  try {
+    ({ durationSeconds } = JSON.parse(fs.readFileSync(contextPath, 'utf8')));
+  } catch {
+    return false;
+  }
   // now_playing.m3u carries the occurrence's actual segment list directly
   // (not a pointer to the other file) -- Liquidsoap's playlist parser treats
   // every line as a media request, so nesting an m3u reference wouldn't
@@ -162,7 +181,7 @@ export async function updateNowPlaying() {
   // has already arrived.
   if (state && now.getTime() < state.estimatedEndAt) return;
 
-  const maxCatchUpMs = (config.schedule.maxCatchUpMinutes ?? 10) * 60 * 1000;
+  const maxCatchUpMs = (config.schedule?.maxCatchUpMinutes ?? 10) * 60 * 1000;
   const staleState = state && now.getTime() - state.estimatedEndAt > maxCatchUpMs;
   const currentShow = state && !staleState ? currentShowEntry(schedule, state) : null;
 

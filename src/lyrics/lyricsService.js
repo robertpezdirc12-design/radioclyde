@@ -161,6 +161,13 @@ export function createLyricsService({ client = createLrclibClient({}), now = Dat
       const artist = String(track.artist ?? '').trim();
       const title = String(track.title ?? '').trim();
       if (!artist || !title) return noMusicPayload(); // a track we cannot even key
+      // Durationless airing tracks get prefetchLyrics's own refusal (see its
+      // comment): nothing tells two cuts of the same song apart without a
+      // duration, so a lookup here would cache a definitive miss under the
+      // BARE song key -- pollution that later shadows every real cut of the
+      // song. Answer the honest pending shape without starting the lookup
+      // and without caching; the lazy route and the prefetch route now agree.
+      if (!(Number(track.durationMs) > 0)) return pendingPayload(songKey(artist, title));
       const key = cacheKeyFor(artist, title, track.durationMs);
       const entry = getCacheEntry(key);
       if (needsRecheck(entry, now())) {

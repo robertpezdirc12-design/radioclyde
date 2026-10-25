@@ -78,12 +78,19 @@ async function fetchAlbumsByArtist(name) {
 }
 
 let allAlbumsCache = null;
+let allAlbumsCacheAt = 0;
+// TTL refresh, same rationale as artists.js's allArtistsCache: newly added
+// albums (and the keyword/genre pools derived from this list) become visible
+// without a restart. Failed fetch propagates like the cold case; no
+// in-flight dedup (concurrent stale readers may both fetch, last wins).
+const ALL_ALBUMS_CACHE_TTL_MS = 10 * 60 * 1000;
 async function fetchAllAlbums() {
-  if (allAlbumsCache) return allAlbumsCache;
+  if (allAlbumsCache && Date.now() - allAlbumsCacheAt < ALL_ALBUMS_CACHE_TTL_MS) return allAlbumsCache;
   const data = await plexGet(
     `/library/sections/${config.plex.librarySectionId}/all?type=${TYPE_ALBUM}&X-Plex-Container-Start=0&X-Plex-Container-Size=100000`
   );
   allAlbumsCache = (data.MediaContainer.Metadata ?? []).map(albumFromMetadata);
+  allAlbumsCacheAt = Date.now();
   return allAlbumsCache;
 }
 

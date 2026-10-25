@@ -18,11 +18,13 @@
 // or close polls any more. 403 (not 401) on failure: the caller has already
 // authenticated in the listener realm, and re-challenging with a second
 // WWW-Authenticate from the same public surface would just confuse the
-// browser's cached credentials. No shipped client calls these three routes
-// (the studio polls UI doesn't exist yet; the on-air anketa rubric reads
-// pollsStore.js directly), so the gate breaks nothing today and makes the
-// future studio UI's job trivial: its same-origin fetches already carry the
-// studio Basic-auth header.
+// browser's cached credentials. No shipped client calls these three OWNER
+// routes (the studio polls UI doesn't exist yet; the on-air anketa rubric
+// reads pollsStore.js directly), so the gate breaks nothing today and makes
+// the future studio UI's job trivial: its same-origin fetches already carry
+// the studio Basic-auth header. The public pair -- GET /api/polls/active +
+// POST /api/polls/vote -- is a different story: the listener page's polls
+// panel calls both, and it was never behind this gate.
 import { createPoll, readStore, validatePollInput, votePoll, closeActivePoll, activePollSummary, pollHistory } from './pollsStore.js';
 import { parseBasicAuth, studioCredentialsValid } from './studioAuth.js';
 

@@ -23,7 +23,12 @@ export function registerStudioRequestsApi(fastify) {
     }
     const updated = updateRequestStatus(request.params.id, status, note);
     if (!updated) return reply.code(404).send({ error: 'Zahtevek ne obstaja.' });
-    if (updated.invalid) return reply.code(400).send({ error: 'Neveljaven prehod statusa.' });
+    // The route already rejected unknown statuses above, so the only invalid
+    // case left is resurrection: a request that already left "pending"
+    // cannot go back (requestsStore's no-resurrection rule).
+    if (updated.invalid) {
+      return reply.code(400).send({ error: 'Zahtevek je že odločen -- vrnitev v "pending" ni mogoča.' });
+    }
     return updated;
   });
 

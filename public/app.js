@@ -58,6 +58,11 @@ const els = {
   checkButton: $('req-check'),
   checkInput: $('req-check-id'),
   checkResult: $('req-status'),
+  pollCard: $('poll-card'),
+  pollQuestion: $('poll-question'),
+  pollOptions: $('poll-options'),
+  pollTotal: $('poll-total'),
+  pollStatus: $('poll-status'),
   lyricsToggle: $('lyrics-toggle'),
   lyricsPanel: $('lyrics-panel'),
   lyricsStatus: $('lyrics-status'),
@@ -102,6 +107,31 @@ function setStatus(text, cls = '') {
 function show(node, yes) {
   node.hidden = !yes;
 }
+
+// ---------- response-ordering guards ----------
+//
+// Interval pollers can interleave with themselves: a stalled older response
+// resolving after a newer one would repaint the page with older data. The
+// worst case was fetchNowPlaying -- the rewind also flowed into
+// lyricsOnNowPlaying(), wiping and refetching the lyrics panel for the
+// previous song. Each guarded fetcher issues a monotonic token before its
+// await and only touches the DOM while it is still the newest ask; a
+// superseded response (success OR failure) returns silently -- the newer
+// ask owns the UI. The lyrics module keeps its own epoch guard (already
+// correct) and is deliberately not touched here.
+function fetchSeq() {
+  let latest = 0;
+  return {
+    next: () => ++latest,
+    isNewest: (token) => token === latest,
+  };
+}
+
+const nowPlayingSeq = fetchSeq(); // hero + lyrics cascade
+const historySeq = fetchSeq();
+const upcomingSeq = fetchSeq();
+const scheduleSeq = fetchSeq(); // tab onShow, retry button and the 5-min tick
+const topListenedSeq = fetchSeq(); // boot + retry button
 
 // ---------- favourites (localStorage, honest) ----------
 
@@ -171,7 +201,9 @@ function updateMediaSession({ title, artist, album, artUrl }) {
       artist: artist || '',
       album: album || 'Radio Markec',
       artwork: [
-        { src: new URL(artUrl || '/logo.png', location.href).href, sizes: '512x512', type: artUrl ? 'image/jpeg' : 'image/png' },
+        // 'any': the logo is 854x466 and /api/art covers vary per track -- a
+        // hardcoded 512x512 lied about both, and MediaSession picks by size.
+        { src: new URL(artUrl || '/logo.png', location.href).href, sizes: 'any', type: artUrl ? 'image/jpeg' : 'image/png' },
       ],
     });
   } catch { /* metadata is cosmetic -- never break playback over it */ }
@@ -281,6 +313,9 @@ function renderNowPlaying(data) {
     const persona = data.dj.split(' & ')[0].toLowerCase();
     els.art.hidden = false;
     els.artFallback.hidden = true;
+    // The img shows a DJ photo here, not a track cover -- the alt must say so
+    // (persona is an internal id, so the alt stays generic and honest).
+    els.art.alt = 'Fotografija DJ-ja na etru';
     els.art.src = `/dj-photos/${persona}`;
     chipCurrent = null; // spoken segment -- no track to build chips from
     updateMediaSession({ title: data.show?.name ?? 'Govorjeni del', artist: `${data.dj} govori`, album: '', artUrl: null });
@@ -297,6 +332,7 @@ function renderNowPlaying(data) {
     if (data.track.artUrl) {
       els.art.hidden = false;
       els.artFallback.hidden = true;
+      els.art.alt = 'Naslovnica trenutne skladbe';
       els.art.src = data.track.artUrl;
     } else {
       els.art.hidden = true;
@@ -341,11 +377,15 @@ function tickProgress() {
 }
 
 async function fetchNowPlaying() {
+  const mine = nowPlayingSeq.next();
   try {
     const res = await fetch('/api/now-playing');
     if (!res.ok) throw new Error(res.status);
-    renderNowPlaying(await res.json());
+    const data = await res.json();
+    if (!nowPlayingSeq.isNewest(mine)) return; // superseded -- see fetchSeq()
+    renderNowPlaying(data);
   } catch {
+    if (!nowPlayingSeq.isNewest(mine)) return;
     // Transient: keep last state, surface nothing scary on the very first load.
     if (!els.trackTitle.textContent.trim()) {
       els.trackTitle.textContent = 'Ni povezave s strežnikom';
@@ -393,10 +433,12 @@ function historyRow(entry) {
 }
 
 async function fetchHistory() {
+  const mine = historySeq.next();
   try {
     const res = await fetch('/api/history?limit=20');
     if (!res.ok) throw new Error(res.status);
     const { entries } = await res.json();
+    if (!historySeq.isNewest(mine)) return;
     const display = trackIsPlaying ? entries.slice(1) : entries; // entries[0] duplicates the hero
     els.historyList.replaceChildren(...display.map(historyRow));
     show(els.historyEmpty, display.length === 0);
@@ -414,7 +456,7 @@ async function fetchHistory() {
     }
     renderChips();
   } catch {
-    show(els.historyError, true);
+    if (historySeq.isNewest(mine)) show(els.historyError, true);
   }
 }
 
@@ -440,15 +482,17 @@ function upcomingRow(show) {
 }
 
 async function fetchUpcoming() {
+  const mine = upcomingSeq.next();
   try {
     const res = await fetch('/api/upcoming');
     if (!res.ok) throw new Error(res.status);
     const { shows } = await res.json();
+    if (!upcomingSeq.isNewest(mine)) return;
     els.upcomingList.replaceChildren(...(shows ?? []).map(upcomingRow));
     show(els.upcomingEmpty, (shows ?? []).length === 0);
     show(els.upcomingError, false);
   } catch {
-    show(els.upcomingError, true);
+    if (upcomingSeq.isNewest(mine)) show(els.upcomingError, true);
   }
 }
 
@@ -549,12 +593,15 @@ function renderSchedule(data) {
 }
 
 async function fetchSchedule() {
+  const mine = scheduleSeq.next();
   try {
     const res = await fetch('/api/schedule');
     if (!res.ok) throw new Error(res.status);
-    renderSchedule(await res.json());
+    const data = await res.json();
+    if (!scheduleSeq.isNewest(mine)) return;
+    renderSchedule(data);
   } catch {
-    show(els.scheduleError, true);
+    if (scheduleSeq.isNewest(mine)) show(els.scheduleError, true);
   }
 }
 
@@ -990,15 +1037,189 @@ function renderTopListened(data) {
 }
 
 async function fetchTopListened() {
+  const mine = topListenedSeq.next();
   els.topError.hidden = true;
   try {
     const res = await fetch('/api/top-listened');
     if (!res.ok) throw new Error(res.status);
-    renderTopListened(await res.json());
+    const data = await res.json();
+    if (!topListenedSeq.isNewest(mine)) return;
+    renderTopListened(data);
   } catch {
+    if (!topListenedSeq.isNewest(mine)) return;
     els.topList.replaceChildren();
     els.topEmpty.hidden = true;
     els.topError.hidden = false;
+  }
+}
+
+// ---------- anketa (listener poll) ----------
+//
+// The listener-facing half of the polls backend: GET /api/polls/active +
+// POST /api/polls/vote {id, option}. One active poll at a time; the card is
+// hidden whenever the answer says there is none (or a vote answers 404).
+// The tally is public data and is shown honestly -- counts, percentages and
+// the total, never invented. Deployment note: on a PUBLIC station the owner
+// must list /api/polls/active under config.web.publicPaths and
+// /api/polls/vote under config.web.publicWritePaths for anonymous visitors
+// (publicPaths is GET/HEAD-only by design, so the vote POST needs the write
+// list). On a private station the browser's cached Basic-auth rides these
+// same-origin fetches automatically, exactly like every other /api call the
+// page already makes.
+
+const pollsState = {
+  poll: null,       // last rendered active poll ({id, question, options, votes, total, ...})
+  votedIndex: null, // option this page load last voted for -- highlight only; the backend tracks no per-listener identity by design
+  voting: false,    // one vote round-trip at a time (double-clicks share one ask)
+  fetching: false,  // in-flight guard: the 12 s tick and the post-vote refresh share one ask
+  renderedKey: '',  // identity of what is in the DOM -- unchanged data must not rebuild (focus churn)
+};
+
+// Slovenian pluralization for 'glas': 1 glas, 2 glasova (dual), 3-4 glasovi,
+// 5+ glasov -- the 11/12/13 teens take the genitive like any 5+ count.
+function votesLabel(n) {
+  if (n === 1) return '1 glas';
+  const mod100 = n % 100;
+  if (mod100 === 2) return `${n} glasova`;
+  if (mod100 === 3 || mod100 === 4) return `${n} glasovi`;
+  return `${n} glasov`;
+}
+
+function setPollStatus(text, cls = '') {
+  // role="status" on the element makes every outcome announce politely --
+  // the same pattern the lyrics panel's #lyrics-status uses.
+  els.pollStatus.textContent = text ?? '';
+  els.pollStatus.className = `form-result ${cls}`.trim();
+}
+
+function hidePollCard() {
+  pollsState.poll = null;
+  pollsState.votedIndex = null;
+  pollsState.renderedKey = '';
+  // Leave nothing stale inside the hidden card -- the next open renders
+  // from a clean slate.
+  els.pollQuestion.textContent = '';
+  els.pollOptions.replaceChildren();
+  els.pollTotal.textContent = '';
+  els.pollCard.hidden = true;
+}
+
+function pollOptionRow(poll, index) {
+  const votes = Number(poll.votes?.[index]) || 0;
+  const total = Number(poll.total) || 0;
+  const pct = total > 0 ? Math.round((votes / total) * 100) : 0;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'poll-option';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn-secondary'; // full-width via .poll-option CSS, ~44px touch target
+  button.textContent = poll.options[index];
+  button.setAttribute('aria-pressed', String(pollsState.votedIndex === index));
+  button.addEventListener('click', () => votePollOption(index));
+  wrap.appendChild(button);
+
+  // Thin tally bar -- the same progress-bar pair the hero track progress uses.
+  const bar = document.createElement('div');
+  bar.className = 'progress-bar';
+  bar.setAttribute('aria-hidden', 'true'); // the count line below already says the numbers
+  const fill = document.createElement('div');
+  fill.className = 'progress-fill';
+  fill.style.width = `${pct}%`;
+  bar.appendChild(fill);
+  wrap.appendChild(bar);
+
+  const count = document.createElement('p');
+  count.className = 'poll-count';
+  count.textContent = `${votesLabel(votes)} · ${pct} %`;
+  wrap.appendChild(count);
+  return wrap;
+}
+
+function renderPolls(poll) {
+  const valid =
+    poll && typeof poll.question === 'string' && poll.question && Array.isArray(poll.options) && poll.options.length > 0;
+  if (!valid) {
+    // Nothing open (or it closed between asks): hide the card entirely.
+    hidePollCard();
+    return;
+  }
+  if (pollsState.poll?.id !== poll.id) pollsState.votedIndex = null; // a new poll resets the highlight
+  pollsState.poll = poll;
+  // Skip the rebuild when nothing changed: a 12 s tick that re-renders an
+  // identical poll would drop focus from a button the listener is on.
+  const key = `${poll.id}|${(poll.votes ?? []).join(',')}|${poll.total}|${pollsState.votedIndex}`;
+  if (key === pollsState.renderedKey && !els.pollCard.hidden) return;
+  pollsState.renderedKey = key;
+
+  els.pollQuestion.textContent = poll.question;
+  els.pollOptions.replaceChildren(...poll.options.map((_, index) => pollOptionRow(poll, index)));
+  els.pollTotal.textContent = `Skupaj: ${votesLabel(Number(poll.total) || 0)}`;
+  els.pollCard.hidden = false;
+}
+
+async function fetchPolls() {
+  if (pollsState.fetching) return;
+  pollsState.fetching = true;
+  try {
+    const res = await fetch('/api/polls/active');
+    if (!res.ok) return; // transient or auth-gated: keep last state, the tick retries
+    const data = await res.json();
+    renderPolls(data?.poll ?? null);
+  } catch {
+    // network hiccup -- nothing to say that the next tick won't say better
+  } finally {
+    pollsState.fetching = false;
+  }
+}
+
+async function votePollOption(index) {
+  const poll = pollsState.poll;
+  if (!poll || pollsState.voting) return;
+  pollsState.voting = true;
+  const buttons = els.pollOptions.querySelectorAll('button');
+  buttons.forEach((b) => { b.disabled = true; });
+  try {
+    const res = await fetch('/api/polls/vote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: poll.id, option: index }),
+    });
+    if (res.status === 401 || res.status === 403) {
+      // Anonymous visitor on a station that gates the vote route: listening
+      // works, voting needs the same credentials -- say so, keep the buttons.
+      setPollStatus('Za glasovanje se prijavite z enakimi poverilnicami kot za poslušanje.', 'is-warn');
+      return;
+    }
+    if (res.status === 429) {
+      const data = await res.json().catch(() => null);
+      setPollStatus(data?.errors?.[0] ?? 'Glas lahko oddaš le vsakih 30 sekund.', 'is-warn');
+      return;
+    }
+    if (res.status === 404) {
+      // The poll closed while the card was open -- take the card down.
+      hidePollCard();
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      setPollStatus(data?.errors?.[0] ?? `Glasovanje ni uspelo (napaka ${res.status}).`, 'is-err');
+      return;
+    }
+    pollsState.votedIndex = index;
+    setPollStatus('Glas oddan.', 'is-ok');
+    // The POST answer carries only the summary tally ({total, leader,
+    // leaderVotes}) -- the honest per-option counts come from one immediate
+    // re-read of the active poll, which also folds in other listeners' votes.
+    // (If the 12 s tick happens to be mid-flight, that answer suffices and
+    // the next tick heals the counts either way.)
+    await fetchPolls();
+  } catch {
+    setPollStatus('Glasovanje ni uspelo -- strežnik ni dosegljiv. Poskusi znova.', 'is-err');
+  } finally {
+    pollsState.voting = false;
+    els.pollOptions.querySelectorAll('button').forEach((b) => { b.disabled = false; });
   }
 }
 
@@ -1521,9 +1742,11 @@ fetchTopListened();
 fetchUpcoming();
 fetchWeather();
 fetchListeners();
+fetchPolls();
 setInterval(fetchNowPlaying, POLL_MS);
 setInterval(fetchHistory, POLL_MS);
 setInterval(fetchUpcoming, POLL_MS);
+setInterval(fetchPolls, POLL_MS); // anketa: same cadence as the hero refresh
 setInterval(fetchWeather, 10 * 60 * 1000);
 setInterval(fetchListeners, 60 * 1000);
 setInterval(fetchSchedule, SCHEDULE_POLL_MS); // keeps marks fresh while the tab is open

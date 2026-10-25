@@ -8,7 +8,18 @@ import { config } from '../config/index.js';
 import { withLock } from '../lib/lock.js';
 
 function readPromptsFile() {
-  return JSON.parse(fs.readFileSync(config.paths.promptsFile, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(config.paths.promptsFile, 'utf8'));
+  } catch {
+    // Fail-open, not a 500: on a fresh deploy dataDir/prompts.json doesn't
+    // exist yet, and every consumer already treats "no personas / no
+    // script-review block" as "use the defaults" (loadPersonas's ?? {},
+    // loadScriptReview's ?? default) -- the honest-empty contract. A later
+    // save then recreates the file from this empty base. (The write side is
+    // atomic tmp+rename below, so a torn file is not a realistic state; the
+    // realistic failure is simply ENOENT.)
+    return {};
+  }
 }
 
 function atomicWrite(data) {

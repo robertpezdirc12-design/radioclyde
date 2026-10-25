@@ -28,5 +28,11 @@ function isIpInCidr(ip, cidr) {
 export function isTrustedIp(ip, cidrs = []) {
   const normalized = normalize(ip);
   if (normalized === '127.0.0.1' || ip === '::1') return true;
-  return cidrs.some((cidr) => isIpInCidr(ip, cidr));
+  // config.web.trustedNetworks is operator input: one non-string entry
+  // (null, a number, a nested array) would throw inside isIpInCidr's
+  // cidr.split and 500 EVERY request, since auth.js's onRequest hook calls
+  // this before anything else runs. Filter the way auth.js filters its
+  // publicPaths list -- unknown shapes are ignored, not fatal. (Junk STRING
+  // entries were already safe: they parse to a null range and never match.)
+  return cidrs.some((cidr) => typeof cidr === 'string' && isIpInCidr(ip, cidr));
 }

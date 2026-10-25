@@ -149,10 +149,14 @@ procesu spletnega strežnika, zato se lena in zgodnja iskanja dedupirata.
 `ensureLyrics(track)` ostaja primitiv ene skladbe, na katerem je prefetch
 zgrajen.
 
-Vklop zgodnjega sprožilnika: `config.lyrics.prefetch: true` (PRIVZETO
-IZKLOP — obstoje namestitve ostanejo bajtno identične, lena ruta sama
-pokriva celo pogodbo). Pogoj je tudi `lyrics.enabled !== false` (prva
-preverba v `ensureLookup`). Pošteno opomba o enkratnih CLI procesih: `npm
+Vklop zgodnjega sprožilnika: `config.lyrics.prefetch: true` (v kodi
+PRIVZETO IZKLOP — a pozor: izšli `config.example.json` in namestitvena
+`deploy/ubuntu/config.linux.json` ga že imata vklopljenega, zato sveža
+namestitev po README navodilu („kopiraj config.example.json“) zažene
+zgodnji sprožilnik; izklop je `"prefetch": false`). Obstoječe namestitve
+brez vnosa ostanejo bajtno identične, lena ruta sama pokriva celo pogodbo.
+Pogoj je tudi `lyrics.enabled !== false` (prva preverba v
+`ensureLookup`). Pošteno opomba o enkratnih CLI procesih: `npm
 run generate-filler-playlist` / `direct-show` z vklopljenim prefetchom
 počakata, da tekoča iskanja pridejo do konca (prvič ~velikost poola × 1,1 s;
 topol predalnik s 30-dnevno ponovno preverbo prične ~nič iskanj), urnikov

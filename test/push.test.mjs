@@ -351,6 +351,40 @@ describe('dispatchPush (orkestracija z injektiranim transportom)', () => {
     const report = await dispatchPush({ schedule: SCHEDULE, now: NOW_1958, leadMinutes: 2 });
     assert.equal(report.skippedNoSubs, true);
   });
+
+  test('prekrivajoč tick se preskoči: eno pošiljanje, en ledger ključ (in-flight varovalka)', async () => {
+    resetPushState();
+    const sub = makeSubscriber('https://push.example.com/inflight');
+    addSubscription(sub);
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    let calls = 0;
+    setPushTransport(async () => {
+      calls += 1;
+      await gate; // pošiljanje "visi", kot bi visel počasen push servis
+      return { status: 201 };
+    });
+    try {
+      const first = dispatchPush({ schedule: SCHEDULE, now: NOW_1958, leadMinutes: 2 });
+      // ena makro-naloga, da prvi prehod res pride do zanke naročnikov
+      await new Promise((resolve) => setImmediate(resolve));
+      const second = await dispatchPush({ schedule: SCHEDULE, now: NOW_1958, leadMinutes: 2 });
+      assert.equal(second.skippedConcurrent, true, 'vzporedni klic se tiho preskoči');
+      assert.equal(second.due, 0);
+      release();
+      const report = await first;
+      assert.equal(report.delivered, 1);
+      assert.equal(calls, 1, 'transport klic natanko enkrat');
+      assert.equal(loadSentKeysSet().size, 1, 'ledger natanko en ključ -- brez dvojnih vrstic');
+    } finally {
+      try {
+        release();
+      } catch {
+        /* gate že sproščen */
+      }
+      setPushTransport(null);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -396,6 +430,27 @@ describe('javne push rute /api/push/*', () => {
 
     const empty = await fastify.inject({ method: 'POST', url: '/api/push/subscribe', payload: {} });
     assert.equal(empty.statusCode, 400);
+    await fastify.close();
+  });
+
+  test('POST subscribe: napaka datotečnega sistema je 500 z generičnim sporočilom (brez poti)', async () => {
+    resetPushState();
+    // Imenik na mestu tmp datoteke -> writeFileSync pade z EISDIR: napaka
+    // shrambe, ne validacija. Prej je tak err.message (z absolutno potjo
+    // dataDir) odšel neposredno v telo odgovora morečnemu anonimnemu klicatelju.
+    fs.mkdirSync(configModule.config.paths.pushDir, { recursive: true });
+    fs.mkdirSync(path.join(configModule.config.paths.pushDir, `subscriptions.json.tmp-${process.pid}`));
+    const fastify = await app();
+    const sub = makeSubscriber('https://push.example.com/fs-fail');
+    const res = await fastify.inject({
+      method: 'POST',
+      url: '/api/push/subscribe',
+      payload: { endpoint: sub.endpoint, keys: sub.keys },
+    });
+    assert.equal(res.statusCode, 500);
+    const body = res.json();
+    assert.equal(body.error, 'Prijava na obvestila trenutno ni uspela.');
+    assert.ok(!JSON.stringify(body).includes('subscriptions.json'), 'strežnikova pot ne sme pricati ven');
     await fastify.close();
   });
 

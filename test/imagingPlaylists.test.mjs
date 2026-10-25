@@ -120,3 +120,62 @@ describe('writeImagingPlaylists', () => {
     assert.equal(fs.readFileSync(config.paths.imagingStingerPath, 'utf8'), '');
   });
 });
+
+// Atomic + idempotent write discipline (the writeStreamsLiq pattern, pinned
+// here for the three Liquidsoap-WATCHED m3u files): radio.liq reloads on
+// mtime (reload_mode="watch"), so (a) a re-scan with an IDENTICAL clip set
+// must not touch the file at all -- the reload fires only when the SET
+// changes -- and (b) a real change must swap atomically (tmp-<pid>+rename),
+// never letting the watcher catch a half-written (momentarily empty) layer,
+// the emergency bed included.
+describe('writeImagingPlaylists write discipline (watched files)', () => {
+  // Same reset as the suite above (its helper is scoped inside that describe).
+  function resetImagingDirs() {
+    fs.rmSync(path.join(config.dataDir, 'imaging'), { recursive: true, force: true });
+  }
+
+  test('identical clip set: no rewrite at all (mtime untouched, watch-reload stays quiet)', () => {
+    resetImagingDirs();
+    fs.mkdirSync(config.paths.imagingIdDir, { recursive: true });
+    writeWav(path.join(config.paths.imagingIdDir, 'id-1.wav'));
+    writeWav(path.join(config.paths.imagingIdDir, 'id-2.wav'));
+
+    writeImagingPlaylists();
+    const afterFirst = fs.statSync(config.paths.imagingIdPath).mtimeMs;
+
+    // A plain 30-min-tick rescan with the same clips on disk.
+    writeImagingPlaylists();
+    assert.equal(fs.statSync(config.paths.imagingIdPath).mtimeMs, afterFirst);
+
+    // Not even a fresh file timestamp sneaks a rewrite through: touching a
+    // clip's mtime changes nothing, the SET is still identical.
+    fs.utimesSync(path.join(config.paths.imagingIdDir, 'id-1.wav'), new Date(), new Date());
+    writeImagingPlaylists();
+    assert.equal(fs.statSync(config.paths.imagingIdPath).mtimeMs, afterFirst);
+  });
+
+  test('a changed clip set DOES rewrite (the watch-reload fires for real changes)', () => {
+    resetImagingDirs();
+    fs.mkdirSync(config.paths.imagingStingerDir, { recursive: true });
+    writeWav(path.join(config.paths.imagingStingerDir, 'a.wav'));
+    writeImagingPlaylists();
+    const before = fs.statSync(config.paths.imagingStingerPath).mtimeMs;
+
+    writeWav(path.join(config.paths.imagingStingerDir, 'b.wav'));
+    writeImagingPlaylists();
+
+    assert.notEqual(fs.statSync(config.paths.imagingStingerPath).mtimeMs, before);
+    assert.equal(fs.readFileSync(config.paths.imagingStingerPath, 'utf8').trim().split('\n').length, 2);
+  });
+
+  test('the swap is atomic: no .tmp siblings left behind on any path', () => {
+    resetImagingDirs();
+    fs.mkdirSync(config.paths.imagingIdDir, { recursive: true });
+    writeWav(path.join(config.paths.imagingIdDir, 'id-1.wav'));
+    writeImagingPlaylists();
+    writeImagingPlaylists(); // immediate second tick -- the identical-skip path
+    const imagingDir = path.dirname(config.paths.imagingIdPath);
+    const leftovers = fs.readdirSync(imagingDir).filter((f) => f.includes('.tmp'));
+    assert.deepEqual(leftovers, []);
+  });
+});

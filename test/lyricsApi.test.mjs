@@ -243,6 +243,30 @@ describe('lyrics service state machine (lyricsService.js)', () => {
     assert.notEqual(cacheKeyFor('A', 'T', 187000), cacheKeyFor('A', 'T', 205000));
     assert.equal(cacheKeyFor('A', 'T', null), 'A \u2014 T');
   });
+
+  test('a durationless airing track: honest pending WITHOUT a lookup and WITHOUT caching (no bare-key pollution)', async () => {
+    fs.rmSync(lyricsCachePath(), { force: true });
+    const client = fakeClient(() => {
+      throw new Error('the network must not be touched for a durationless track');
+    });
+    const service = createLyricsService({ client, now: () => 0, logger: () => {} });
+    // The lazy route used to half-apply the prefetch route's refusal rule:
+    // it started the lookup anyway, whose definitive miss landed in the cache
+    // under the BARE song key and then shadowed every real cut of the song.
+    for (const durationMs of [0, null, undefined]) {
+      const payload = service.currentLyrics({ artist: 'Ansambel', title: 'Tema', durationMs });
+      assert.deepEqual(
+        { songId: payload.songId, synced: payload.synced, lines: payload.lines, source: payload.source, pending: payload.pending },
+        { songId: 'Ansambel \u2014 Tema', synced: false, lines: [], source: null, pending: true }
+      );
+    }
+    assert.equal(client.calls.length, 0, 'no lookup started for any durationless variant');
+    assert.equal(getCacheEntry('Ansambel \u2014 Tema'), null, 'the bare song key stays uncached');
+    // Nothing was poisoned: a later ask WITH a duration still starts fresh.
+    const healed = service.currentLyrics(TRACK);
+    assert.equal(healed.pending, true);
+    assert.equal(client.calls.length, 1);
+  });
 });
 
 // ---------- route ----------

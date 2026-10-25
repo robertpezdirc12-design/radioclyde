@@ -66,7 +66,12 @@ async function librarySnapshot() {
 export function registerStudioLibraryApi(fastify) {
   fastify.get('/api/library', async (request) => {
     const search = String(request.query?.search ?? '').trim().toLowerCase();
-    const limit = Math.min(parseInt(request.query?.limit ?? '500', 10) || 500, 2000);
+    // Double-sided clamp (historyApi.getRecentHistory discipline): the bare
+    // Math.min let ?limit=-5 through as slice(0,-5), silently dropping the
+    // NEWEST rows (the table's most relevant end) instead of limiting.
+    // Negative now honestly means "no tracks"; 0 keeps the established
+    // explicit-zero handling (|| 500 -> 500), only the negative hole is gone.
+    const limit = Math.max(0, Math.min(parseInt(request.query?.limit ?? '500', 10) || 500, 2000));
     const snap = await librarySnapshot();
     const filtered = search
       ? snap.tracks.filter(

@@ -110,10 +110,16 @@ function row(r) {
 }
 
 export async function loadRequests() {
-  const status = el('requests-filter').value;
-  const { requests } = await api(`/api/requests${status ? `?status=${status}` : ''}`);
-  el('requests-table-body').replaceChildren(...requests.map(row));
-  el('requests-empty').hidden = requests.length > 0;
+  try {
+    const status = el('requests-filter').value;
+    const { requests } = await api(`/api/requests${status ? `?status=${status}` : ''}`);
+    el('requests-table-body').replaceChildren(...requests.map(row));
+    el('requests-empty').hidden = requests.length > 0;
+  } catch (err) {
+    // Same alert-on-error pattern as shows.js -- the moderation table must
+    // not fail silently behind a stale list.
+    window.alert('Napaka pri nalaganju zahtevkov: ' + err.message);
+  }
 }
 
 // app.js re-runs startRequestsView() on every visit to this tab -- bind the

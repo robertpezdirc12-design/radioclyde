@@ -99,16 +99,32 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Klik na obvestilo: osredotoce obstojeci zavihek, ce obstaja, sicer odpri
-// novega na url iz sporocila. Brez toga bi klik naredil mlakav nov zavihek
-// ob vsakem obvestilu -- nihce tega noce.
+// Klik na obvestilo: osredinoci obstojeci zavihek V OBSEGU te service workerke
+// in ga po potrebi usmeri na url iz sporocila; sele ko takega ni, odpri
+// novega. Prva verzija je osredinocila PRVI okenski klient ne glede na URL --
+// klik z odprtim /studio v drugem zavihku je osredinocil napacen zavihek in
+// url obvestila ignoriral.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url ?? '/';
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if ('focus' in client) return client.focus();
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
+      const target = new URL(url, self.location.origin).href;
+      const inScope = clientList.filter((client) => client.url.startsWith(self.registration.scope));
+      for (const client of inScope) {
+        if (client.url === target) return client.focus(); // already looking at the right page
+      }
+      const client = inScope[0];
+      if (client) {
+        // In scope but on the wrong path: focus it and navigate to the
+        // notification's url when the browser offers navigate() -- it may be
+        // missing or reject (e.g. a cross-origin redirect); either failure
+        // still leaves the right tab focused, just on its current page.
+        await client.focus();
+        if (typeof client.navigate === 'function') {
+          try { await client.navigate(target); } catch { /* focus stands */ }
+        }
+        return;
       }
       return self.clients.openWindow(url);
     })

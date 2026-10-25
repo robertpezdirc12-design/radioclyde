@@ -979,11 +979,12 @@ način, da izpis ostane determinističen).
   prvo vrstico. Slovensko števanje (1 vnos, 2 vnosa, 5 vnosov) skrbi
   `slPlural`.
 - **Deterministika:** isti inputi → bajtno isti izpis (fiksni vrstni
-  red, statična razlaga; test potrjuje z dvema tekomema). Testi: 712 →
-  744 celotne suite (`test/doctor.test.mjs` 47 → 79 — vseh trinajst
-  preverjanj, obeh vej config/ne-config, varovalka poštenosti za vire,
-  Finding model (FIXES zaprt nabor, hint/fix samo na opozorilih), meje
-  20 GB / 2 GB / 2×jedri / 10 % na BAJT točno, `.log.1` izpuščen,
+  red, statična razlaga; test potrjuje z dvema tekomema). Testi:
+  `test/doctor.test.mjs` 47 → 79 v tem valu (79 preverjeno tudi danes;
+  celotna suite raste z vsakim valom, zato tu ni njenega števila) — vseh
+  trinajst preverjanj, obeh vej config/ne-config, varovalka poštenosti za
+  vire, Finding model (FIXES zaprt nabor, hint/fix samo na opozorilih),
+  meje 20 GB / 2 GB / 2×jedri / 10 % na BAJT točno, `.log.1` izpuščen,
   determinizem, exit-kodna preslikava, cron vzorec). Demo:
   `node scripts/demo_doctor.mjs` (zdrav + pokvarjen peskovnik + zlomljen
   config).

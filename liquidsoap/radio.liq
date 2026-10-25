@@ -653,7 +653,7 @@ output.icecast(%mp3(bitrate=config.icecast.bitrate),
   radio)
 
 # --- Optional mounts + hourly archive (SUB/WAVE mechanism) ------------------
-# streams.liq is GENERATED at every radioclyde-web boot by
+# streams.liq is GENERATED at every radioclyde boot by
 # src/liquidsoap/streamsLiqWriter.js from config.json's icecast.opus /
 # icecast.flac / archive blocks, with literal values (host, port, password,
 # bitrate ladders -- parse-time constants, which is the whole point: the

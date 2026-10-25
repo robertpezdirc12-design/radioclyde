@@ -36,7 +36,7 @@ const inFlight = new Set();
 export async function checkAndTriggerPrewarmAudio() {
   const schedule = scheduleUtil.loadSchedule();
   const now = new Date();
-  const horizon = config.schedule.prewarmHorizonMinutes ?? 24 * 60;
+  const horizon = config.schedule?.prewarmHorizonMinutes ?? 24 * 60;
 
   for (const { show, weekday, date } of scheduleUtil.upcomingOccurrences(schedule, now, horizon)) {
     const showDateDir = scheduleUtil.dateDir(weekday, show.id, date);

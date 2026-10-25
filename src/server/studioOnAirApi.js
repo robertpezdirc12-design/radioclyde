@@ -9,6 +9,23 @@ import { getRecentHistory } from './historyApi.js';
 import { getListenerCount } from '../icecast/listeners.js';
 import { forceNextOccurrence } from '../scheduler/updateNowPlaying.js';
 import { sendCommand } from '../liquidsoap/telnetClient.js';
+import { config } from '../config/index.js';
+
+// radio.liq's output.icecast (the MP3 mount every listener hears) carries no
+// explicit `id`, so Liquidsoap names that output's telnet commands after the
+// MOUNT: the skip command is "<mount>.skip", not a constant. The previously
+// hardcoded '/stream.skip' matched only config.example.json's mount; with
+// e.g. the deploy default '/stream.mp3' both studio buttons answered 502
+// "no such command". Derived from config.icecast.mount at call time (config
+// is boot-frozen) with '/stream' as the fallback for an absent/blank mount --
+// the same default streamsLiqWriter.js applies -- and normalized to exactly
+// one leading slash so a mount typo can't double it. Pure on purpose: the
+// normalization is pin-able in tests without a running Liquidsoap.
+export function skipCommandForMount(mount) {
+  const raw = typeof mount === 'string' ? mount.trim() : '';
+  const base = raw || '/stream';
+  return `/${base.replace(/^\/+/, '')}.skip`;
+}
 
 export function registerStudioOnAirApi(fastify) {
   fastify.get('/api/on-air', async () => {
@@ -28,7 +45,8 @@ export function registerStudioOnAirApi(fastify) {
     };
   });
 
-  // Skip whatever is actually on the Icecast output (`/stream.skip`), not
+  // Skip whatever is actually on the Icecast output (the mounted
+  // output.skip command, see skipCommandForMount above), not
   // `show_source.skip`. show_source is the scheduled-show playlist; when
   // fallback() has dropped to filler (or fade.in is the operator actually
   // decoding), skipping the inner playlist does not cut the song the
@@ -41,7 +59,7 @@ export function registerStudioOnAirApi(fastify) {
       return reply.code(409).send({ error: 'Nothing skippable right now (no track currently airing).' });
     }
     try {
-      const result = await sendCommand('/stream.skip');
+      const result = await sendCommand(skipCommandForMount(config.icecast?.mount));
       return { result };
     } catch (err) {
       return reply.code(502).send({ error: `Liquidsoap telnet command failed: ${err.message}` });
@@ -66,7 +84,7 @@ export function registerStudioOnAirApi(fastify) {
       // part that actually interrupts.
     }
     try {
-      await sendCommand('/stream.skip');
+      await sendCommand(skipCommandForMount(config.icecast?.mount));
     } catch (err) {
       return reply.code(502).send({ error: `Liquidsoap telnet command failed: ${err.message}` });
     }

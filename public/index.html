@@ -135,6 +135,15 @@
         <p class="hint" id="push-status" hidden></p>
         <button id="push-button" class="push-btn" type="button" hidden>Vklopi obvestila</button>
       </section>
+      <!-- Anketa poslu&scaron;alcev: kartica se poka&zcaron;e samo, kadar je
+           anketa dejansko odprta (GET /api/polls/active); app.js upravlja
+           oddajo glasu in vsa stanja -- vpra&scaron;anje je naslov kartice. -->
+      <section class="card" id="poll-card" aria-label="Anketa" hidden>
+        <h2 id="poll-question"></h2>
+        <div class="poll-options" id="poll-options"></div>
+        <p class="hint" id="poll-total"></p>
+        <p class="form-result" id="poll-status" role="status"></p>
+      </section>
     </section>
 
     <!-- ============ PANEL: SPORED ============ -->

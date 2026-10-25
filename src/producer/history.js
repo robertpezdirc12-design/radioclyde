@@ -112,9 +112,17 @@ export function recordPlayed(track, showId) {
 // Drops entries well outside the repeat window so the history file doesn't
 // grow forever. Keeps a 2x margin past the window rather than pruning right
 // at the cutoff, in case repeatWindowDays gets increased later.
+// Atomic tmp-<pid>+rename rewrite (same discipline as every whole-file
+// rewrite in this repo): a crash mid-rewrite must not leave a truncated
+// played.jsonl behind -- readers tolerate torn LINES, but a torn FILE would
+// silently erase the station's whole repeat memory. Called by the scheduler's
+// cleanup pass (cleanupOldShows.js), so it runs on the same 4x/day cadence
+// as the aired-history prune.
 export function pruneOldEntries() {
   const cutoff = Date.now() - config.shows.repeatWindowDays * DAY_MS * 2;
   const kept = readEntries().filter((e) => new Date(e.playedAt).getTime() >= cutoff);
   const body = kept.map((e) => JSON.stringify(e)).join('\n');
-  fs.writeFileSync(config.paths.historyFile, kept.length ? body + '\n' : '');
+  const tmp = `${config.paths.historyFile}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, kept.length ? body + '\n' : '');
+  fs.renameSync(tmp, config.paths.historyFile);
 }

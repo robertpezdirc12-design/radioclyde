@@ -167,9 +167,20 @@ export async function sendPushTo(subscription, payloadJson, { keys, subject }) {
 
 // ---------- orkestracija ----------
 
+// Scheduler registrira tick na navadnem every() timerju, ne na runSerialized
+// repu -- pošiljanje eni naročnici lahko traja do 10 s (AbortSignal), zato
+// prehod, ki preseže interval, ne sme teči vzporedno z naslednjim: ključ
+// zapadlega termina se zapiše šele PO celotni zanki naročnikov, prekrivajoč
+// prehod bi torej isti termin znova izpeljal in znova poslal (dvojna
+// obvestila + dvojni ledger ključi). Zastavica "v letu", ista disciplina kot
+// studioPodcastApi gumb za izdelavo.
+let dispatchInFlight = false;
+
 // Glavni tik: preveri urnik, poslji vse, kar je zapadel, oznaci v ledzer.
 // Vrne porocilo s stevilkami -- tic nikoli ne vrze (scheduler logira napako
 // in gre naprej); postene napake so v porocilu, ne v stack traceu.
+// skippedConcurrent: prejšnji prehod še teče (zgornja varovalka) -- ta klic
+// ničesar ne pošlje in ničesar ne zapiše, naslednji tick bo termin spet videl.
 export async function dispatchPush({
   schedule = null,
   now = new Date(),
@@ -178,33 +189,41 @@ export async function dispatchPush({
   nameResolver = null,
   sendFn = null,
 } = {}) {
-  const subs = loadSubscriptions();
-  if (subs.length === 0) return { due: 0, delivered: 0, failed: 0, pruned: 0, skippedNoSubs: true };
-
-  const station = schedule ?? loadSchedule();
-  const sentKeys = loadSentKeysSet();
-  pruneSentLedger(); // obenem z branjem -- cena je ze placana
-  const due = showsToNotify(station, now, leadMinutes, sentKeys);
-  if (due.length === 0) return { due: 0, delivered: 0, failed: 0, pruned: 0 };
-
-  const keys = loadOrCreateVapidKeys();
-  let delivered = 0;
-  let failed = 0;
-  const goneEndpoints = new Set();
-
-  for (const occ of due) {
-    const name = nameResolver ? nameResolver(occ.show) : null;
-    const payload = JSON.stringify(buildNotificationPayload(occ, { name }));
-    for (const sub of subs) {
-      const result = await (sendFn ?? sendPushTo)(sub, payload, { keys, subject });
-      if (result.delivered) delivered += 1;
-      else if (result.gone) goneEndpoints.add(sub.endpoint);
-      else failed += 1;
-    }
-    recordSentKey(occurrenceKey(occ));
+  if (dispatchInFlight) {
+    return { due: 0, delivered: 0, failed: 0, pruned: 0, skippedConcurrent: true };
   }
+  dispatchInFlight = true;
+  try {
+    const subs = loadSubscriptions();
+    if (subs.length === 0) return { due: 0, delivered: 0, failed: 0, pruned: 0, skippedNoSubs: true };
 
-  const pruned = removeManySubscriptions(goneEndpoints);
-  if (pruned > 0) log(`push dispatch: obrezanih ${pruned} mrlih narocnin`);
-  return { due: due.length, delivered, failed, pruned };
+    const station = schedule ?? loadSchedule();
+    const sentKeys = loadSentKeysSet();
+    pruneSentLedger(); // obenem z branjem -- cena je ze placana
+    const due = showsToNotify(station, now, leadMinutes, sentKeys);
+    if (due.length === 0) return { due: 0, delivered: 0, failed: 0, pruned: 0 };
+
+    const keys = loadOrCreateVapidKeys();
+    let delivered = 0;
+    let failed = 0;
+    const goneEndpoints = new Set();
+
+    for (const occ of due) {
+      const name = nameResolver ? nameResolver(occ.show) : null;
+      const payload = JSON.stringify(buildNotificationPayload(occ, { name }));
+      for (const sub of subs) {
+        const result = await (sendFn ?? sendPushTo)(sub, payload, { keys, subject });
+        if (result.delivered) delivered += 1;
+        else if (result.gone) goneEndpoints.add(sub.endpoint);
+        else failed += 1;
+      }
+      recordSentKey(occurrenceKey(occ));
+    }
+
+    const pruned = removeManySubscriptions(goneEndpoints);
+    if (pruned > 0) log(`push dispatch: obrezanih ${pruned} mrlih narocnin`);
+    return { due: due.length, delivered, failed, pruned };
+  } finally {
+    dispatchInFlight = false;
+  }
 }

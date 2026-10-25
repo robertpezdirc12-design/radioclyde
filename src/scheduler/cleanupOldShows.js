@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import { pruneOldEntries } from '../producer/history.js';
 
 const log = createLogger('station');
 
@@ -28,6 +29,16 @@ const AIRED_RETENTION_DAYS_DEFAULT = 400;
 // misconfigured) retention value can't combine with a burst of airing to
 // erode recent history -- the part every live view actually reads.
 const AIRED_MIN_KEEP = 10_000;
+
+// Listener requests (server/requestsStore.js) and closed polls
+// (server/pollsStore.js): the two ledgers nothing pruned anywhere -- both are
+// read and rewritten WHOLE on every read, so growth is a slow leak on every
+// studio requests/polls view. 90 days matches the "honest history" horizon
+// the aired ledger uses an order of magnitude below; newest-N floors keep a
+// burst of aging-out entries from eroding the moderation views' recent pages.
+const REQUESTS_RETENTION_DAYS = 90;
+const REQUESTS_MIN_KEEP = 200;
+const POLLS_RETENTION_DAYS = 90;
 
 // Prunes the aired ledger by age (and quietly drops torn lines it happens to
 // walk past -- same skip-and-count contract as every other JSONL reader).
@@ -71,6 +82,98 @@ function pruneAiredHistory(retentionDays) {
   return lines.length - keep.length;
 }
 
+// Prunes producer/history.js's played.jsonl (the show-play ledger).
+// played.jsonl is re-parsed WHOLE by recentlyPlayedRatingKeys() on every
+// filler regeneration AND every script production (~200 lines/day, nothing
+// ever pruned it: pruneOldEntries existed with zero callers), so wiring it
+// here -- on the same cleanup cadence, right next to the aired-ledger prune
+// -- is the missing half. Its own try/catch so a history prune failure
+// never skips the other ledger prunes nor throws the scheduler tick.
+function prunePlayedHistory() {
+  try {
+    pruneOldEntries();
+  } catch (err) {
+    log(`Played-history prune failed (non-fatal): ${err.message}`);
+  }
+}
+
+// Requests ledger: drop entries whose createdAt is older than retentionDays
+// (torn lines skipped-and-counted on the way past, same as the aired prune),
+// but never fewer than the newest REQUESTS_MIN_KEEP lines. An entry without
+// a parseable createdAt is KEPT (NaN < cutoff is false) -- conservative, the
+// same convention the aired prune uses for a bad playedAt. Both this file's
+// writers (submission append, moderation rewrite) live in the web-server
+// process, which is the same process the scheduler runs in, so the
+// read->rename window can't actually interleave with a write the way the
+// detached scrobbleTrack appenders can race the aired prune.
+export function pruneRequestsLedger(
+  retentionDays = REQUESTS_RETENTION_DAYS,
+  minKeep = REQUESTS_MIN_KEEP
+) {
+  const file = config.paths.requestsFile;
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch {
+    return 0; // no requests yet (fresh install) or unreadable -- nothing to prune
+  }
+  const cutoff = Date.now() - retentionDays * DAY_MS;
+  const keptByAge = [];
+  let dropped = 0;
+  for (const line of lines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      dropped++; // torn line (crash mid-append) -- drop it while we're here
+      continue;
+    }
+    if (new Date(entry.createdAt).getTime() < cutoff) {
+      dropped++;
+      continue;
+    }
+    keptByAge.push(line);
+  }
+  const keep = keptByAge.length >= minKeep ? keptByAge : lines.slice(-minKeep);
+  if (keep.length === lines.length) return 0; // nothing aged out, nothing torn -- leave the file (and its mtime) alone
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(tmp, keep.length ? keep.join('\n') + '\n' : '');
+  fs.renameSync(tmp, file);
+  log(`Pruned requests ledger: kept ${keep.length}, dropped ${lines.length - keep.length} (retention ${retentionDays}d).`);
+  return lines.length - keep.length;
+}
+
+// Closed-poll retention. polls.json is rewritten atomically by
+// server/pollsStore.js's writeStore (tmp-<pid> + rename, 2-space JSON); this
+// prune operates on the file directly with that same atomic pattern (the
+// store itself stays untouched -- it fails open on a missing/corrupt file,
+// and this rewrite always writes a well-formed store). The ACTIVE poll is
+// never touched; a closed poll with an unparseable closedAt is kept (NaN <
+// cutoff is false, conservative like every other ledger here). Writers all
+// live in the same web-server process as the scheduler, so the
+// read->rename window cannot interleave a concurrent vote.
+export function pruneClosedPolls(retentionDays = POLLS_RETENTION_DAYS) {
+  const file = config.paths.pollsFile;
+  let store;
+  try {
+    store = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return 0; // no polls yet, or corrupt -- readStore's own fail-open domain
+  }
+  if (!store || typeof store !== 'object' || !Array.isArray(store.closed)) return 0;
+  const cutoff = Date.now() - retentionDays * DAY_MS;
+  const keep = store.closed.filter((poll) => !(new Date(poll.closedAt).getTime() < cutoff));
+  if (keep.length === store.closed.length) return 0;
+  const next = { ...store, closed: keep };
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, file);
+  log(`Pruned closed polls: kept ${keep.length}, dropped ${store.closed.length - keep.length} (retention ${retentionDays}d).`);
+  return store.closed.length - keep.length;
+}
+
 function listSubdirs(dir) {
   return fs
     .readdirSync(dir, { withFileTypes: true })
@@ -80,13 +183,21 @@ function listSubdirs(dir) {
 
 export async function cleanupOldShows(retentionDays = config.cleanup?.retentionDays ?? 7) {
   const runningDir = config.paths.runningDir;
-  // No early return here anymore: the aired-history prune below must run even
-  // on a fresh install whose running/ dir doesn't exist yet (the ledger is
-  // written by scrobbleTrack processes, not by anything under running/).
-  const cutoff = Date.now() - retentionDays * DAY_MS;
+  // Junk retentionDays must refuse the sweep, not guess at it: cutoff =
+  // Date.now() - retentionDays * DAY_MS with a non-number is NaN, and
+  // `x >= NaN` is ALWAYS false, so no date dir was ever skipped -- the sweep
+  // silently deleted EVERY show dir under running/ including today's
+  // (a negative value deletes future dirs the same way). Refusal style
+  // mirrors scheduler.js pruneArchives's own guard; the ledger prunes below
+  // still run, since they have their own independent retention knobs.
+  const retentionOk = Number.isFinite(retentionDays) && retentionDays > 0;
+  if (!retentionOk) {
+    log(`Cleanup sweep skipped: retentionDays is not a positive number (${JSON.stringify(retentionDays)}).`);
+  }
   let removed = 0;
 
-  if (fs.existsSync(runningDir)) {
+  if (retentionOk && fs.existsSync(runningDir)) {
+    const cutoff = Date.now() - retentionDays * DAY_MS;
     for (const weekday of listSubdirs(runningDir)) {
       const weekdayDir = path.join(runningDir, weekday);
       for (const showId of listSubdirs(weekdayDir)) {
@@ -119,7 +230,25 @@ export async function cleanupOldShows(retentionDays = config.cleanup?.retentionD
   if (removed > 0) {
     log(`Cleanup complete: removed ${removed} occurrence director${removed === 1 ? 'y' : 'ies'} older than ${retentionDays}d.`);
   }
-  pruneAiredHistory(config.cleanup?.airedRetentionDays ?? AIRED_RETENTION_DAYS_DEFAULT);
+  // Each ledger prune in its own try/catch: one unreadable file must never
+  // skip the others nor throw the scheduler tick (every()'s catch would log
+  // it, but then these would all be skipped until the next 6h tick).
+  try {
+    pruneAiredHistory(config.cleanup?.airedRetentionDays ?? AIRED_RETENTION_DAYS_DEFAULT);
+  } catch (err) {
+    log(`Aired-history prune failed (non-fatal): ${err.message}`);
+  }
+  prunePlayedHistory();
+  try {
+    pruneRequestsLedger();
+  } catch (err) {
+    log(`Requests-ledger prune failed (non-fatal): ${err.message}`);
+  }
+  try {
+    pruneClosedPolls();
+  } catch (err) {
+    log(`Closed-polls prune failed (non-fatal): ${err.message}`);
+  }
   return { removed };
 }
 

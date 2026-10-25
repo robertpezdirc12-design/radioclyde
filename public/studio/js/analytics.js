@@ -179,20 +179,26 @@ function renderImpact(data) {
 }
 
 async function loadAnalytics() {
-  const hours = Number(el('analytics-range').value) || 24;
-  const data = await api(`/api/analytics?hours=${hours}`);
-  renderSummary(data);
-  renderImpact(data);
-  const chartBox = el('analytics-chart');
-  const chartEmpty = el('analytics-chart-empty');
-  const reason = chartEmptyReason(data);
-  if (reason) {
-    chartBox.replaceChildren();
-    chartEmpty.textContent = reason;
-    chartEmpty.hidden = false;
-  } else {
-    chartEmpty.hidden = true;
-    renderChart(chartBox, data.series);
+  try {
+    const hours = Number(el('analytics-range').value) || 24;
+    const data = await api(`/api/analytics?hours=${hours}`);
+    renderSummary(data);
+    renderImpact(data);
+    const chartBox = el('analytics-chart');
+    const chartEmpty = el('analytics-chart-empty');
+    const reason = chartEmptyReason(data);
+    if (reason) {
+      chartBox.replaceChildren();
+      chartEmpty.textContent = reason;
+      chartEmpty.hidden = false;
+    } else {
+      chartEmpty.hidden = true;
+      renderChart(chartBox, data.series);
+    }
+  } catch (err) {
+    // Same alert-on-error pattern as shows.js -- a failed load must not
+    // leave silently stale summary/impact/chart behind.
+    window.alert('Napaka pri nalaganju analitike: ' + err.message);
   }
 }
 

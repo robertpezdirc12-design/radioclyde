@@ -14,10 +14,19 @@ import {
 } from '../producer/showBriefWriter.js';
 
 function listShowIds() {
-  return fs
-    .readdirSync(config.paths.showDescriptionsDir)
-    .filter((f) => f.endsWith('.md'))
-    .map((f) => f.slice(0, -3));
+  // Fresh deploy: show-descriptions/ doesn't exist until the first brief is
+  // written, and a bare readdirSync would 500 the whole studio list (with
+  // the absolute dataDir path in Fastify's error body). Fail open to "no
+  // shows yet" -- the same contract showName.resolveShowInfo already has
+  // for one missing brief.
+  try {
+    return fs
+      .readdirSync(config.paths.showDescriptionsDir)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => f.slice(0, -3));
+  } catch {
+    return [];
+  }
 }
 
 // First scheduled occurrence's durationMinutes, or null if this show isn't
@@ -34,17 +43,25 @@ function firstScheduledDuration(id, schedule) {
 export function registerStudioShowsApi(fastify) {
   fastify.get('/api/shows', () => {
     const schedule = loadSchedule();
-    const shows = listShowIds().map((id) => {
-      const text = fs.readFileSync(`${config.paths.showDescriptionsDir}/${id}.md`, 'utf8');
-      const brief = parseShowBrief(text);
-      return {
+    const shows = [];
+    for (const id of listShowIds()) {
+      // Per-brief tolerance: one unreadable/torn brief must not 500 the
+      // whole list -- it's skipped, the rest of the library still renders
+      // (resolveShowInfo's fail-open discipline for a single missing brief).
+      let brief;
+      try {
+        brief = parseShowBrief(fs.readFileSync(`${config.paths.showDescriptionsDir}/${id}.md`, 'utf8'));
+      } catch {
+        continue;
+      }
+      shows.push({
         id,
         title: brief.title ?? id,
         personas: [brief.primaryPersona, brief.weatherPersona].filter(Boolean),
         segments: [brief.hasQuiz && 'quiz', brief.hasWeather && 'weather', brief.hasNews && 'news'].filter(Boolean),
         durationMinutes: firstScheduledDuration(id, schedule),
-      };
-    });
+      });
+    }
     return { shows };
   });
 

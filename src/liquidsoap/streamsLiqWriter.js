@@ -18,7 +18,7 @@
 // 5-line comment, so a fresh clone, a config.json without the new blocks,
 // and a pre-2.4.6 Liquidsoap box all boot byte-identically to the
 // pre-streams state. The file is rewritten atomically and idempotently at
-// every radioclyde-web boot (writeStreamsLiq below) -- hand edits survive
+// every radioclyde boot (writeStreamsLiq below) -- hand edits survive
 // only until the next restart; change config.json instead.
 import fs from 'node:fs';
 import path from 'node:path';

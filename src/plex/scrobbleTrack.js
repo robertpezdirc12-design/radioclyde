@@ -43,7 +43,14 @@ function recordNowPlaying(track) {
     showId: state?.id ?? null,
     playedAt: toLocalISOString(),
   };
-  fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify(entry));
+  // Atomic tmp-<pid>+rename, same discipline as updateNowPlaying.writeState:
+  // the web routes read this file on every /api/now-playing poll, and a torn
+  // read there flashes "nothing on air" to listeners. Its readers are
+  // tolerant, but the discipline is free -- one small JSON object per swap.
+  const nowPlayingTmp = `${config.paths.nowPlayingTrackPath}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(config.paths.nowPlayingTrackPath), { recursive: true });
+  fs.writeFileSync(nowPlayingTmp, JSON.stringify(entry));
+  fs.renameSync(nowPlayingTmp, config.paths.nowPlayingTrackPath);
   fs.mkdirSync(path.dirname(config.paths.airedHistoryFile), { recursive: true });
   fs.appendFileSync(config.paths.airedHistoryFile, JSON.stringify(entry) + '\n');
 }
@@ -52,7 +59,11 @@ function recordNowPlaying(track) {
 // overwrites now_playing_track.json so the web page can show "<persona>
 // talking" instead of freezing on whatever track played last.
 function recordDjTalking(persona) {
-  fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({ dj: persona, startedAt: toLocalISOString() }));
+  // Atomic for the same reason as recordNowPlaying above.
+  const tmp = `${config.paths.nowPlayingTrackPath}.tmp-${process.pid}`;
+  fs.mkdirSync(path.dirname(config.paths.nowPlayingTrackPath), { recursive: true });
+  fs.writeFileSync(tmp, JSON.stringify({ dj: persona, startedAt: toLocalISOString() }));
+  fs.renameSync(tmp, config.paths.nowPlayingTrackPath);
 }
 
 // The track that was on air BEFORE this segment started -- the OUTGOING half

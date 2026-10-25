@@ -15,8 +15,20 @@ const log = createLogger('station');
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+// Fail-open read: a missing or corrupt station.json must not 500 every
+// /api/now-playing, /api/schedule, /api/upcoming poll on a half-configured
+// deploy (Fastify's default error body also leaks absolute paths). Every
+// consumer of this file already treats "no schedule/station/downtime block"
+// as a supported state -- loadSchedule() ?? {}, loadStation() ?? {},
+// [state.weekday] of {} is undefined -- so an empty object here is exactly
+// the shape a fresh install with no station.json yet produces. A valid file
+// behaves byte-identically to the bare JSON.parse this replaced.
 function readStationFile() {
-  return JSON.parse(fs.readFileSync(config.paths.stationFile, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(config.paths.stationFile, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 // P4 #18: a schedule entry carrying a `special` block ({ themes: [...],
@@ -166,6 +178,25 @@ function dateFromKey(date) {
   return new Date(y, m - 1, d);
 }
 
+// Calendar-day arithmetic, NOT epoch-ms steps: adding/subtracting a fixed
+// 24*60*60*1000 is only "one day" when no DST transition intervenes. On the
+// 25-hour fall-back day (Europe/Ljubljana 2026-10-25, 03:00 CEST -> 02:00
+// CET) a +24h walk from local midnight re-lands on the SAME calendar date
+// (00:00 CEST + 24h = 23:00 CET) -- verified live: nextOccurrence's day walk
+// then re-selected the already-aired Sunday lineup (shows[0]), hasGap was
+// false, and updateNowPlaying reloaded the morning show as "next" all
+// night, state.date re-anchoring on every replay so the loop never ended.
+// setDate() moves the LOCAL calendar day in every timezone (including
+// half-hour offsets); a spring-forward 23-hour day lands correctly too (the
+// epoch step overshot into 01:00 of the next day, the calendar step lands
+// on its midnight). Shared by every day-walk in this file and by
+// scheduleDirect.js's yesterday sweep so the convention lives in one place.
+export function addCalendarDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 // Absolute epoch ms for a schedule entry's nominal start, given the dateKey()
 // it airs on -- lets gap detection compare two occurrences that may fall on
 // different calendar days (a day's last show followed by tomorrow's first)
@@ -210,7 +241,11 @@ export function isDjAudioPrewarmed(weekday, showId, date) {
 // filler on 2026-08-07 while several complete shows sat unused.
 export function hasLeadTime(date, show, now, weekday) {
   if (weekday && isDjAudioPrewarmed(weekday, show.id, date)) return true;
-  const minLeadTimeMs = (config.schedule.minLeadTimeMinutes ?? 30) * 60 * 1000;
+  // ?. on the whole block: scheduleUtil is imported by every web route that
+  // reads the schedule, so a hand-edited config without a schedule block must
+  // not turn each poll into a TypeError (same F2 class scheduler.js's cadence
+  // knobs guard against).
+  const minLeadTimeMs = (config.schedule?.minLeadTimeMinutes ?? 30) * 60 * 1000;
   return absoluteStart(date, show.startTime) - now.getTime() >= minLeadTimeMs;
 }
 
@@ -243,9 +278,13 @@ function sortedDayShows(schedule, weekday) {
 // means today's and yesterday's lineups can differ.
 export function mostRecentOccurrence(schedule, now) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  // Yesterday via addCalendarDays, never a -24h epoch step: on the fall-back
+  // day's last local hour (23:xx CET = 24+ real hours since midnight) a -24h
+  // step re-lands on the SAME date, so Saturday's late-night spill would be
+  // missed exactly when it matters (a show still airing past 23:00).
   const candidates = [
     { day: now, offset: 0 },
-    { day: new Date(now.getTime() - 24 * 60 * 60 * 1000), offset: -1440 },
+    { day: addCalendarDays(now, -1), offset: -1440 },
   ];
   let best = null;
   for (const { day, offset } of candidates) {
@@ -272,9 +311,13 @@ export function mostRecentOccurrence(schedule, now) {
 export function upcomingOccurrences(schedule, now, horizonMinutes) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const results = [];
+  // Tomorrow via addCalendarDays for the same DST reason as the -24h case
+  // above, mirrored: on the fall-back day's first local hour (00:xx CEST) a
+  // +24h step re-lands on the SAME date at 23:xx, so tomorrow's lineup would
+  // be missed and today's shows would appear twice (offset 0 AND +1440).
   const candidates = [
     { day: now, offset: 0 },
-    { day: new Date(now.getTime() + 24 * 60 * 60 * 1000), offset: 1440 },
+    { day: addCalendarDays(now, 1), offset: 1440 },
   ];
   for (const { day, offset } of candidates) {
     const weekday = weekdayKey(day);
@@ -309,7 +352,10 @@ export function nextOccurrences(schedule, now, count) {
       results.push({ show, weekday, date, timeKey: timeKey(show.startTime) });
       if (results.length >= count) break;
     }
-    day = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+    // Calendar-day step (see addCalendarDays): an epoch +24h walk re-visits
+    // the fall-back day itself (same date at 23:xx), duplicating today's
+    // entries in the "coming up" list and hiding the next day's early shows.
+    day = addCalendarDays(day, 1);
   }
   return results;
 }
@@ -340,8 +386,11 @@ export function nextOccurrence(schedule, current) {
   } else {
     // Walk forward day by day (rather than assuming tomorrow always has a
     // lineup) so a schedule with an entirely dark day in between still finds
-    // the next real occurrence instead of returning null too early.
-    let day = new Date(dateFromKey(date).getTime() + 24 * 60 * 60 * 1000);
+    // the next real occurrence instead of returning null too early. Calendar
+    // step via addCalendarDays -- the +24h epoch step this used to be is the
+    // fall-back-day bug: it re-landed on the SAME Sunday, picked shows[0]
+    // (the already-aired morning show) and looped the replay all night.
+    let day = addCalendarDays(dateFromKey(date), 1);
     for (let i = 0; i < 7; i++) {
       const wd = weekdayKey(day);
       const shows = sortedDayShows(schedule, wd);
@@ -351,7 +400,7 @@ export function nextOccurrence(schedule, current) {
         nextDate = dateKey(day);
         break;
       }
-      day = new Date(day.getTime() + 24 * 60 * 60 * 1000);
+      day = addCalendarDays(day, 1);
     }
     if (!next) return null;
   }

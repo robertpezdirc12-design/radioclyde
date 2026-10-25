@@ -89,6 +89,60 @@ describe('append / read / moderate', () => {
   });
 });
 
+describe('status transition rules (no resurrection)', () => {
+  test('approved <-> rejected stays legal (owner changing their mind)', () => {
+    const entry = appendRequest({ type: 'request', title: 'flip' }, '203.0.113.21');
+    updateRequestStatus(entry.id, 'approved');
+    const rejected = updateRequestStatus(entry.id, 'rejected', 'a vendar ne');
+    assert.equal(rejected.status, 'rejected');
+    const reApproved = updateRequestStatus(entry.id, 'approved');
+    assert.equal(reApproved.status, 'approved');
+  });
+
+  test('a decided request can never go back to pending', () => {
+    const approved = appendRequest({ type: 'request', title: 'stay-approved' }, '203.0.113.22');
+    updateRequestStatus(approved.id, 'approved');
+    assert.equal(updateRequestStatus(approved.id, 'pending').invalid, true);
+    const rejected = appendRequest({ type: 'request', title: 'stay-rejected' }, '203.0.113.23');
+    updateRequestStatus(rejected.id, 'rejected');
+    assert.equal(updateRequestStatus(rejected.id, 'pending').invalid, true);
+    // and the store is unchanged by the refused transition
+    assert.equal(getRequest(approved.id).status, 'approved');
+    assert.equal(getRequest(rejected.id).status, 'rejected');
+  });
+
+  test('pending -> pending is still the honest "edit the note" move', () => {
+    const entry = appendRequest({ type: 'request', title: 'note edit' }, '203.0.113.24');
+    const updated = updateRequestStatus(entry.id, 'pending', 'lastnik: poskusimo');
+    assert.equal(updated.status, 'pending');
+    assert.equal(getRequest(entry.id).note, 'lastnik: poskusimo');
+  });
+});
+
+describe('listRequests limit clamp', () => {
+  test('negative limit returns no rows (was: slice(0,-5) dropping the NEWEST)', () => {
+    appendRequest({ type: 'request', title: 'clamp-a' }, '203.0.113.25');
+    appendRequest({ type: 'request', title: 'clamp-b' }, '203.0.113.25');
+    assert.equal(listRequests({ limit: -5 }).length, 0);
+    assert.equal(listRequests({ limit: 1 }).length, 1);
+    assert.equal(listRequests({ limit: 1 })[0].title, 'clamp-b', 'newest still first');
+  });
+
+  test('huge limits are capped at 500, non-finite falls back to 500', async () => {
+    const fs = await import('node:fs');
+    const { requestsFilePath } = await import('../src/server/requestsStore.js');
+    fs.writeFileSync(requestsFilePath(), ''); // fresh store: appending 502 is slow otherwise
+    for (let i = 0; i < 502; i++) {
+      appendRequest({ type: 'request', title: `cap-${i}` }, '203.0.113.26');
+    }
+    assert.equal(listRequests({ limit: 1_000_000 }).length, 500, 'cap holds');
+    assert.equal(listRequests({}).length, 500, 'default 500 holds');
+    assert.equal(listRequests({ limit: Number.NaN }).length, 500, 'NaN falls back, not empty');
+    assert.equal(listRequests({ limit: Number.POSITIVE_INFINITY }).length, 500);
+    assert.equal(listRequests({ limit: 1_000_000 })[0].title, 'cap-501', 'newest first within the cap');
+  });
+});
+
 describe('submissionAllowed (per-IP flood control, fails closed)', () => {
   test('second submission within the cooldown window is refused', () => {
     const now = Date.now();
