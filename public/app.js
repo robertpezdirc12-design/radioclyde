@@ -34,6 +34,8 @@ const els = {
   sleepLabel: $('sleep-label'),
   sleepPopover: $('sleep-popover'),
   sleepOff: $('sleep-off'),
+  themeButton: $('theme-button'),
+  themePopover: $('theme-popover'),
   status: $('player-status'),
   historyList: $('history-list'),
   historyEmpty: $('history-empty'),
@@ -1138,9 +1140,108 @@ async function shareCurrentTrack() {
 
 els.shareButton.addEventListener('click', shareCurrentTrack);
 
+// ---------- teme (theme picker) ----------
+//
+// Four skins, one localStorage key ('radioclyde-theme'), chosen per listener
+// per device. The pre-paint inline script in index.html's <head> already
+// stamped the saved id onto <html data-theme> before the first paint; this
+// module owns everything AFTER that: applying a choice (attribute + meta
+// theme-color + picker radios), persisting it, and the picker popover
+// itself. A station-wide default theme is deliberately NOT offered this
+// wave: the listener page is served as a static file with no templating, so
+// the honest choice is the listener's own (Klasika default = today's look).
+
+const THEME_KEY = 'radioclyde-theme';
+
+// PAIRING NOTE: each bg below must equal that theme's --bg in style.css --
+// the meta theme-color tag wants a concrete color, not a var(). Keep the
+// four entries in step with the [data-theme] blocks (and with the id list
+// inside the pre-paint script in index.html).
+const THEMES = {
+  klasika: { label: 'Klasika', bg: '#0a0c12' },
+  jutro: { label: 'Jutro', bg: '#f7f3ec' },
+  vinil: { label: 'Vinil', bg: '#17120e' },
+  terminal: { label: 'Terminal', bg: '#060a07' },
+};
+
+// One renderer for the theme's whole visible state: <html data-theme>
+// (always an explicit id, 'klasika' included, so the CSS selectors stay
+// uniform), the meta theme-color (browser chrome), the picker's radio
+// aria-checked matrix, and the trigger's aria-pressed ("a custom look is
+// active" -- false exactly on Klasika). No status line here: boot must be
+// quiet, the ANNOUNCED transition lives in applyTheme().
+function syncThemeUI(theme) {
+  document.documentElement.dataset.theme = theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', THEMES[theme].bg);
+  els.themePopover.querySelectorAll('[data-theme-id]').forEach((b) => {
+    b.setAttribute('aria-checked', String(b.dataset.themeId === theme));
+  });
+  els.themeButton.setAttribute('aria-pressed', String(theme !== 'klasika'));
+}
+
+function applyTheme(id) {
+  // Unknown ids (stale storage, tampering) degrade honestly to Klasika.
+  const theme = THEMES[id] ? id : 'klasika';
+  syncThemeUI(theme);
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch { /* private mode -- this device falls back to Klasika on reload */ }
+  // The share feature's transient-status helper is page-global by design
+  // (it owns the player-status restore guard) -- reuse it, do not fork it.
+  shareTransientStatus(`Tema: ${THEMES[theme].label}.`, 'is-ok');
+}
+
+// Boot: the pre-paint script already applied the theme to <html>; catch
+// the picker's own state up to it (and re-assert the meta tag, so a stale
+// build can never ship a wrong chrome color). Quiet -- no boot announcement.
+syncThemeUI(THEMES[document.documentElement.dataset.theme] ? document.documentElement.dataset.theme : 'klasika');
+
+// The picker mirrors the sleep popover (trigger + hidden popover + chip-btn
+// options + Esc/outside-click close + refocus trigger). ONE deliberate
+// difference: opening it moves focus onto the checked radio, because a
+// radiogroup's arrow-key navigation only works from inside the group -- the
+// sleep options are plain buttons and keep the trigger's focus instead.
+function setThemePopover(open) {
+  els.themePopover.hidden = !open;
+  els.themeButton.setAttribute('aria-expanded', String(open));
+  if (open) {
+    const options = Array.from(els.themePopover.querySelectorAll('[data-theme-id]'));
+    const checked = options.find((b) => b.getAttribute('aria-checked') === 'true') || options[0];
+    if (checked) checked.focus();
+  }
+}
+
+// Arrow keys cycle the radios (wrapping), ARIA radiogroup style.
+function moveThemeFocus(key) {
+  const options = Array.from(els.themePopover.querySelectorAll('[data-theme-id]'));
+  if (options.length === 0) return;
+  const idx = Math.max(0, options.indexOf(document.activeElement));
+  const delta = key === 'ArrowUp' || key === 'ArrowLeft' ? -1 : 1;
+  options[(idx + delta + options.length) % options.length].focus();
+}
+
+els.themeButton.addEventListener('click', () => setThemePopover(els.themePopover.hidden));
+els.themePopover.querySelectorAll('[data-theme-id]').forEach((b) => {
+  b.addEventListener('click', () => {
+    applyTheme(b.dataset.themeId);
+    setThemePopover(false);
+    els.themeButton.focus(); // same dismissal contract as the sleep picker
+  });
+});
+// Clicking anywhere outside the wrap dismisses the popover; the trigger and
+// the options live inside it, so their own clicks never race this listener.
+document.addEventListener('click', (e) => {
+  if (els.themePopover.hidden) return;
+  const t = e.target;
+  if (t && typeof t.closest === 'function' && t.closest('#theme-wrap')) return;
+  setThemePopover(false);
+});
+
 // ---------- tipkovnica (keyboard shortcuts) ----------
 //
-// Space = play/pause, M = mute, ArrowUp/Down = volume ±5, L = lyrics panel.
+// Space = play/pause, M = mute, ArrowUp/Down = volume ±5, L = lyrics panel,
+// T = theme picker.
 // ONE keydown listener, bound once; every shortcut reuses the matching
 // button's own click path, so the keyboard and the pointer can never drift
 // apart. Guards run before any consumption:
@@ -1155,12 +1256,16 @@ document.addEventListener('keydown', (e) => {
   // keep their native meaning -- only bare keys are ours.
   if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
   if (e.key === 'Escape') {
-    // The sleep popover is the only floating overlay: Esc dismisses it and
-    // hands focus back to its trigger. Consumed only while it is open --
-    // everywhere else Esc keeps its native meaning.
+    // The sleep and theme popovers are the floating overlays: Esc dismisses
+    // whichever is open and hands focus back to its trigger. Consumed only
+    // while one is open -- everywhere else Esc keeps its native meaning.
     if (!els.sleepPopover.hidden) {
       setSleepPopover(false);
       els.sleepButton.focus();
+      e.preventDefault();
+    } else if (!els.themePopover.hidden) {
+      setThemePopover(false);
+      els.themeButton.focus();
       e.preventDefault();
     }
     return;
@@ -1182,6 +1287,24 @@ document.addEventListener('keydown', (e) => {
   if (key === 'l') {
     els.lyricsToggle.click(); // the exact existing lyrics-toggle path
     return;
+  }
+  if (key === 't') {
+    els.themeButton.click(); // the exact existing picker-open path
+    return;
+  }
+  // While the theme popover is open AND focus sits inside its radiogroup,
+  // the arrows belong to the radios (ARIA radio semantics) -- not to the
+  // volume slider. Outside the popover the arrows keep their volume job.
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (
+      !els.themePopover.hidden &&
+      target && typeof target.closest === 'function' &&
+      target.closest('#theme-popover')
+    ) {
+      e.preventDefault(); // consumed -- the arrows would otherwise scroll the page
+      moveThemeFocus(e.key);
+      return;
+    }
   }
   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
     e.preventDefault(); // consumed -- the arrows would otherwise scroll the page

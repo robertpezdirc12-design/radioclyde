@@ -499,6 +499,19 @@ prose for humans. The selection section supports:
   fetch honors it without touching code or restarting anything. A malformed
   skill file is ignored and the code default silently takes over —
   [format (sl)](docs/skills.md).
+- **Listener themes (Teme)**: the public page ships four looks — Klasika
+  (today's dark default, unchanged), Jutro (warm light morning paper),
+  Vinil (sepia receiver-dial dark) and Terminal (phosphor green) — picked
+  per listener in a radiogroup picker in the topbar (T shortcut, Esc /
+  outside-click close, focus returned to the trigger), persisted per
+  device in localStorage next to the volume, applied flash-free by a
+  constants-only pre-paint script in `<head>`, with a JS-synced
+  `theme-color` meta and WCAG-AA-checked palettes (no blue/indigo hues in
+  the new skins). Scope note, honestly: a station-wide default theme is
+  deliberately NOT offered this wave — the listener page is served as a
+  static file with no templating, so the per-listener choice (Klasika by
+  default) is the only choice that actually exists; `embed.html` stays
+  self-contained and unthemed.
 - `**Repeat window:** N days` keeps individual tracks out of rotation
 
 ## npm scripts

@@ -17,6 +17,22 @@
   --ok: #34d399;
   --warn: #fbbf24;
   --err: #f87171;
+  /* theme-system tokens (see the "teme" section below); the defaults ARE
+     Klasika's old hardcoded values, so the default look is unchanged */
+  --on-accent: #fff;
+  --glow-1: rgba(124, 92, 255, 0.14);
+  --glow-2: rgba(255, 77, 141, 0.10);
+  --hero-tint: rgba(124, 92, 255, 0.12);
+  --hero-veil: rgba(20, 25, 38, 0.9);
+  --progress-track: rgba(255, 255, 255, 0.10);
+  --play-glow: rgba(124, 92, 255, 0.45);
+  --play-glow-2: rgba(255, 77, 141, 0.45);
+  --line-soft: rgba(255, 255, 255, 0.05);
+  --raise: rgba(255, 255, 255, 0.03);
+  --tint-accent: rgba(124, 92, 255, 0.10);
+  --tint-accent-2: rgba(255, 77, 141, 0.10);
+  --focus-ring: rgba(124, 92, 255, 0.25);
+  --border: rgba(255, 255, 255, 0.12);
   --radius: 16px;
   --radius-sm: 10px;
 }
@@ -28,8 +44,8 @@ html { color-scheme: dark; }
 body {
   margin: 0;
   background:
-    radial-gradient(1200px 500px at 80% -10%, rgba(124, 92, 255, 0.14), transparent 60%),
-    radial-gradient(900px 420px at 5% 0%, rgba(255, 77, 141, 0.10), transparent 55%),
+    radial-gradient(1200px 500px at 80% -10%, var(--glow-1), transparent 60%),
+    radial-gradient(900px 420px at 5% 0%, var(--glow-2), transparent 55%),
     var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -39,13 +55,201 @@ body {
   flex-direction: column;
 }
 
+/* ---- teme (theme system) ---- */
+/* Four listener-selectable skins, one token set each. The data-theme
+   attribute is set BEFORE first paint by a constants-only inline script in
+   index.html's <head> (flash-free) and always carries an explicit id,
+   'klasika' included, so these selectors stay uniform. Audit of the old
+   hardcoded colors and where each went:
+   TOKENIZED (Klasika's defaults are the old literals, so its computed look
+   is unchanged): the body glow pair (--glow-1/--glow-2), the hero gradient
+   tint+veil (--hero-tint/--hero-veil), every white-on-accent label
+   (--on-accent: live chip, selected tab, play/primary buttons, mark chips,
+   the expanded lyrics toggle, the skip link), the progress track
+   (--progress-track), the play-button glows (--play-glow/--play-glow-2),
+   the list separator (--line-soft), the show-item fill (--raise), the
+   on-air/next/current-lyric-line accent tints (--tint-accent-2/
+   --tint-accent), the focus rings (--focus-ring) and the pod-item border
+   (--border -- previously the var(--border, rgba(255,255,255,0.12))
+   fallback WAS the value because --border was never defined; now the token
+   carries that same value).
+   SCOPED under [data-theme="jutro"] only: .top-up/.top-down (the hardcoded
+   #7fd88f/#e08f8f fail body-text AA on light paper -- they follow Jutro's
+   darker --ok/--err instead) and a softer warm box-shadow for the hero art
+   and the popovers (a 50%-black halo reads as dirt on paper).
+   INTENTIONALLY LEFT SHARED, with reasons: .live-dot #fff (a decorative
+   dot inside the gradient chip, not text); the rgba(0,0,0,0.5) shadow
+   family on the dark themes (shadows are supposed to vanish on dark);
+   the .status-badge 15% tint backgrounds (the TEXT tokens carry the
+   contrast, and Jutro darkens --ok/--warn/--err themselves); .push-btn's
+   var(--bg, #10131a) fallback literal (--bg is always defined, so the
+   fallback never fires); --radius/--radius-sm (geometry, not color --
+   every theme shares them); the .swatch-* picker previews (deliberate
+   static duplicates of each theme's accent pair, aria-hidden cosmetics). */
+
+[data-theme="klasika"] {
+  /* The default and today's exact look. This block deliberately defines NO
+     color tokens: every var() falls through to :root, so a listener on
+     Klasika gets the identical computed styling (the block exists only
+     because the page always sets an explicit data-theme and the
+     color-scheme must follow it). Frozen, pre-existing contrast, measured
+     for the record (WCAG relative luminance): text #e7ebf4 on bg #0a0c12 =
+     16.4:1 / on card #141926 = 14.7:1 AA; dim #9aa3b8 = 7.7:1 / 6.9:1 AA;
+     faint #6b7488 = 4.2:1 / 3.7:1 (de-emphasis tier, below AA body-text --
+     historical, kept so Klasika stays byte-identical); accent-as-link
+     #7c5cff = 4.5:1 / 4.0:1 (large-text tier, historical); LIVE-chip white
+     on #ff4d8d = 3.1:1 (bold 0.75rem label, historical). */
+  color-scheme: dark;
+}
+
+[data-theme="jutro"] {
+  /* Jutro -- warm morning paper (LIGHT). Warm off-white surfaces, dark
+     ink, terracotta/burnt-orange pair; no blue/indigo hue anywhere. The
+     --ok/--warn/--err trio is REdefined here because the shared bright
+     variants fail body-text AA on light surfaces. Contrast (WCAG relative
+     luminance): text #2b2118 on bg #f7f3ec = 14.2:1 / on card #fbf8f1 =
+     14.9:1 AA; dim #6b5d4d = 5.8:1 / 6.0:1 AA (5.3:1 on bg-soft #efe9df);
+     faint #776750 = 4.9:1 / 5.2:1 AA (4.5:1 on bg-soft); accent-as-link
+     #c2410c = 4.7:1 / 4.9:1 AA; accent-2 #9a3412 = 6.6:1 / 6.9:1 AA;
+     on-accent #fff on #c2410c = 5.2:1 / on #9a3412 = 7.3:1 AA; ok #166534
+     = 6.5:1 / 6.7:1, warn #96600a = 4.8:1 / 5.0:1, err #991b1b = 7.5:1 /
+     7.8:1 AA. Shares --radius/--radius-sm with :root (geometry). */
+  color-scheme: light;
+  --bg: #f7f3ec;
+  --bg-soft: #efe9df;
+  --card: #fbf8f1;
+  --card-edge: #ddd2be;
+  --text: #2b2118;
+  --text-dim: #6b5d4d;
+  --text-faint: #776750;
+  --accent: #c2410c;
+  --accent-2: #9a3412;
+  --accent-grad: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+  --ok: #166534;
+  --warn: #96600a;
+  --err: #991b1b;
+  --on-accent: #fff;
+  --glow-1: rgba(194, 65, 12, 0.10);
+  --glow-2: rgba(217, 119, 6, 0.08);
+  --hero-tint: rgba(194, 65, 12, 0.10);
+  --hero-veil: rgba(251, 248, 241, 0.9);
+  --progress-track: rgba(43, 33, 24, 0.12);
+  --play-glow: rgba(194, 65, 12, 0.35);
+  --play-glow-2: rgba(154, 52, 18, 0.35);
+  --line-soft: rgba(43, 33, 24, 0.10);
+  --raise: rgba(43, 33, 24, 0.04);
+  --tint-accent: rgba(194, 65, 12, 0.12);
+  --tint-accent-2: rgba(154, 52, 18, 0.10);
+  --focus-ring: rgba(194, 65, 12, 0.25);
+  --border: rgba(43, 33, 24, 0.22);
+}
+
+[data-theme="vinil"] {
+  /* Vinil -- sepia receiver-dial dark: deep brown-black, cream text, an
+     amber-gold + copper pair straight off a 1970s tuner. Contrast (WCAG
+     relative luminance): text #f0e6d2 on bg #17120e = 15.0:1 / on card
+     #251e17 = 13.3:1 AA; dim #c0b096 = 8.8:1 / 7.8:1 AA; faint #97866d =
+     5.3:1 / 4.7:1 AA; accent-as-link #e6b04c = 9.5:1 / 8.4:1 AA; accent-2
+     #c97b3d = 5.7:1 / 5.0:1 AA; on-accent #241a10 on #e6b04c = 8.7:1 / on
+     #c97b3d = 5.2:1 AA. --ok/--warn/--err stay shared with :root (the
+     bright variants pass on this bg: 9.7/11.1/6.7:1) -- intentionally
+     shared, like --radius/--radius-sm (geometry). */
+  color-scheme: dark;
+  --bg: #17120e;
+  --bg-soft: #211a14;
+  --card: #251e17;
+  --card-edge: #40352a;
+  --text: #f0e6d2;
+  --text-dim: #c0b096;
+  --text-faint: #97866d;
+  --accent: #e6b04c;
+  --accent-2: #c97b3d;
+  --accent-grad: linear-gradient(135deg, #e6b04c 0%, #c97b3d 100%);
+  --on-accent: #241a10;
+  --glow-1: rgba(230, 176, 76, 0.12);
+  --glow-2: rgba(201, 123, 61, 0.08);
+  --hero-tint: rgba(230, 176, 76, 0.12);
+  --hero-veil: rgba(37, 30, 23, 0.9);
+  --progress-track: rgba(240, 230, 210, 0.12);
+  --play-glow: rgba(230, 176, 76, 0.35);
+  --play-glow-2: rgba(201, 123, 61, 0.35);
+  --line-soft: rgba(240, 230, 210, 0.08);
+  --raise: rgba(240, 230, 210, 0.04);
+  --tint-accent: rgba(230, 176, 76, 0.12);
+  --tint-accent-2: rgba(201, 123, 61, 0.10);
+  --focus-ring: rgba(230, 176, 76, 0.28);
+  --border: rgba(240, 230, 210, 0.16);
+}
+
+[data-theme="terminal"] {
+  /* Terminal -- phosphor green on near-black: bright green + pale-green
+     pair, dim green grays, and monospace-leaning ACCENT labels (scoped
+     below; the global font-family stays untouched). Contrast (WCAG
+     relative luminance): text #cdf2d3 on bg #060a07 = 16.4:1 / on card
+     #0e1812 = 14.9:1 AA; dim #8fc79a = 10.3:1 / 9.3:1 AA; faint #679a73 =
+     6.1:1 / 5.6:1 AA; accent-as-link #3ce073 = 11.5:1 / 10.5:1 AA;
+     accent-2 #9ff0aa = 14.7:1 / 13.4:1 AA; on-accent #04130a on #3ce073 =
+     11.0:1 / on #9ff0aa = 14.1:1 AA. --ok/--warn/--err stay shared with
+     :root (10.4/11.9/7.2:1 on bg) -- intentionally shared, like
+     --radius/--radius-sm (geometry). */
+  color-scheme: dark;
+  --bg: #060a07;
+  --bg-soft: #0a120d;
+  --card: #0e1812;
+  --card-edge: #1d3324;
+  --text: #cdf2d3;
+  --text-dim: #8fc79a;
+  --text-faint: #679a73;
+  --accent: #3ce073;
+  --accent-2: #9ff0aa;
+  --accent-grad: linear-gradient(135deg, #3ce073 0%, #9ff0aa 100%);
+  --on-accent: #04130a;
+  --glow-1: rgba(60, 224, 115, 0.09);
+  --glow-2: rgba(159, 240, 170, 0.05);
+  --hero-tint: rgba(60, 224, 115, 0.10);
+  --hero-veil: rgba(14, 24, 18, 0.9);
+  --progress-track: rgba(205, 242, 211, 0.12);
+  --play-glow: rgba(60, 224, 115, 0.35);
+  --play-glow-2: rgba(159, 240, 170, 0.28);
+  --line-soft: rgba(205, 242, 211, 0.07);
+  --raise: rgba(205, 242, 211, 0.04);
+  --tint-accent: rgba(60, 224, 115, 0.10);
+  --tint-accent-2: rgba(159, 240, 170, 0.08);
+  --focus-ring: rgba(60, 224, 115, 0.28);
+  --border: rgba(60, 224, 115, 0.20);
+}
+
+/* Jutro one-offs: the top-list movement arrows were hardcoded pastels
+   that vanish on light paper -- they follow the theme's darker semantic
+   colors; and the 50%-black art/popover halo becomes a warm soft shadow. */
+[data-theme="jutro"] .top-up { color: var(--ok); }
+[data-theme="jutro"] .top-down { color: var(--err); }
+[data-theme="jutro"] .hero-art,
+[data-theme="jutro"] .hero-art-fallback,
+[data-theme="jutro"] .sleep-popover,
+[data-theme="jutro"] .theme-popover {
+  box-shadow: 0 18px 50px rgba(64, 52, 38, 0.35);
+}
+
+/* Terminal one-off: monospace leans on the small uppercase labels only
+   (brand, kicker, tabs, day names, show times, mark chips) -- a cheap
+   flavor injection, NOT a global font-family swap. */
+[data-theme="terminal"] .brand-name,
+[data-theme="terminal"] .kicker,
+[data-theme="terminal"] .tab,
+[data-theme="terminal"] .day-name,
+[data-theme="terminal"] .show-time,
+[data-theme="terminal"] .mark-chip {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
 /* ---- dostopnost ---- */
 .skip-link {
   position: absolute;
   left: -9999px;
   top: 0;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   padding: 8px 14px;
   border-radius: 0 0 var(--radius-sm) 0;
   z-index: 50;
@@ -101,7 +305,7 @@ body {
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.14em;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent-grad);
   padding: 5px 12px;
   border-radius: 999px;
@@ -128,7 +332,7 @@ body {
   grid-template-columns: minmax(220px, 340px) 1fr;
   gap: clamp(18px, 3vw, 36px);
   align-items: center;
-  background: linear-gradient(160deg, rgba(124, 92, 255, 0.12), rgba(20, 25, 38, 0.9) 45%), var(--card);
+  background: linear-gradient(160deg, var(--hero-tint), var(--hero-veil) 45%), var(--card);
   border: 1px solid var(--card-edge);
   border-radius: var(--radius);
   padding: clamp(18px, 3vw, 32px);
@@ -194,7 +398,7 @@ body {
 }
 
 .hero-progress { margin-top: 16px; max-width: 460px; }
-.progress-bar { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.10); overflow: hidden; }
+.progress-bar { height: 6px; border-radius: 999px; background: var(--progress-track); overflow: hidden; }
 .progress-fill {
   height: 100%;
   width: 0%;
@@ -219,17 +423,17 @@ body {
   border: none;
   border-radius: 50%;
   background: var(--accent-grad);
-  color: #fff;
+  color: var(--on-accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 10px 30px rgba(124, 92, 255, 0.45);
+  box-shadow: 0 10px 30px var(--play-glow);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .play-btn:hover { transform: scale(1.05); }
 .play-btn:active { transform: scale(0.97); }
-.play-btn[aria-pressed="true"] { box-shadow: 0 10px 30px rgba(255, 77, 141, 0.45); }
+.play-btn[aria-pressed="true"] { box-shadow: 0 10px 30px var(--play-glow-2); }
 
 .icon-btn {
   width: 42px;
@@ -272,7 +476,7 @@ body {
 }
 .tab:hover { color: var(--text); }
 .tab[aria-selected="true"] {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent-grad);
   border-color: transparent;
 }
@@ -310,7 +514,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 9px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--line-soft);
 }
 .list li:last-child { border-bottom: none; }
 .list img { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; flex: none; background: var(--bg-soft); }
@@ -371,14 +575,14 @@ body {
   padding: 6px 8px;
   margin: 0 -4px 6px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--raise);
 }
 .show-time { font-size: 0.78rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .show-name { font-size: 0.86rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .show-host { font-size: 0.75rem; color: var(--text-dim); overflow-wrap: anywhere; }
 
-.show-item.mark-on-air { border-left-color: var(--accent-2); background: rgba(255, 77, 141, 0.10); }
-.show-item.mark-next { border-left-color: var(--accent); background: rgba(124, 92, 255, 0.10); }
+.show-item.mark-on-air { border-left-color: var(--accent-2); background: var(--tint-accent-2); }
+.show-item.mark-next { border-left-color: var(--accent); background: var(--tint-accent); }
 
 .mark-chip {
   display: inline-block;
@@ -390,8 +594,8 @@ body {
   margin-left: 6px;
   vertical-align: 1px;
 }
-.mark-chip.on-air { background: var(--accent-2); color: #fff; }
-.mark-chip.next { background: var(--accent); color: #fff; }
+.mark-chip.on-air { background: var(--accent-2); color: var(--on-accent); }
+.mark-chip.next { background: var(--accent); color: var(--on-accent); }
 
 /* ---- obrazci ---- */
 /* Deterministični predlogi (čipsi) nad zahtevkom -- vsak klik samo
@@ -412,7 +616,7 @@ body {
   white-space: nowrap;
 }
 .chip-btn:hover { border-color: var(--accent); color: var(--text); }
-.chip-btn:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.25); }
+.chip-btn:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
 
 .form label { display: block; margin: 12px 0 4px; font-size: 0.85rem; color: var(--text-dim); font-weight: 600; }
 .form label:first-of-type { margin-top: 0; }
@@ -428,7 +632,7 @@ body {
 .form input:focus, .form select:focus, .form textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.25);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .btn-primary {
@@ -436,7 +640,7 @@ body {
   border: none;
   border-radius: 999px;
   background: var(--accent-grad);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 700;
   padding: 11px 22px;
   cursor: pointer;
@@ -503,7 +707,7 @@ body {
 .podcast-feed { display: flex; gap: 8px; flex: 1 1 320px; max-width: 560px; }
 .podcast-feed input { flex: 1; min-width: 0; }
 .pod-list { display: grid; gap: 14px; }
-.pod-item { border: 1px solid var(--border, rgba(255,255,255,0.12)); border-radius: 10px; padding: 12px 14px; }
+.pod-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .pod-item-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
 .pod-item h3 { margin: 0; font-size: 1rem; }
 .pod-meta { color: var(--text-faint); font-size: 0.84rem; white-space: nowrap; }
@@ -558,7 +762,7 @@ body {
 }
 .lyrics-toggle:hover { color: var(--text); border-color: var(--accent); }
 .lyrics-toggle[aria-expanded="true"] {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent-grad);
   border-color: transparent;
 }
@@ -593,7 +797,7 @@ body {
   font-weight: 800;
   color: var(--accent);
   border-left: 3px solid var(--accent);
-  background: rgba(124, 92, 255, 0.10);
+  background: var(--tint-accent);
 }
 .lyric-rest { color: var(--text-faint); font-weight: 700; }
 
@@ -664,3 +868,50 @@ body {
 .sleep-popover[hidden] { display: none; }
 .sleep-popover .chip-btn[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .sleep-popover .chip-btn:disabled { opacity: 0.55; cursor: default; }
+
+/* ---- teme: izbirnik ---- */
+/* Teme (theme picker): sprožilec je navaden .icon-btn v zgornji vrstici,
+   pojavnega okna NE izumljamo -- enaka postavitev/kolibrika kot pri spanju,
+   le da so možnosti radio čipsi (role="radio" + aria-checked) z mini
+   barvnim vzorcem namesto aria-pressed tablet. Radii so večji (44 px),
+   ker so izbire stanja, ne trenutna dejanja. */
+.theme-wrap { position: relative; }
+.theme-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 168px;
+  padding: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+/* isto kot pri spanju: display:flex bi premagal [hidden] */
+.theme-popover[hidden] { display: none; }
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 44px;
+}
+.theme-popover .chip-btn[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.theme-swatch {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--card-edge);
+}
+/* Statični vzorci parov poudarkov vsake teme -- hčerinski dvojniki vrednosti
+   iz blokov zgoraj, namenoma dobesedni (kozmetika, aria-hidden; manjkajoč
+   blok teme ne more izprazniti predogleda). Drži jih v koraku s temami. */
+.swatch-klasika { background: linear-gradient(135deg, #7c5cff, #ff4d8d); }
+.swatch-jutro { background: linear-gradient(135deg, #c2410c, #9a3412); }
+.swatch-vinil { background: linear-gradient(135deg, #e6b04c, #c97b3d); }
+.swatch-terminal { background: linear-gradient(135deg, #3ce073, #9ff0aa); }

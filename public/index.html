@@ -7,9 +7,33 @@
   <title>Radio Markec</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
+  <!-- theme-color ostaja Klasika (#0a0c12) za prvi MADEŽ -- app.js ga
+       uskladi z izbrano temo ob zagonu in ob vsaki menjavi. -->
   <meta name="theme-color" content="#0a0c12">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="stylesheet" href="/style.css">
+  <!-- PRE-PAINT THEME INIT (constants-only): reads the listener's saved theme
+       from localStorage and stamps it on <html> BEFORE the first paint, so a
+       non-default theme never flashes the Klasika look first. Mirrors
+       SUB/WAVE's THEME_INIT_SCRIPT concept, freshly implemented for this
+       repo's static page. try/catch because private mode / blocked storage
+       throws on access -- the fallback is Klasika. The saved id is validated
+       against this literal list so a stale or tampered value can never load
+       an unknown skin; anything invalid falls back to Klasika. It stays
+       CONSTANT-ONLY by design (no data, no config): keep the id list in step
+       with the [data-theme] blocks in style.css and THEMES in app.js. -->
+  <script>
+    (function () {
+      var KEY = 'radioclyde-theme';
+      var IDS = ['klasika', 'jutro', 'vinil', 'terminal'];
+      var id = 'klasika';
+      try {
+        var saved = localStorage.getItem(KEY);
+        if (saved && IDS.indexOf(saved) !== -1) id = saved;
+      } catch (err) { /* private mode / storage blocked -- Klasika */ }
+      document.documentElement.dataset.theme = id;
+    })();
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skoči na vsebino</a>
@@ -23,6 +47,21 @@
       <span class="weather-chip" id="weather-chip" hidden></span>
       <span class="weather-chip" id="listeners-chip" hidden></span>
       <span class="live-chip" id="live-chip" hidden><span class="live-dot" aria-hidden="true"></span>V ŽIVO</span>
+      <!-- Teme: izbira vmesnika, shranjena na poslušalčevo napravo
+           (Klasika / Jutro / Vinil / Terminal). Predhodna skripta v <head>
+           jo aplicira še pred prvo barvo; app.js upravlja izbirnik,
+           bližnjico T in usklajevanje meta theme-color. -->
+      <div class="theme-wrap" id="theme-wrap">
+        <button id="theme-button" class="icon-btn" type="button" aria-label="Teme" aria-pressed="false" aria-expanded="false" aria-controls="theme-popover" title="Teme (T)">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="13" y="4" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.7"/><rect x="4" y="13" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.45"/><rect x="13" y="13" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.25"/></svg>
+        </button>
+        <div id="theme-popover" class="theme-popover" role="radiogroup" aria-label="Tema vmesnika" hidden>
+          <button class="chip-btn theme-option" type="button" role="radio" aria-checked="true" data-theme-id="klasika"><span class="theme-swatch swatch-klasika" aria-hidden="true"></span>Klasika</button>
+          <button class="chip-btn theme-option" type="button" role="radio" aria-checked="false" data-theme-id="jutro"><span class="theme-swatch swatch-jutro" aria-hidden="true"></span>Jutro</button>
+          <button class="chip-btn theme-option" type="button" role="radio" aria-checked="false" data-theme-id="vinil"><span class="theme-swatch swatch-vinil" aria-hidden="true"></span>Vinil</button>
+          <button class="chip-btn theme-option" type="button" role="radio" aria-checked="false" data-theme-id="terminal"><span class="theme-swatch swatch-terminal" aria-hidden="true"></span>Terminal</button>
+        </div>
+      </div>
     </div>
   </header>
 
