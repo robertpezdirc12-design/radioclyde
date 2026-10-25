@@ -16,6 +16,7 @@
         <li><a href="#schedule" data-view="schedule">Schedule</a></li>
         <li><a href="#prompts" data-view="prompts">Prompts</a></li>
         <li><a href="#requests" data-view="requests">Requests</a></li>
+        <li><a href="#polls" data-view="polls">Ankete</a></li>
         <li><a href="#library" data-view="library">Library</a></li>
         <li><a href="#analytics" data-view="analytics">Analytics</a></li>
         <li><a href="#voice" data-view="voice">Voice</a></li>
@@ -177,6 +178,43 @@
             <tbody id="requests-table-body"></tbody>
           </table>
           <p class="empty-note" id="requests-empty" hidden>No requests yet.</p>
+        </div>
+      </section>
+
+      <section id="view-polls" class="view" hidden>
+        <h1>Ankete</h1>
+        <p class="view-hint">Ena anketa je aktivna naenkrat &mdash; odpiranje nove samodejno zapre prejšnjo in zamrzne njen rezultat. Poslušalci glasujejo na javni strani; on-air rubrika o anketi govori le, dokler je odprta.</p>
+        <div class="card">
+          <h2>Aktivna anketa</h2>
+          <!-- js/polls.js renders the question, the option rows with their
+               tally bars and the total line in here. -->
+          <div id="polls-active"></div>
+          <p class="empty-note" id="polls-active-empty" hidden>Trenutno ni odprte ankete. On-air napoved se utiša, dokler je ni.</p>
+          <div class="form-actions">
+            <button id="polls-close" type="button" class="btn btn-danger" hidden>Zapri anketo</button>
+            <button id="polls-refresh" type="button" class="btn">Osveži</button>
+            <span id="polls-message" class="action-message"></span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Nova anketa</h2>
+          <form id="polls-form">
+            <!-- maxlength values mirror pollsStore.js's MAX_QUESTION_LENGTH
+                 (200) and MAX_OPTION_LENGTH (80); the server re-validates. -->
+            <label>Vprašanje<input id="polls-question" type="text" maxlength="200"></label>
+            <div id="polls-options"></div>
+            <button id="polls-add-option" type="button" class="btn btn-small">+ dodaj možnost</button>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Odpri anketo</button>
+              <span id="polls-form-message" class="action-message"></span>
+            </div>
+            <p id="polls-replace-hint" class="muted small" hidden>Odpiranje nove ankete samodejno zapre trenutno odprto anketo in zamrzne njen rezultat v zgodovino.</p>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Zadnje zaključene ankete</h2>
+          <ul id="polls-history" class="data-list"></ul>
+          <p class="empty-note" id="polls-history-empty" hidden>Nobenih zaključenih anket še ni.</p>
         </div>
       </section>
 

@@ -53,8 +53,7 @@
   },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
-    "telnetPort": 1234,
-    "queueId": "dj"
+    "telnetPort": 1234
   },
   "plex": {
     "baseUrl": "TBD - use the https://<ip-with-dashes>.<hash>.plex.direct:32400 hostname from Settings > Network, not the raw IP, or TLS cert validation will fail",
@@ -228,7 +227,6 @@
     "prefetch": true
   },
   "scripts": {
-    "maxToolIterations": 60,
     "defaultRepeatWindowDays": 7
   },
   "autoRadio": {

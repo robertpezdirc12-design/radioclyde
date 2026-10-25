@@ -65,7 +65,7 @@ export function setupTestConfig(testName, overrides = {}) {
     filler: { poolSize: 200, regenerateIntervalMinutes: 360, maxTrackDurationSeconds: 600, rotationWindowHours: 24 },
     cleanup: { retentionDays: 7, intervalMinutes: 360 },
     backup: { dir: path.join(dataDir, 'backups'), intervalMinutes: 1440 },
-    liquidsoap: { telnetHost: '127.0.0.1', telnetPort: 1234, queueId: 'dj' },
+    liquidsoap: { telnetHost: '127.0.0.1', telnetPort: 1234 },
     icecast: { sourceHost: '127.0.0.1', publicHost: 'localhost', port: 8001, mount: '/stream', bitrate: 128 },
     web: { port: 3999 },
     ...overrides,

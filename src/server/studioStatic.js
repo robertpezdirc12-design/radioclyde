@@ -15,6 +15,7 @@ const ASSETS = [
   { route: '/js/schedule.js', file: 'js/schedule.js', contentType: 'application/javascript' },
   { route: '/js/prompts.js', file: 'js/prompts.js', contentType: 'application/javascript' },
   { route: '/js/requests.js', file: 'js/requests.js', contentType: 'application/javascript' },
+  { route: '/js/polls.js', file: 'js/polls.js', contentType: 'application/javascript' },
   { route: '/js/library.js', file: 'js/library.js', contentType: 'application/javascript' },
   { route: '/js/voice.js', file: 'js/voice.js', contentType: 'application/javascript' },
   { route: '/js/analytics.js', file: 'js/analytics.js', contentType: 'application/javascript' },

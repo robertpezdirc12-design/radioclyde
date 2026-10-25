@@ -110,8 +110,7 @@
   },
   "liquidsoap": {
     "telnetHost": "127.0.0.1",
-    "telnetPort": 1234,
-    "queueId": "dj"
+    "telnetPort": 1234
   },
   "weather": {
     "url": "https://api.open-meteo.com/v1/forecast",

@@ -29,6 +29,11 @@ const els = {
   muteButton: $('mute-button'),
   volume: $('volume-slider'),
   likeButton: $('like-button'),
+  shareButton: $('share-button'),
+  sleepButton: $('sleep-button'),
+  sleepLabel: $('sleep-label'),
+  sleepPopover: $('sleep-popover'),
+  sleepOff: $('sleep-off'),
   status: $('player-status'),
   historyList: $('history-list'),
   historyEmpty: $('history-empty'),
@@ -764,6 +769,9 @@ function setPlayIcon(playing) {
   els.playButton.querySelector('.icon-pause').hidden = !playing;
   els.playButton.setAttribute('aria-pressed', String(playing));
   els.playButton.setAttribute('aria-label', playing ? 'Ustavi' : 'Predvajaj');
+  // The tooltip mirrors the dynamic aria-label -- with the shortcut hint
+  // riding along (there was no title in the static markup to clobber).
+  els.playButton.title = playing ? 'Ustavi (preslednica)' : 'Predvajaj (preslednica)';
 }
 
 els.playButton.addEventListener('click', () => {
@@ -831,6 +839,8 @@ function applyVolume() {
   els.muteButton.querySelector('.icon-muted').hidden = !muted;
   els.muteButton.setAttribute('aria-pressed', String(muted));
   els.muteButton.setAttribute('aria-label', muted ? 'Vklopi zvok' : 'Utišaj');
+  // Same honest-state treatment as the play button's tooltip.
+  els.muteButton.title = muted ? 'Vklopi zvok (M)' : 'Utišaj (M)';
   try {
     localStorage.setItem(VOL_KEY, els.volume.value);
   } catch { /* ignore */ }
@@ -857,6 +867,332 @@ els.likeButton.addEventListener('click', () => {
 els.art.addEventListener('error', () => {
   els.art.hidden = true;
   els.artFallback.hidden = false;
+});
+
+// ---------- spanje (sleep timer) ----------
+//
+// "Spanje" stops playback after a chosen number of minutes (15/30/60/90),
+// NTS/KEXP-style. Honesty rules the whole module:
+//  - The countdown is anchored to Date.now(), never to tick counts: hidden
+//    tabs throttle intervals to a crawl, so every wake-up recomputes the
+//    remaining time from the anchor, and a visibilitychange catch-up fires
+//    the wind-down the moment a suspended tab returns past T-0.
+//  - At T-0 the volume ramps down over ~5 s, then the stream pauses through
+//    the existing pause path (player.pause() -> the 'pause' listener keeps
+//    the play button honest), then the slider value is re-applied so the
+//    next play starts at the listener's chosen volume again.
+//  - Some iOS WebKit builds ignore element.volume writes (read-only in
+//    practice): there the ramp is silently a no-op, but the pause at its
+//    end is unconditional, so the timer still ends in a clean stop.
+//  - Manual play/pause during a countdown never cancels it -- that is the
+//    point of a sleep timer; the label keeps counting so the user knows.
+
+const SLEEP_FADE_MS = 5000;
+const SLEEP_FADE_STEP_MS = 100;
+const SLEEP_TICK_MS = 1000;
+
+const sleepState = {
+  endAt: null,    // epoch-ms anchor of T-0; null = no timer armed
+  minutes: null,  // picked duration -- highlights the popover option
+  fading: false,  // T-0 reached, volume ramp in flight
+  tickTimer: null,
+  fadeTimer: null,
+  labelText: '',  // last label written -- a steady tick must not churn the DOM
+};
+
+function sleepRemainingMs() {
+  if (sleepState.endAt == null) return null;
+  return sleepState.endAt - Date.now();
+}
+
+function sleepLabelText() {
+  if (sleepState.fading) return 'spanje: 0 min';
+  const remaining = sleepRemainingMs();
+  if (remaining == null) return 'Spanje';
+  return `spanje: ${Math.max(0, Math.ceil(remaining / 60000))} min`;
+}
+
+// One renderer for the trigger + the popover options. The countdown lives
+// in the control's own label (visible, quiet -- no per-minute live-region
+// spam); state TRANSITIONS are announced through the existing player-status
+// role="status" line instead (setSleepTimer / fireSleepEnd / cancel).
+function updateSleepControl() {
+  const active = sleepState.endAt != null || sleepState.fading;
+  els.sleepButton.setAttribute('aria-pressed', String(active));
+  const label = sleepLabelText();
+  if (label !== sleepState.labelText) {
+    sleepState.labelText = label;
+    els.sleepLabel.textContent = label;
+  }
+  els.sleepPopover.querySelectorAll('[data-sleep-min]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(active && Number(b.dataset.sleepMin) === sleepState.minutes));
+  });
+  els.sleepOff.disabled = !active; // nothing to switch off without an armed timer
+}
+
+function setSleepPopover(open) {
+  els.sleepPopover.hidden = !open;
+  els.sleepButton.setAttribute('aria-expanded', String(open));
+}
+
+function stopSleepTimers() {
+  if (sleepState.tickTimer != null) {
+    clearInterval(sleepState.tickTimer);
+    sleepState.tickTimer = null;
+  }
+  if (sleepState.fadeTimer != null) {
+    clearInterval(sleepState.fadeTimer);
+    sleepState.fadeTimer = null;
+  }
+}
+
+function tickSleep() {
+  if (sleepState.endAt == null) return; // fired or cancelled -- the interval is gone
+  if (sleepRemainingMs() <= 0) {
+    fireSleepEnd();
+    return;
+  }
+  updateSleepControl();
+}
+
+function setSleepTimer(minutes) {
+  // A fresh duration replaces whatever is running -- including a wind-down
+  // already in flight: its partial ramp is undone from the slider's truth.
+  const wasFading = sleepState.fading;
+  stopSleepTimers();
+  sleepState.fading = false;
+  if (wasFading) applyVolume();
+  sleepState.endAt = Date.now() + minutes * 60 * 1000;
+  sleepState.minutes = minutes;
+  sleepState.tickTimer = setInterval(tickSleep, SLEEP_TICK_MS);
+  updateSleepControl();
+  setStatus(`Spanje: predvajanje se bo ustavilo čez ${minutes} min.`);
+}
+
+function cancelSleepTimer() {
+  const wasFading = sleepState.fading;
+  if (sleepState.endAt == null && !wasFading) return; // nothing armed -- quiet no-op
+  stopSleepTimers();
+  sleepState.endAt = null;
+  sleepState.minutes = null;
+  sleepState.fading = false;
+  if (wasFading) applyVolume(); // undo the partial ramp, back to the slider's truth
+  updateSleepControl();
+  setStatus('Spanje je izklopljeno.');
+}
+
+function fireSleepEnd() {
+  if (sleepState.endAt == null || sleepState.fading) return; // not armed / already winding down
+  sleepState.endAt = null; // idempotent across the tick, visibilitychange and any late wake-up
+  stopSleepTimers();
+  if (player.paused) {
+    // The listener had already paused manually (the timer survives manual
+    // control by design): nothing to fade or stop -- just close the chapter.
+    sleepState.minutes = null;
+    updateSleepControl();
+    setStatus('Spanje je poteklo.');
+    return;
+  }
+  beginSleepFade();
+}
+
+function beginSleepFade() {
+  sleepState.fading = true;
+  updateSleepControl();
+  setStatus('Spanje: nežno ugašam …');
+  const startedAt = Date.now();
+  const fromVolume = player.volume;
+  sleepState.fadeTimer = setInterval(() => {
+    const t = Math.min(1, (Date.now() - startedAt) / SLEEP_FADE_MS);
+    // iOS honesty: on builds where element.volume is effectively read-only
+    // this write changes nothing audible -- the pause below still ends the
+    // timer cleanly, just without the gentle fade.
+    player.volume = fromVolume * (1 - t);
+    if (t >= 1) endSleepFade();
+  }, SLEEP_FADE_STEP_MS);
+}
+
+function endSleepFade() {
+  if (!sleepState.fading) return;
+  sleepState.fading = false;
+  stopSleepTimers();
+  sleepState.minutes = null;
+  const shouldPause = !player.paused;
+  if (shouldPause) player.pause(); // the existing pause path -> 'pause' event keeps the button honest
+  // Restore for the next play from the slider -- the one source of truth.
+  // If the listener moved the slider during the ramp, THEIR value wins here
+  // (the "user changed it meanwhile" rule); otherwise this re-applies the
+  // pre-fade value. The mute-icon state re-syncs in the same sweep.
+  applyVolume();
+  updateSleepControl();
+  if (shouldPause) {
+    // pause() queues the 'pause' event, whose handler rewrites this very
+    // status line ('Zaustavljeno …') right after us -- say the honest sleep
+    // line once that has landed.
+    setTimeout(() => setStatus('Spanje je poteklo -- predvajanje ustavljeno.'), 0);
+  } else {
+    setStatus('Spanje je poteklo.');
+  }
+}
+
+// A suspended tab can sleep straight through T-0 (timers do not run there
+// at all): the moment it becomes visible again the wind-down fires at once,
+// instead of waiting for the next (throttled) tick to notice.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (sleepState.endAt == null) return;
+  if (sleepRemainingMs() <= 0) fireSleepEnd();
+  else updateSleepControl(); // refresh the label without waiting a throttled tick
+});
+
+els.sleepButton.addEventListener('click', () => setSleepPopover(els.sleepPopover.hidden));
+els.sleepPopover.querySelectorAll('[data-sleep-min]').forEach((b) => {
+  b.addEventListener('click', () => {
+    setSleepTimer(Number(b.dataset.sleepMin));
+    setSleepPopover(false);
+    els.sleepButton.focus(); // the chosen option vanishes -- hand focus back to the trigger
+  });
+});
+els.sleepOff.addEventListener('click', () => {
+  cancelSleepTimer();
+  setSleepPopover(false);
+  els.sleepButton.focus();
+});
+// Clicking anywhere outside the wrap dismisses the popover. The trigger is
+// inside the wrap, so its own click only ever toggles; option clicks close
+// via their own handlers above.
+document.addEventListener('click', (e) => {
+  if (els.sleepPopover.hidden) return;
+  const t = e.target;
+  if (t && typeof t.closest === 'function' && t.closest('#sleep-wrap')) return;
+  setSleepPopover(false);
+});
+
+// ---------- deli (share current track) ----------
+//
+// Web Share API when the platform has one (mobile intent sheets); an honest
+// clipboard copy otherwise. The payload is built from the CURRENTLY RENDERED
+// hero state: currentTrackKey -- the like-button's own source of truth --
+// while a track airs, the station itself while the DJ talks or nothing airs
+// (mirroring how renderNowPlaying branches: the key is null in exactly
+// those branches, so no second source of truth is needed).
+
+function shareStrings() {
+  if (currentTrackKey) {
+    const [artist, title] = currentTrackKey;
+    const plain = artist ? `${artist} — ${title}` : title;
+    return {
+      shareText: `🎵 ${plain}`,
+      clipboardText: `${plain} · poslušaj na ${location.href}`,
+    };
+  }
+  return {
+    shareText: 'Poslušaj Radio Markec v živo',
+    clipboardText: `Poslušaj Radio Markec v živo · poslušaj na ${location.href}`,
+  };
+}
+
+// Transient player-status line: shows the message, then restores whatever
+// the line said before -- but only while OUR message is still on screen; a
+// newer player event (stall, error, pause) always wins and is never stomped
+// by a stale restore. (The lyrics panel announces through its own
+// role="status"; this uses the player's existing one.)
+let shareStatusTimer = null;
+function shareTransientStatus(text, cls) {
+  const prevText = els.status.textContent;
+  const prevClass = els.status.className;
+  setStatus(text, cls);
+  if (shareStatusTimer != null) clearTimeout(shareStatusTimer);
+  shareStatusTimer = setTimeout(() => {
+    shareStatusTimer = null;
+    if (els.status.textContent === text) {
+      els.status.textContent = prevText;
+      els.status.className = prevClass;
+    }
+  }, 4000);
+}
+
+async function shareCurrentTrack() {
+  const { shareText, clipboardText } = shareStrings();
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title: 'Radio Markec', text: shareText, url: location.href });
+    } catch {
+      // The user dismissing the share sheet rejects with AbortError -- that
+      // is a cancel, not an error worth reporting; anything else share()
+      // throws is equally not the listener's problem.
+    }
+    return;
+  }
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(clipboardText);
+      shareTransientStatus('Povezava skopirana.', 'is-ok');
+    } catch {
+      shareTransientStatus('Kopiranja ni bilo mogoče.', 'is-error');
+    }
+    return;
+  }
+  setStatus('Deljenje ni podprto v tem brskalniku.');
+}
+
+els.shareButton.addEventListener('click', shareCurrentTrack);
+
+// ---------- tipkovnica (keyboard shortcuts) ----------
+//
+// Space = play/pause, M = mute, ArrowUp/Down = volume ±5, L = lyrics panel.
+// ONE keydown listener, bound once; every shortcut reuses the matching
+// button's own click path, so the keyboard and the pointer can never drift
+// apart. Guards run before any consumption:
+document.addEventListener('keydown', (e) => {
+  const target = e.target;
+  // Typing belongs to the focused field: a key pressed inside a form
+  // control (or a contenteditable) must type into it -- 'm' in the request
+  // form must not mute the stream. (Duck-typed: only Elements have
+  // closest(); a document-level target has none and passes.)
+  if (target && typeof target.closest === 'function' && target.closest('input, textarea, select, [contenteditable]')) return;
+  // Modifier combos (Ctrl/Cmd+L bookmarks, Alt+letter menus, Shift+M caps)
+  // keep their native meaning -- only bare keys are ours.
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+  if (e.key === 'Escape') {
+    // The sleep popover is the only floating overlay: Esc dismisses it and
+    // hands focus back to its trigger. Consumed only while it is open --
+    // everywhere else Esc keeps its native meaning.
+    if (!els.sleepPopover.hidden) {
+      setSleepPopover(false);
+      els.sleepButton.focus();
+      e.preventDefault();
+    }
+    return;
+  }
+  if (e.key === ' ') {
+    // A focused button/link must keep Space for itself: the browser
+    // activates it natively, and hijacking the key would double-toggle the
+    // player underneath the user's real target.
+    if (target && typeof target.closest === 'function' && target.closest('button, a, [role="button"]')) return;
+    e.preventDefault(); // consumed -- Space would otherwise scroll the page
+    els.playButton.click(); // the exact existing play/pause path
+    return;
+  }
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (key === 'm') {
+    els.muteButton.click(); // the exact existing mute path (no default to suppress)
+    return;
+  }
+  if (key === 'l') {
+    els.lyricsToggle.click(); // the exact existing lyrics-toggle path
+    return;
+  }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault(); // consumed -- the arrows would otherwise scroll the page
+    const delta = e.key === 'ArrowUp' ? 5 : -5;
+    els.volume.value = String(Math.max(0, Math.min(100, Number(els.volume.value) + delta)));
+    applyVolume(); // applies + persists, exactly like dragging the slider
+    // Focus the slider so its own aria feedback engages from here on: the
+    // NEXT arrow press lands on the range input natively (fine ±1 stepping;
+    // the ±5 jump is this shortcut's job, the slider is the fine control).
+    els.volume.focus();
+  }
 });
 
 // ---------- tabs ----------

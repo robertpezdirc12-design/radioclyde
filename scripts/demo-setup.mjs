@@ -198,7 +198,7 @@ const config = {
   icecast: { sourceHost: '127.0.0.1', publicHost: 'localhost', port: 8801, mount: '/stream', bitrate: 192 },
   web: { port: 8123, trustedNetworks: [], listeners: [] },
   studio: { users: [{ username: 'demo', password: 'demo123' }] },
-  liquidsoap: { telnetHost: '127.0.0.1', telnetPort: 1234, queueId: 'dj' },
+  liquidsoap: { telnetHost: '127.0.0.1', telnetPort: 1234 },
 };
 fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 

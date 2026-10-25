@@ -426,7 +426,8 @@ prose for humans. The selection section supports:
   owner opens and closes polls over the API with studio credentials
   (`POST /api/polls {question, options[]}` — opening a new poll closes the
   previous one — and `POST /api/polls/close`, which freezes the tally and
-  stops the on-air mentions); a studio polls UI does not exist yet, and the
+  stops the on-air mentions); the studio's Ankete view drives them all
+  (open, close, live tally, closed-poll history), and the
   on-air anketa rubric mentions the open poll automatically. Private
   stations need nothing — the browser rides the listener Basic auth. A
   public station must open `/api/polls/active` in `web.publicPaths` and
