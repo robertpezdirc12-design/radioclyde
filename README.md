@@ -25,7 +25,7 @@ and no neural TTS at all**.
 | | **AI mode** (classic LLM mode) | **Auto mode** (`autoRadio`) |
 |---|---|---|
 | Track selection | Local LLM resolves the brief into a Plex query | Deterministic rule parser + rule-based queue |
-| DJ script | LLM writes every line against Wikipedia-researched facts | Fixed Slovenian templates filled from library metadata |
+| DJ script | LLM writes every line against Wikipedia-researched facts | Relaxed Slovenian rock-register templates filled from library metadata (short sentences, sparse fillers, pooled variants) |
 | Voice | Chatterbox (neural TTS) | **Edge neural TTS** / **local Piper** / pre-recorded clips / Windows SAPI / espeak-ng / none |
 | Service segments | LLM-composed live lines | **Live data rubriques**: ARSO weather, RTV Slovenija sport headlines, Wikidata "on this day" |
 | Hardware needed | GPU/CPU heavy LLM + TTS model | Any box — even a Raspberry Pi |

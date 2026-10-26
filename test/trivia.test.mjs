@@ -337,26 +337,21 @@ describe('rubric keywords (briefQuery)', () => {
 
 describe('template rendering (new slots)', () => {
   test('triviaArtist / triviaGeneral substitute the fact and add the punctuation', () => {
+    // Val 27: the exact-variant enumeration this test used to do is now a
+    // contract -- the register rewrite (voiceRegister wave) rotates pools,
+    // so the pin checks what must stay true for EVERY variant: the fact is
+    // carried verbatim, the template supplies the period right after it,
+    // no unsubstituted placeholders, and the lead-in survives.
     const fact = 'Skupina Queen je nastala leta 1970';
     const body = renderSlot('triviaArtist', { values: { fact }, seed: 's' });
-    assert.ok(
-      [
-        `Če niste vedeli: ${fact}. Zdaj pa nazaj k glasbi.`,
-        `Malo zanimivosti: ${fact}. In nadaljujemo z glasbo.`,
-        `Malo zgodovine, preden sledi skladba: ${fact}.`,
-      ].includes(body),
-      `unexpected triviaArtist render: ${body}`
-    );
+    assert.ok(body.includes(`${fact}.`), `fact must be carried with its period: ${body}`);
+    assert.ok(body.length > fact.length + 3, `a lead-in is expected: ${body}`);
+    assert.ok(!body.includes('{') && !body.includes('undefined'), `unsubstituted placeholder: ${body}`);
     const generalFact = 'Fender je leta 1954 predstavil Stratocaster';
     const general = renderSlot('triviaGeneral', { values: { fact: generalFact }, seed: 's' });
-    assert.ok(
-      [
-        `Ste to vedeli? ${generalFact}. Zdaj pa nadaljujemo z glasbo.`,
-        `Zanimivost iz sveta rocka: ${generalFact}. In nazaj k glasbi.`,
-        `Medtem, ko gre glasba naprej -- ${generalFact}.`,
-      ].includes(general),
-      `unexpected triviaGeneral render: ${general}`
-    );
+    assert.ok(general.includes(`${generalFact}.`), `fact must be carried with its period: ${general}`);
+    assert.ok(general.length > generalFact.length + 3, `a lead-in is expected: ${general}`);
+    assert.ok(!general.includes('{') && !general.includes('undefined'), `unsubstituted placeholder: ${general}`);
   });
 
   test('obzorjeGlasba pool names the rubric and honors kindKey', () => {

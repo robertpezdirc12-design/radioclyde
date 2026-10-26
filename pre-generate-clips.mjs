@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { parseFile } from 'music-metadata';
 import { config } from './src/config/index.js';
 import { synthesizePiper } from './src/auto/piperVoice.js';
+import { renderSlot, stationName } from './src/auto/templates.js';
 
 const execFileAsync = promisify(execFile);
 const OUT_DIR = path.resolve(config.dataDir, 'pre-generated');
@@ -74,7 +75,17 @@ for (const filePath of audioFiles) {
   const { title, artist } = await getTrackMeta(filePath);
   const slug = slugify(`${artist}_${title}`);
   
-  const introText = `Sledi ${title} izvajalca ${artist}.`;
+  // Val 27: track clips render through the STATION'S template pools (the
+  // same register, the same config.autoRadio.templates overrides) instead
+  // of a hardcoded duplicate grammar. Seed is the track slug, so the clip
+  // is deterministic per track (the file-existence check above already
+  // depends on that). The three station-level clips below keep their own
+  // no-show texts -- the open/close pools are show-shaped ({show}), and
+  // these clips exist precisely for show-less music blocks.
+  const introText = renderSlot('intro', {
+    values: { artist, title, station: stationName() },
+    seed: `preclip|${slug}|intro`,
+  });
   const introFile = path.join(OUT_DIR, `${slug}_intro.wav`);
   if (!fs.existsSync(introFile)) {
     await synthesize(introText, introFile);
@@ -82,7 +93,10 @@ for (const filePath of audioFiles) {
     count++;
   }
   
-  const recapText = `To je bila skladba ${title} izvajalca ${artist}.`;
+  const recapText = renderSlot('recap', {
+    values: { artist, title, station: stationName() },
+    seed: `preclip|${slug}|recap`,
+  });
   const recapFile = path.join(OUT_DIR, `${slug}_recap.wav`);
   if (!fs.existsSync(recapFile)) {
     await synthesize(recapText, recapFile);

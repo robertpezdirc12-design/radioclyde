@@ -620,13 +620,19 @@ describe('J. templates', () => {
     }
   });
 
-  test('bedNextShow pools: withHost carries host, noHost never mentions it', () => {
+  test('bedNextShow pools: withHost carries host, noHost never mentions it, every variant names the day', () => {
+    // Val 27: {nextDayWord} is pinned for EVERY variant -- the day word is
+    // what anchors the announcement to the FIRE moment (F-block's
+    // 23:55-fire test), so no variant may drop it.
     for (const t of DEFAULT_TEMPLATES.bedNextShow.withHost) {
       assert.match(t, /\{host\}/);
       assert.match(t, /\{nextTime\}/);
+      assert.match(t, /\{nextDayWord\}/);
     }
     for (const t of DEFAULT_TEMPLATES.bedNextShow.noHost) {
       assert.doesNotMatch(t, /\{host\}/);
+      assert.match(t, /\{nextDayWord\}/);
+      assert.match(t, /\{nextTime\}/);
     }
   });
 

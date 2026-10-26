@@ -229,7 +229,10 @@ describe('buildSegmentsAuto quiz placement (P4 #22)', () => {
     const qi = slots.indexOf('quizIntro');
     assert.ok(qi > 0, 'legacy quiz position still present');
     assert.match(segments[qi].body, /Uganite|Kviz \u010das/, 'legacy year-guess intro');
-    assert.match(segments[slots.indexOf('quizReveal')].body, /Pravilen odgovor|Resitev kviza/, 'legacy reveal');
+    // Val 27: the template pool now spells "Re\u0161itev" correctly (the old
+    // "Resitev" was read wrong on air); the regex accepts both so the pin
+    // tests the CONTRACT (an answer-reveal opener), not the typo.
+    assert.match(segments[slots.indexOf('quizReveal')].body, /Pravilen odgovor|Re[s\u0161]itev kviza/, 'legacy reveal');
     assert.ok(!segments.some((s) => s.slot === 'quizIntro' && s.body.includes('Odgovor razkrijemo takoj po skladbi') && s.body.includes('? ')), 'no corpus promise without corpus data');
   });
 

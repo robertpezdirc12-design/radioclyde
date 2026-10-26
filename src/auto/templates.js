@@ -11,6 +11,20 @@
 //   - the same occurrence always renders the same line (reproducible
 //     transcripts, cacheable audio), and
 //   - different days/tracks rotate through the variants without a model.
+//
+// Val 27 "sproscen register": the default pools speak the relaxed rock
+// register the Markec Podkast persona (P5 #1) already proved on air --
+// short conversational sentences, a light sprinkle of discourse fillers
+// (max ONE per variant, DISCOURSE_MARKERS below; the register lint in
+// test/voiceRegister.test.mjs enforces both), dry humor over formality,
+// no parentheses ever (they read as stage directions, not speech). Pools
+// are kept fat (4-6 variants where the contracts allow) because a thin
+// pool plus hash selection is exactly how a synthetic station ends up
+// repeating itself -- the tell listeners use to clock a fake host.
+// Factual rubrics keep their honesty contracts unchanged (weatherOffline/
+// newsOffline/sportOffline/obzorjeOffline/obzorje/obzorjeGlasba pools are
+// untouched). Units are spelled out for TTS ("stopinj", "kilometrov na
+// uro") -- abbreviations like "km/h" get read letter by letter.
 import { config } from '../config/index.js';
 import { currentLocalTimeString, currentLocalDateString } from '../director/weather.js';
 
@@ -24,31 +38,55 @@ import { currentLocalTimeString, currentLocalDateString } from '../director/weat
 export const DEFAULT_TEMPLATES = {
   open: {
     default: [
+      'Poslu\u0161ate {station}. Tako -- zdaj pa oddaja {show}.',
+      'Dobrodo\u0161li na {station}. Na vrsti je {show}.',
       'Poslu\u0161ate {station}. Prihaja oddaja {show}.',
-      'Dobrodo\u0161li pri oddaji {show} na {station}.',
+      'Dobrodo\u0161li pri oddaji {show}, tukaj na {station}. Kar se namestite.',
     ],
-    morning: ['Dobro jutro! Poslu\u0161ate {station}. Prihaja oddaja {show}.'],
-    daytime: ['Poslu\u0161ate {station} -- zdaj sledi oddaja {show}.'],
-    evening: ['Dober ve\u010der! Na sporedu je oddaja {show} na {station}.'],
-    night: ['Pozno v no\u010d -- poslu\u0161ate {station}. Prihaja {show}.'],
+    morning: [
+      'Dobro jutro! Poslu\u0161ate {station}. Prihaja oddaja {show}.',
+      'Dobro jutro! {station} je pri\u017eana, {show} pa starta zdaj.',
+      'Dobro jutro, dobro jutro -- {show} na {station} je tu.',
+    ],
+    daytime: [
+      'Poslu\u0161ate {station} -- zdaj sledi oddaja {show}.',
+      'Dan je v polnem teku, {station} pa vrti {show}.',
+      'Tukaj {station}: na sporedu {show}, kar ostanite pri nas.',
+    ],
+    evening: [
+      'Dober ve\u010der! Na sporedu je oddaja {show} na {station}.',
+      'Dober ve\u010der! {station} in {show} -- za\u010dnimo.',
+      'Dober ve\u010der, ve\u010der je na\u0161: {show} tu na {station}.',
+    ],
+    night: [
+      'Pozno v no\u010d -- poslu\u0161ate {station}. Prihaja {show}.',
+      'Pozno v no\u010d, a ne sami: {station} je \u0161e budna, {show} pa tu.',
+      'Pozno v no\u010d je, glasba pa ni \u0161la spat: {show} na {station}.',
+    ],
   },
   intro: [
     'Zdaj sledi {artist} s skladbo {title}.',
     'Naprej poslu\u0161amo {artist} -- {title}.',
-    'Sledi {title} izvajalca {artist}.',
+    'No, na vrsti je {artist} s skladbo {title}.',
+    '{title} od {artist} -- takoj za tem.',
+    'Sledi {artist}, naslov pa {title}.',
+    'Tako -- {artist}, {title}. Kar dajte glasneje.',
   ],
   recap: {
     withAlbumYear: [
       'To je bil {artist} s skladbo {title} iz albuma {album}, iz\u0161etega leta {year}.',
       '{artist} -- {title}. Najdemo ga na albumu {album} iz leta {year}.',
+      'To je bil {artist}: {title}, album {album}, leto {year}.',
     ],
     withYear: [
       'Poslu\u0161ali ste {title} izvajalca {artist}, iz\u0161eto leta {year}.',
-      'To je bil {artist} -- {title} ({year}).',
+      'To je bil {artist} -- {title}, iz leta {year}.',
+      'Pravkar {title} od {artist} -- leto nastanka {year}.',
     ],
     generic: [
       'To je bila skladba {title} izvajalca {artist}.',
       '{artist} z naslovom {title}, tukaj na {station}.',
+      'Pravkar {artist} -- {title}. Tako.',
     ],
   },
   quizIntro: [
@@ -57,7 +95,7 @@ export const DEFAULT_TEMPLATES = {
   ],
   quizReveal: [
     'Pravilen odgovor: {title} je iz\u0161la leta {year}. \u010ce ste zadeli, \u010destitamo!',
-    'Resitev kviza -- {year}. {artist} s skladbo {title}.',
+    'Re\u0161itev kviza -- {year}. {artist} s skladbo {title}.',
   ],
   // P4 #22 "Kviz" rubric: real question/answer content from auto/quizFacts.js
   // renders through these keys; the legacy year-guess quizIntro/quizReveal
@@ -70,36 +108,66 @@ export const DEFAULT_TEMPLATES = {
     'Kviz za pozorne poslu\u0161alce: {question} Odgovor razkrijemo takoj po skladbi.',
     'Malo tekmovalnosti -- {question} Pravilni odgovor povemo takoj po skladbi.',
     'Malica za mo\u017egane, vstop brezpla\u010den: {question} Re\u0161itev razkrijemo takoj po skladbi.',
-    'Doma\u010da naloga za vse, ki trdijo, da o rocku vedo vse: {question} Odgovor povemo takoj po skladbi, brez ocen.',
+    'Doma\u010da naloga za vse, ki trdijo, da o rocku vedo vse: {question} Odgovor povemo takoj po skladbi.',
     'Kdor ugane, dobi rundo aplavza: {question} Odgovor razkrijemo takoj po skladbi.',
     'Ugibanje je brez vstopnic, mikrofon pa vse sli\u0161i: {question} Odgovor povemo takoj po skladbi.',
+    'No, kaj pravite: {question} Odgovor razkrijemo takoj po skladbi.',
   ],
   quizAnswer: [
     'Pravilen odgovor: {answer}. \u010ce ste zadeli, \u010destitamo!',
     'Re\u0161itev kviza: {answer}. Zdaj pa nazaj k glasbi.',
     'Pravilen odgovor je {answer} -- in vsem, ki ste ugibali kaj drugega, priznavamo vsaj vztrajnost.',
-    'Re\u0161itev kviza: {answer}. Kdor je zadel, si privi\u0161\u010dite; kdor pa ne, zdaj to ve zastonj.',
     'Re\u0161itev kviza: {answer}. Kdor je zadel, mu dol\u017eim eno pivo -- izpla\u010dilo ob naslednjem sre\u010danju.',
     'Pravilen odgovor: {answer}. Tega znanja nikjer ne kupite, tukaj pa ste ga dobili zastonj.',
+    'Re\u0161itev kviza: {answer}. Kdor ni zadel, zdaj ve ve\u010d kot pred minuto.',
   ],
   handoff: [
-    'Poglejmo \u0161e, kak\u0161no vreme nas \u010daka. \u010cez mikrofon se oglasa {to}.',
+    'Poglejmo \u0161e, kak\u0161no vreme nas \u010daka. \u010cez mikrofon se oglasi {to}.',
     'Vremenska napoved sledi -- prijavlja {to}.',
+    'Vreme prevzame {to}, jaz pa grem po kavico.',
   ],
   close: {
     default: [
       'To je bilo vse za tokrat. Hvala, ker poslu\u0161ate {station}.',
       'S tem je oddaja {show} zaklju\u010dena. Do naslednjega sre\u010danja!',
+      'In to je to -- hvala, da ste bili z nami. {station} ostaja pri\u017eana.',
     ],
-    morning: ['Lep za\u010detek dneva \u017eelim -- hvala, da poslu\u0161ate {station}.'],
-    daytime: ['Prijetno nadaljevanje dneva -- tukaj je {station}.'],
-    evening: ['Dober ve\u010der \u017eelim in hvala, ker ste bili z nami na {station}.'],
-    night: ['Lahko no\u010d in hvala, da ste bili ob nas na {station}.'],
+    morning: [
+      'Lep za\u010detek dneva \u017eelim -- hvala, da poslu\u0161ate {station}.',
+      'Dan naj se nadaljuje v rocku -- {station} ostaja z vami.',
+    ],
+    daytime: [
+      'Prijetno nadaljevanje dneva -- tukaj je {station}.',
+      'Dan se \u0161e ni kon\u010dal, {station} pa tudi ne.',
+    ],
+    evening: [
+      'Dober ve\u010der \u017eelim in hvala, ker ste bili z nami na {station}.',
+      'Dober ve\u010der \u0161e naprej -- {station} pa vrti naprej.',
+    ],
+    night: [
+      'Lahko no\u010d in hvala, da ste bili ob nas na {station}.',
+      'Lahko no\u010d -- glasba na {station} ostane budna \u0161e malo.',
+    ],
   },
   live: {
-    time: ['Trenutno je {time}.'],
-    weather: ['Zunaj je {condition}, temperatura {temp} \u00b0C, veter piha s hitrostjo {wind} km/h.'],
-    'time-weather': ['Je {time}, zunaj je {condition} in {temp} \u00b0C.'],
+    // Val 27: units are SPELLED OUT ("stopinj", "kilometrov na uro") --
+    // "\u00b0C" and "km/h" are read letter-by-letter by the TTS engines,
+    // which is the single most robotic sound a weather line can make. The
+    // opener "Trenutno je" is a pinned contract (weatherOffline.test.mjs
+    // B-block) -- every time variant keeps it.
+    time: [
+      'Trenutno je {time}.',
+      'Trenutno je {time} -- ura te\u010de, rock tudi.',
+      'Trenutno je {time}, in to je edini urnik, ki ga potrebujete.',
+    ],
+    weather: [
+      'Zunaj je {condition}, temperatura {temp} stopinj, veter pa {wind} kilometrov na uro.',
+      'Vreme takole: {condition}, {temp} stopinj, veter {wind} kilometrov na uro.',
+    ],
+    'time-weather': [
+      'Je {time}, zunaj je {condition} in {temp} stopinj.',
+      'Ura je {time}, zunaj pa {condition}, {temp} stopinj.',
+    ],
     // P4 #29: the live weather segment resolved at DIRECT time -- and
     // directShow() awaits resolveLiveLine() with no retry, so a dead
     // Open-Meteo used to throw and kill the whole occurrence (no
@@ -128,11 +196,13 @@ export const DEFAULT_TEMPLATES = {
         'Takoj za mano pa {nextDayWord} ob {nextTime} -- oddaja {nextShow} z voditeljem {nextHost}. Ostani z nami!',
         'Kaj sledi po tej oddaji? {nextDayWord} ob {nextTime} vas čaka {nextShow} z voditeljem {nextHost}. Ne odhajajte predaleč.',
         '{nextDayWord} ob {nextTime} prisluhnite {nextShow} -- za mikrofonom bo {nextHost}. Do takrat pa kar ostajte pri nas!',
+        'Glejte, {nextDayWord} ob {nextTime} pride {nextShow}, za mikrofonom pa {nextHost}. Kar ostanite!',
       ],
       noHost: [
         'Takoj za mano pa {nextDayWord} ob {nextTime} -- oddaja {nextShow}. Ostani z nami!',
         'Kaj sledi po tej oddaji? {nextDayWord} ob {nextTime} vas čaka {nextShow}. Ne odhajajte predaleč.',
         '{nextDayWord} ob {nextTime} prisluhnite {nextShow}. Do takrat pa kar ostajte pri nas!',
+        'Za tem \u0161e {nextDayWord} ob {nextTime} pride {nextShow}. Mikrofon pa ne gre nikamor.',
       ],
     },
     // Honest degradation (P4 #29 pattern, weatherOffline's sibling): no next
@@ -154,9 +224,13 @@ export const DEFAULT_TEMPLATES = {
   weatherNow: {
     withTemp: [
       'Vreme: {station} -- {condition}, {temp} stopinj Celzija.',
+      'Tako je zunaj: {station}, {condition}, {temp} stopinj.',
       'Trenutne razmere: {station}, {condition}, temperatura {temp} stopinj.',
     ],
-    tempOnly: ['Vreme: {station}, trenutno {temp} stopinj Celzija.'],
+    tempOnly: [
+      'Vreme: {station}, trenutno {temp} stopinj Celzija.',
+      'Tako je zunaj: {station} -- {temp} stopinj.',
+    ],
     generic: [
       'Vreme: {station} -- {condition}.',
       'Trenutne razmere na {station}: {condition}.',
@@ -183,10 +257,12 @@ export const DEFAULT_TEMPLATES = {
   sportHeadlines: [
     '\u0160portne novice: {headlines}',
     'Poglejmo, kaj je novega v \u0161portu: {headlines}',
+    'Iz sveta \u0161porta: {headlines}',
   ],
   newsHeadlines: [
     'Novice: {headlines}',
     'Iz Slovenije in sveta: {headlines}',
+    'Kaj se dogaja: {headlines}',
   ],
   // P4 #30 "po\u0161tene offline vrstice" for the three remaining network
   // rubrics: novice (RTV news RSS), \u0161port (RTV sport RSS) and obzorje
@@ -218,8 +294,8 @@ export const DEFAULT_TEMPLATES = {
     '\u0160portne novice: ni jih -- \u0161portni vir je danes za vodo, mesta naslovnic pa je zasedla glasba. Izidi se vra\u010dajo jutri.',
   ],
   obzorjeOffline: [
-    'Na dana\u0161nji dan: arhiv zgodovine je danes zaklenjen -- rojstnih danov in obletnic torej ne razgla\u0161amo, glasba pa se poslu\u0161a kot ob vsakem drugem dnevu.',
-    'Na dana\u0161nji dan: arhiv nam ni zaupal, kdo se je rodil in kdo se je poslovil -- tola\u017eimo se z glasbo, ki svojega letnika ne skriva.',
+    'Na dana\u0161nji dan: arhiv zgodovine je danes zaklenjen -- rojstnih danov in obletnic torej ne razgla\u0161amo. Glasba pa se poslu\u0161a kot ob vsakem drugem dnevu.',
+    'Na dana\u0161nji dan: arhiv nam ni zaupal, kdo se je rodil in kdo se je poslovil. Tola\u017eimo se z glasbo, ki svojega letnika ne skriva.',
     'Na dana\u0161nji dan: zgodovinski arhiv trenutno mol\u010di -- ime in leto ostajata uradno nepovedana, glasba pa govori sama zase.',
     'Na dana\u0161nji dan: arhiv je danes za vodo -- kdo se je vse rodil, ostaja uradno neznan, pesem pa kljub temu navdu\u0161eno zapojemo.',
   ],
@@ -273,11 +349,13 @@ export const DEFAULT_TEMPLATES = {
     '\u010ce niste vedeli: {fact}. Zdaj pa nazaj k glasbi.',
     'Malo zanimivosti: {fact}. In nadaljujemo z glasbo.',
     'Malo zgodovine, preden sledi skladba: {fact}.',
+    'Tole pa nosite s seboj ves dan: {fact}.',
   ],
   triviaGeneral: [
-    'Ste to vedeli? {fact}. Zdaj pa nadaljujemo z glasbo.',
+    'Ste to vedeli? {fact}. Zdaj pa nadaljujemo z glasbi.',
     'Zanimivost iz sveta rocka: {fact}. In nazaj k glasbi.',
     'Medtem, ko gre glasba naprej -- {fact}.',
+    'To pa ni vsak dan: {fact}.',
   ],
 
   // P4 #25: "Sledi kasneje" (tease) -- the professional radios' move of
@@ -288,10 +366,12 @@ export const DEFAULT_TEMPLATES = {
   tease: [
     'Kasneje v oddaji sli\u0161ite \u0161e {artist}. Ostajajte pri nas -- naprej pa samo glasba.',
     '\u0160e sledi {artist}, med tem pa kviz, vreme in lepo dogajanje. Ni\u010d ne presko\u010dite.',
+    'No -- {artist} pride \u0161e v tej oddaji. Dr\u017eite se.',
   ],
   teaseQuiz: [
     'Kasneje tudi kviz z resni\u010dnim vpra\u0161anjem iz zgodovine rocka -- in sli\u0161ite \u0161e {artist}. Ne odhajajte pred\u010dasno.',
     'V drugi polovici kviz: ugibajte z nami. Kasneje pa \u0161e {artist}.',
+    'Kviz \u0161e prihaja, {artist} tudi -- nikamor ne hitite.',
   ],
 
   // P4 #25: "Anketa" rubric -- the listener poll (server/pollsStore.js) read
@@ -300,10 +380,12 @@ export const DEFAULT_TEMPLATES = {
   pollRunning: [
     'Anketa te\u010de: {question}. Glasujte na strani postaje, rezultate pa razkrijemo \u0161e tokrat v oddaji.',
     'Odprta anketa: {question}. Va\u0161 glas \u0161teje -- povejte, kaj menite, na strani postaje.',
+    'Va\u0161e mnenje nas zanima: {question}. Glasovanje je na strani postaje.',
   ],
   pollResults: [
     'Anketa: {question}. Do zdaj {total} glasov, vodi {leader} z {leaderVotes}. Glasovanje \u0161e traja.',
     'Medpostava iz ankete: {question}. Trenutno vodi {leader} z {leaderVotes} od {total} glasov. Hvala za glasove!',
+    'Anketa \u017eivi: {question} -- {leader} vodi z {leaderVotes} od {total} glasov.',
   ],
 
   // P4 #26: "Poslusalci" rubric -- freshly approved listener requests and
@@ -315,10 +397,12 @@ export const DEFAULT_TEMPLATES = {
     'Poslu\u0161alceva izbira: {artist} -- {title}. Dober vkus, povsem po mojem zanesenja\u010du.',
     'Po va\u0161ih zahtevah: {title} od {artist}. Svetovna izbira -- tudi mikrofon bi aplaudiral.',
     'Va\u0161 zahtevek gre na zrak: {artist} -- {title}. Tole je oddaja, ki jo pi\u0161ete vi.',
+    'Zahtevanka! {artist} -- {title}. \u017delja poslu\u0161alca je zakon.',
   ],
   dedicationShout: [
     'Posvetilo: {message}. Iz mikrofona gre nazaj en sam velik pozdrav.',
     'Sli\u0161ite posvetilo: {message}. Lepo od vas -- hvala, da pi\u0161ete.',
+    'Posvetilo je prispelo: {message}. Glasba, prosim!',
   ],
 
   // Markec Podkast (P5 #1): petminutna samostojna enota glasba-klepet-glasba.
@@ -365,11 +449,13 @@ export const DEFAULT_TEMPLATES = {
     'Na {station} {dayWord} ob {time}: {show}. Ne zamudite!',
     '{dayWord} ob {time} vas na {station} čaka {show} -- ostanite z nami!',
     'Napovedujemo: {show} {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
+    '{dayWord} ob {time} -- {show} na {station}. Pridite, bo vredno.',
   ],
   promoHost: [
     'Na {station} {dayWord} ob {time}: {show} z voditeljem {host}. Ne zamudite!',
     '{dayWord} ob {time} vas na {station} čaka {show}, za mikrofonom pa {host} -- ostanite z nami!',
     'Napovedujemo: {show} z voditeljem {host}, {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
+    '{dayWord} ob {time} -- {show} in {host} na {station}. Ne zamudite!',
   ],
 
   // Paket D1 (docs/programming-research.md §5): formatna ura -- the beds the
@@ -390,11 +476,13 @@ export const DEFAULT_TEMPLATES = {
       'Vreme na {station}: zunaj je {condition}, {temp} stopinj Celzija, veter piha s hitrostjo {wind} kilometrov na uro.',
       'Vremenski pregled {station}: {condition}, {temp} stopinj Celzija, veter {wind} kilometrov na uro.',
       '{station} poroča: zunaj je {condition}, {temp} stopinj, piha {wind} kilometrov na uro.',
+      'Tako je zunaj na {station}: {condition}, {temp} stopinj, veter pa {wind} kilometrov na uro.',
     ],
     noWind: [
       'Vreme na {station}: zunaj je {condition}, {temp} stopinj Celzija.',
       'Vremenski pregled {station}: {condition}, {temp} stopinj.',
       '{station} poroča: zunaj je {condition}, {temp} stopinj Celzija.',
+      'Tako je zunaj na {station}: {condition} in {temp} stopinj.',
     ],
   },
   bedNextShow: {
@@ -402,14 +490,23 @@ export const DEFAULT_TEMPLATES = {
       '{nextDayWord} ob {nextTime} vas na {station} čaka {show} z voditeljem {host} -- ostanite z nami!',
       'Ob {nextTime} na {station} začenja {show}, za mikrofonom pa {host} -- {nextDayWord} ne zamudite!',
       'Napovedujemo: {show} z voditeljem {host}, {nextDayWord} ob {nextTime}, tukaj na {station}.',
+      '{nextDayWord} ob {nextTime} -- {show} in {host} na {station}. Kar ostanite.',
     ],
     noHost: [
       '{nextDayWord} ob {nextTime} vas na {station} čaka {show} -- ostanite z nami!',
-      'Ob {nextTime} na {station} začenja {show} -- ne zamudite!',
+      '{nextDayWord} ob {nextTime} na {station} začenja {show} -- ne zamudite!',
       'Napovedujemo: {show}, {nextDayWord} ob {nextTime}, tukaj na {station}.',
+      '{nextDayWord} ob {nextTime} -- {show} na {station}. Kar ostanite.',
     ],
   },
 };
+
+// Val 27 "spro\u0161en register": the discourse markers the pools may sprinkle
+// in -- at most ONE per variant, immediately before a comma or a dash (the
+// "Tako je zunaj" shape is an opener, not a filler, and does not count).
+// Exported for the register lint (test/voiceRegister.test.mjs), same
+// surface style as DEFAULT_TEMPLATES above.
+export const DISCOURSE_MARKERS = ['No', 'Tako', 'Glejte', 'Poglejte', 'Mhm'];
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the
 // English map in director/weather.js so live lines speak the same facts in

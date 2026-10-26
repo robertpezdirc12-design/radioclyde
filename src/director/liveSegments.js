@@ -59,7 +59,7 @@ export async function resolveLiveLine({ persona, kind, brief }, occurrence = nul
     // permits speaking a day/time the fact actually states.
   }
 
-  const personaPrompt = loadPersonas()[persona]?.systemPrompt ?? `You are ${persona}, a radio DJ.`;
+  const personaPrompt = loadPersonas()[persona]?.systemPrompt ?? DEFAULT_PERSONA_PROMPT(persona);
   const messages = [
     {
       role: 'system',

@@ -149,7 +149,12 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
   (privzeto `"sl"`), neobvezno `wordsPerMinute`.
 - **`pregenerated`** — track in splošni sloti iz `dataDir/pre-generated/`
   (jih polni `pre-generate-clips.mjs` prek istega piper sloja); manjkajoči
-  slot spusti segment kot v `clips` načinu.
+  slot spusti segment kot v `clips` načinu. Od valu 27 intro/recap klipi
+  zrendajo skozi POSTAJINE predloge (`renderSlot`, seme = slug pesmi --
+  deterministično na pesem), torej isti register in isti
+  `autoRadio.templates` prepisi kot vse ostalo; posneti klipi se ne
+  spremenijo sami od sebe -- po valih, ki spreminjajo besedila, jih
+  pregeneriraj.
 - **`none`** — brez govora sploh: postaja predvaja glasbo (+ jingle), vsa
   besedila pa ostanejo v `script.md`/`transcript.json`.
 
@@ -195,6 +200,16 @@ globalno): edge -- `voice.edgeRate`/`edgePitch`/`edgeVolume`
 (npr. `1.08`; pod 1 hitreje, nad 1 počasneje). Pisateljska pravila ostanejo
 isti najmočnejši vzvod: ločila so pavze, kratki stavki vremejo ritem,
 dolgi ga upočasnijo -- predloge nad tem pišemo od začetka.
+
+**Sproščen register (Val 27):** `config.example.json` od zdaj privzeto
+nastavi `voice.edgeRate: "-6%"` -- namestitve po predlogi dobijo sproščen
+tempo (≈ 150–160 besed/min, pogovorni ritem radijskega voditelja) brez
+rokovanja po nastavitvah. Obstoječe namestitve se ne spremenijo: prazen
+prozodični blok pošlje enako zahtevo kot prej (P4 #26 pogodba). Pisateljska
+stran istega vala: privzete predloge zdaj govorijo sproščen rockerski
+register (glej razdelek Predloge), enote so izpisane (»21 stopinj«, ne
+»21 °C« -- okrajšave TTS prebere črko po črki), test
+`test/voiceRegister.test.mjs` pa lintrost stropa: stavki, filtri in oklepaji.
 
 ## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
 
@@ -322,7 +337,18 @@ segment, kot za vse ostale.
 
 ## Predloge (`autoRadio.templates`)
 
-Privzete predloge so slovenske (glej `src/auto/templates.js`). Vsak slot je
+Privzete predloge so slovenske (glej `src/auto/templates.js`) in od valu 27
+govorijo **sproščen rockerski register** -- isti glas, ki ga je persona
+Markec Podkasta (P5 #1) že dokazala na etru: kratki pogovorni stavki,
+redki diskurzni filtri (največ EN na varianto, sidrani na vejico ali
+pomišljaj -- »No,«, »Tako --«, »Glejte,«; seznam izvožen kot
+`DISCOURSE_MARKERS`), suha ironija namesto sporedniške formalnosti,
+enote izpisane besedno, brez oklepajev kadarkoli (berejo se kot odre,
+ne govor). Bazeni so debeli (4–6 različic, kjer pogodbe dovoljujejo), ker
+tanek bazen + zgoščevalna izbira je natanko to, kako sintetična postaja
+začne ponavljati sebe. Vse to lintro `test/voiceRegister.test.mjs`
+(minimumi različic, proračun filtrov ≤1, stropi stavkov ≤18/≤24 besed,
+brez oklepajev). Vsak slot je
 niz različic; konkretna različica se izbere z zgoščevalom
 (oddaja|datum|ratingKey|slot) — ista oddaja vedno isto, različne dni pa se
 izmenjujejo brez modela. Vrednosti, ki jih lahko uporabiš:
@@ -336,7 +362,7 @@ izmenjujejo brez modela. Vrednosti, ki jih lahko uporabiš:
 | `{to}` | oseba, ki prevzame vremensko napoved |
 | `{fact}` | zanimivost (polna poved brez končne pike — predloga jo dodaja) |
 | `{time}` / `{date}` | trenutni čas/datum v `weather.timezone` |
-| `{condition}` / `{temp}` / `{wind}` | vreme (slovensko, °C, km/h) |
+| `{condition}` / `{temp}` / `{wind}` | vreme (slovensko; enote izpisane -- »stopinj«, »kilometrov na uro«) |
 | `{nextShow}` / `{nextHost}` / `{nextTime}` / `{nextDayWord}` | zaključna napoved naslednje oddaje (ime, voditelj, ura, slovenska dnevna beseda »danes«/»jutri«/»v sredo«) — razrešeno ob režiji, glej razdelek o njej spodaj |
 
 Sloti: `open` in `close` imajo tudi različice po časovnih blokih

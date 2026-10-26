@@ -300,6 +300,7 @@
     "voice": {
       "mode": "edge",
       "edgeVoice": "sl-SI-RokNeural",
+      "edgeRate": "-6%",
       "edgeFallback": "espeak",
       "clipsDir": "voice-clips",
       "defaultEspeakVoice": "sl",

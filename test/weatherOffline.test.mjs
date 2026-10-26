@@ -318,7 +318,15 @@ describe('P4 #29 live lines (show-saver)', () => {
     });
     try {
       const line = await resolveLiveLineAuto({ persona: 'elena', kind: 'weather' });
-      assert.match(line, /^Zunaj je jasno, temperatura 21 °C, veter piha s hitrostjo 3 km\/h\.$/, `got: ${line}`);
+      // Val 27: units are SPELLED OUT in every variant ("21 stopinj",
+      // "3 kilometrov na uro") -- "°C" and "km/h" are read letter by
+      // letter by the TTS engines. The pool rotates, so the pin is the
+      // contract (condition + spelled-out temp + spelled-out wind), not
+      // one exact variant.
+      assert.match(line, /jasno/, `got: ${line}`);
+      assert.match(line, /21 stopinj/, `got: ${line}`);
+      assert.match(line, /3 kilometrov na uro/, `got: ${line}`);
+      assert.ok(!line.includes('°C') && !line.includes('km/h'), `abbreviated units must be gone: ${line}`);
     } finally {
       globalThis.fetch = realFetch;
     }

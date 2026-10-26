@@ -8,13 +8,14 @@
 import { complete } from '../llm/client.js';
 import { PARALINGUISTIC_INSTRUCTION, TIME_OF_DAY_INSTRUCTION } from '../llm/prompts.js';
 import { loadPersonas } from '../scheduler/promptsUtil.js';
+import { DEFAULT_PERSONA_PROMPT } from '../llm/prompts.js';
 
 async function generateLine({ persona, instruction, context, airDate, record }) {
   // || (not ??): prompts.json ships personas with an EMPTY systemPrompt by
   // design (placeholder until the owner writes one), and ?? let that empty
   // string win over the fallback -- every sample persona spoke with no
   // personality at all. An empty prompt is "not configured", same as absent.
-  const personaPrompt = loadPersonas()[persona]?.systemPrompt || `You are ${persona}, a radio DJ.`;
+  const personaPrompt = loadPersonas()[persona]?.systemPrompt || DEFAULT_PERSONA_PROMPT(persona);
   // A script can be produced hours (or, during station.json's downtime
   // window, most of a day) before it airs, so the model has no reliable way
   // to know the real date on its own -- state the show's actual air date
