@@ -123,7 +123,10 @@ const FIRED_LEDGER_KEEP = 10_000;
 // never matched the weather names, so weather clips would have accumulated
 // forever. Greedy .+ + right-anchored date/time groups bind from the RIGHT
 // end of the name, so show ids containing date-like text stay unambiguous.
-const GENERATED_BED_RE = /^(weather|nextshow)(?:_.+)?_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})\.mp3$/;
+// EXPORTED since Val 26: doctor's beds check counts stale generated clips
+// through THIS pattern (injected as a seam by doctorCli) -- the doctor must
+// never grow a second copy of the operator-file exclusion rule.
+export const GENERATED_BED_RE = /^(weather|nextshow)(?:_.+)?_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})\.mp3$/;
 
 const pad2 = (n) => String(n).padStart(2, '0');
 

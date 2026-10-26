@@ -30,6 +30,18 @@
 // (CPU/spomin) in dnevnik napak. Izpeljava iz configa za te šest prinese
 // CLI (spodaj runDoctor sprejema že sestavljene poti/nize), da pravilo
 // "brez configa v tem modulu" ostane nedotaknjeno.
+//
+// Nadgradnja (Val 26 -- doktor dohiti postajo): postaja je po f945545 zrasla
+// za površino, katere bralci so namenoma odpuščujoči (fail-open), zato njene
+// napake TIHO degenerirajo: urnik z dates-prepisi (Val 22) in replay polji,
+// slično kolo (Val 20), štiri imaging plasti z govorno formatno uro (Val 21/23/25)
+// in dnevne rezervne kopije. Pet novih preverjanj (station/imaging/beds/wheel/
+// backup) te tihosti izreče operaterju PRED oddajo. ISTA disciplina kot prej:
+// doctor NE bere configa (poti izpelje CLI), produkcijske slovnice pa prihajajo
+// kot ŠIVI (parseWheelTime iz clockwheel.js, GENERATED_BED_RE iz formatClock.js,
+// timeToMinutes iz scheduleUtil.js, clockwheelConfig iz clockwheel.js) -- modul,
+// ki potegne config na vrhu, bi z zlomljenim config.json sesel ravno preverjanje,
+// ki bi ga moralo poročati; telnetClient precedens.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -61,6 +73,14 @@ export const CHECK_ORDER = [
   { id: 'storage', label: 'shramba (arhiv/disk)' },
   { id: 'host', label: 'gostitelj (CPU/spomin)' },
   { id: 'errors', label: 'dnevnik napak (24 h)' },
+  // Val 26 (doktor dohiti postajo): pet preverjanj za površino, ki je zrasla
+  // po SUB/WAVE valu. ISTA disciplina kot pri šestih prejšnjih: pripnemo ZA
+  // obstoječimi (izpis cron/monitoringa, navezan na vrstni red, ostane nedotaknjen).
+  { id: 'station', label: 'urnik (station.json)' },
+  { id: 'imaging', label: 'imaging plasti' },
+  { id: 'beds', label: 'formatna ura (postelje)' },
+  { id: 'wheel', label: 'kolo (clockwheel)' },
+  { id: 'backup', label: 'rezervne kopije' },
 ];
 
 // ZAPRT nabor popravil (SUB/WAVE Finding/fix model): vsako opozorilo novih
@@ -78,6 +98,15 @@ export const FIXES = {
   'prune-archives': { id: 'prune-archives', label: 'obreži arhiv (studio → Arhiv ali manjši archive.retentionDays)' },
   'free-disk': { id: 'free-disk', label: 'sprosti prostor na disku (dataDir)' },
   'inspect-logs': { id: 'inspect-logs', label: 'preglej dnevnik napak (dataDir/logs)' },
+  // Val 26: popravki petih novih preverjanj -- vsak je DEJANSKI operaterjev
+  // ukrep, ne izmišljotina (zaprt nabor, isti razlog kot zgoraj: vrednost je
+  // v tem, da ga lahko pripneš na gumb).
+  'fix-station-json': { id: 'fix-station-json', label: 'popravi station.json (urnik) -- studio Urnik ali preveri JSON' },
+  'load-imaging-clips': { id: 'load-imaging-clips', label: 'naloži/zgeneriraj kipe za plast v dataDir/imaging/ (docs/imaging-layer.md)' },
+  'fix-format-clock': { id: 'fix-format-clock', label: 'popravi imaging.beds gumbe v config.json (padli so na privzete)' },
+  'fix-clockwheel': { id: 'fix-clockwheel', label: 'popravi filler.clockwheel v config.json (pool/count, from<to, steps)' },
+  'check-scheduler': { id: 'check-scheduler', label: 'preveri, ali teče scheduler (npm run runstation / systemctl radioclyde)' },
+  'fix-backup-config': { id: 'fix-backup-config', label: 'popravi config.backup (dir, intervalMinutes, retentionDays)' },
 };
 
 // Meje novih preverjanj (SUB/WAVE 4-c, pretvorjene v naše razmere):
@@ -514,6 +543,19 @@ export async function checkLiquidsoap({ sendCommandImpl = null, telnetPort = nul
 // config.paths.nowPlayingPath/fillerPath); branje gre SKOZ injiciran
 // readFileImpl, da so testi deterministični -- brez injekcije je pošten
 // preskok, ne tihih izmišljenih števk.
+// Ne-prazne, ne-komentar vrstice m3u -- skupna številka za checkM3u in
+// imaging plasti (ena številka o isti datoteki ne raste dveh štetij).
+// Manjkajoča datoteka -> null (manjka), ne 0 (prazna) -- checkM3u-jeva
+// razlika, ki jo izpis pošteno pokaže.
+async function m3uEntryCount(readFileImpl, file) {
+  let text;
+  try { text = await readFileImpl(file, 'utf8'); } catch { return null; } // manjka -> null, ne 0
+  return text.split(/\r?\n/).filter((line) => {
+    const t = line.trim();
+    return t !== '' && !t.startsWith('#');
+  }).length;
+}
+
 export async function checkM3u({ nowPlayingPath = null, fillerPath = null, readFileImpl = null } = {}) {
   if (!nowPlayingPath || !fillerPath) {
     return result('m3u', 'predvajalne liste', STATUS.SKIP,
@@ -523,14 +565,7 @@ export async function checkM3u({ nowPlayingPath = null, fillerPath = null, readF
     return result('m3u', 'predvajalne liste', STATUS.SKIP,
       'preskočeno -- bralnik datotek ni podan (injekcija CLI-ja ali testov)');
   }
-  const counts = await Promise.all([nowPlayingPath, fillerPath].map(async (file) => {
-    let text;
-    try { text = await readFileImpl(file, 'utf8'); } catch { return null; } // manjka -> null, ne 0
-    return text.split(/\r?\n/).filter((line) => {
-      const t = line.trim();
-      return t !== '' && !t.startsWith('#');
-    }).length;
-  }));
+  const counts = await Promise.all([nowPlayingPath, fillerPath].map((file) => m3uEntryCount(readFileImpl, file)));
   const [nowCount, fillerCount] = counts; // Promise.all ohranja vrstni red seznamov
   const fmt = (n) => n === null ? 'manjka' : `${n} ${slPlural(n, 'vnos', 'vnosa', 'vnosov')}`;
   const detail = `now_playing.m3u: ${fmt(nowCount)} · filler.m3u: ${fmt(fillerCount)}`;
@@ -780,6 +815,514 @@ export async function checkErrors({ logsDir = null, nowMs = Date.now(), readFile
     `${count} ${plural} v 24 h čez ${names.length} ${slPlural(names.length, 'dnevnik', 'dnevnika', 'dnevnikov')} -- pod mejo ${ERROR_WARN_COUNT}`);
 }
 
+// -- 14. urnik (station.json) [Val 26: doktor dohiti postajo] -------------------
+// station.json je vir resnice CELERNEGA programa in njegovi bralci so
+// namenoma odpuščujoči (readStationFile fail-open na {}, loadDateOverrides
+// preskoči slabe ključe) -- ravno zato je pokvarjenost TIHA: pokvarjen JSON
+// pomeni prazen urnik, napolnilno glasbo in NIČ vrstic v dnevniku. To
+// preverjanje tihost povrne operaterju PRED oddajo. Toleranca je OGLEDALNA,
+// ne lastna: veljavnost časa merimo z INJICIRANIM timeToMinutes
+// (scheduleUtil.js:236 -- runtime sprejme tudi "6:00", doctor ne sme biti
+// strožji od njega; NaN pomeni, da pojavitev NIKOLI ne bo terminirana),
+// neznane dnevne žetone pa iščemo z ISTIM split/trim, ki ga dela loadSchedule
+// (scheduleUtil.js:81 -- "monday " je veljavno, "boats" pa dan brez oddaj).
+const STATION_WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const STATION_DATE_KEY = /^\d{4}-\d{2}-\d{2}$/; // == DATE_KEY_PATTERN (scheduleUtil.js:21)
+
+// Pojavitve z nevzdržno obliko: manjkajoč id ali startTime, ki se ne prebere
+// v končno minuto (timeToMinutes -> NaN). Take pojavitve NIKOLI ne sprožijo
+// (absoluteStart -> Invalid Date), njihova mapa v running/ pa nikoli ne
+// nastane -- tiho, brez ene napake.
+function countUnusableOccurrences(shows, timeToMinutesImpl) {
+  if (!Array.isArray(shows)) return 0;
+  let bad = 0;
+  for (const show of shows) {
+    const usable = show && typeof show === 'object'
+      && typeof show.id === 'string' && show.id.trim() !== ''
+      && Number.isFinite(timeToMinutesImpl(String(show.startTime ?? '')));
+    if (!usable) bad += 1;
+  }
+  return bad;
+}
+
+export async function checkStation({ stationFilePath = null, readFileImpl = null, timeToMinutesImpl = null } = {}) {
+  if (!stationFilePath || typeof stationFilePath !== 'string') {
+    return result('station', 'urnik (station.json)', STATUS.SKIP,
+      'preskočeno -- pot do station.json ni podana (izpeljava iz config.paths živi v CLI-ju)');
+  }
+  if (typeof readFileImpl !== 'function' || typeof timeToMinutesImpl !== 'function') {
+    return result('station', 'urnik (station.json)', STATUS.SKIP,
+      'preskočeno -- bralnik datotek ali časovni bralnik ni podan (injekcija CLI-ja ali testov)');
+  }
+  let raw;
+  try {
+    raw = await readFileImpl(stationFilePath, 'utf8');
+  } catch {
+    return result('station', 'urnik (station.json)', STATUS.WARN,
+      `${stationFilePath} še ne obstaja -- urnik je prazen, program igra napolnilno glasbo (nova postaja?)`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return result('station', 'urnik (station.json)', STATUS.FAIL,
+      `station.json se ne prebere: ${err?.message ?? err} -- bralci fail-open na prazen urnik, NOBENA oddaja ne bo terminirana`,
+      'pokvarjen JSON pove svojo vrstico: popravi ročno ali vpiši urnik na novo v studiu (Urnik piše vedno veljaven JSON)',
+      FIXES['fix-station-json']);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return result('station', 'urnik (station.json)', STATUS.WARN,
+      'station.json je veljaven JSON, ampak ni objekt -- urnik je prazen, program igra napolnilno glasbo',
+      'vrhnji nivo je objekt {"station": ..., "schedule": ...} -- oblika je v sample-data/station.json',
+      FIXES['fix-station-json']);
+  }
+  const schedule = parsed.schedule;
+  if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) {
+    return result('station', 'urnik (station.json)', STATUS.WARN,
+      'schedule blok manjka ali ni objekt -- urnik je prazen, program igra napolnilno glasbo',
+      'tedenska postavitev živi pod "schedule" po dnevih ({"monday": [...]}, tudi "monday,tuesday": [...]) -- sample-data/station.json',
+      FIXES['fix-station-json']);
+  }
+
+  const problems = [];
+  let fatal = null;
+  let weeklySlots = 0;
+  let badOccurrences = 0;
+  const unknownTokens = [];
+  for (const [key, value] of Object.entries(schedule)) {
+    if (key === 'dates') continue; // lastni bralnik: loadDateOverrides
+    for (const token of key.split(',').map((d) => d.trim())) {
+      if (!STATION_WEEKDAYS.includes(token) && !unknownTokens.includes(token)) unknownTokens.push(token);
+    }
+    if (!Array.isArray(value)) {
+      // loadSchedule dela shows.map(...) BREZ varovanja (scheduleUtil.js:82) --
+      // ne-seznam pod delovnim dnem pomeni TypeError ob vsakem branju urnika.
+      fatal = `urnik pod ključem "${key}" ni seznam -- loadSchedule ob vsakem branju vrže napako, oddaje odpadejo, v dnevniku se sliši vzorec`;
+      continue;
+    }
+    weeklySlots += value.length;
+    badOccurrences += countUnusableOccurrences(value, timeToMinutesImpl);
+  }
+
+  let overriddenDays = 0;
+  const badDateKeys = [];
+  const dates = schedule.dates;
+  if (dates !== undefined) {
+    if (!dates || typeof dates !== 'object' || Array.isArray(dates)) {
+      problems.push('schedule.dates ni objekt -- bralnik datumskih prepisov ga tiho ignorira');
+    } else {
+      for (const [key, value] of Object.entries(dates)) {
+        // ISTA dvojna ograja kot loadDateOverrides (scheduleUtil.js:110-120):
+        // vzorec ključa IN koledarski povratni izlet ("2026-13-45" ne obstaja).
+        let ok = STATION_DATE_KEY.test(key) && Array.isArray(value);
+        if (ok) {
+          const [y, m, d] = key.split('-').map(Number);
+          const rt = new Date(y, m - 1, d);
+          ok = rt.getMonth() === m - 1 && rt.getDate() === d;
+        }
+        if (!ok) {
+          if (!badDateKeys.includes(key)) badDateKeys.push(key);
+          continue;
+        }
+        overriddenDays += 1;
+        badOccurrences += countUnusableOccurrences(value, timeToMinutesImpl);
+      }
+    }
+  }
+
+  if (fatal) {
+    return result('station', 'urnik (station.json)', STATUS.FAIL, fatal,
+      'vrednosti pod "schedule" so seznami pojavitvev; "dates" je objekt po datumih -- sample-data/station.json',
+      FIXES['fix-station-json']);
+  }
+  if (unknownTokens.length > 0) {
+    problems.push(`neznan(i) dnevni ključ(i): ${unknownTokens.map((t) => `"${t}"`).join(', ')} -- bralnik jih je tiho preskočil, ti dnevi nimajo oddaj`);
+  }
+  if (badDateKeys.length > 0) {
+    problems.push(`neveljavan(i) datumski prepiš(i): ${badDateKeys.map((k) => `"${k}"`).join(', ')} -- bralnik jih je preskočil, ti dnevi padejo na tedensko predlogo`);
+  }
+  if (badOccurrences > 0) {
+    problems.push(`${badOccurrences} ${slPlural(badOccurrences, 'pojavitev', 'pojavitvi', 'pojavitev')} brez veljavnega id/startTime -- ${badOccurrences === 1 ? 'ta oddaja nikoli ne bo terminirana' : 'te oddaje nikoli ne bodo terminirane'}`);
+  }
+  if (weeklySlots === 0 && overriddenDays === 0) {
+    problems.push('urnik je prazen -- program igra napolnilno glasbo (sveža namestitev ali namerni temni teden?)');
+  }
+  if (problems.length > 0) {
+    // Skupno stanje NAJPREDJ (kaj je zdravo), nato težave -- storage/tts
+    // vzorec: opozorilo, ki pove samo slabo, prikrije obseg dobrega.
+    const overridesNote = overriddenDays > 0
+      ? ` · ${overriddenDays} ${slPlural(overriddenDays, 'nadomeščen dan', 'nadomeščena dneva', 'nadomeščeni dnevi')}`
+      : '';
+    const summary = weeklySlots > 0 || overriddenDays > 0
+      ? `${weeklySlots} ${slPlural(weeklySlots, 'terminirana oddaja na teden', 'terminirani oddaji na teden', 'terminiranih oddaj na teden')}${overridesNote} -- `
+      : '';
+    return result('station', 'urnik (station.json)', STATUS.WARN, `${summary}${problems.join(' · ')}`,
+      'oblika je v sample-data/station.json; studio Urnik (vleci/spusti) piše isto',
+      FIXES['fix-station-json']);
+  }
+  const overridesNote = overriddenDays > 0
+    ? ` · ${overriddenDays} ${slPlural(overriddenDays, 'nadomeščen dan', 'nadomeščena dneva', 'nadomeščeni dnevi')}`
+    : '';
+  return result('station', 'urnik (station.json)', STATUS.OK,
+    `${weeklySlots} ${slPlural(weeklySlots, 'terminirana oddaja na teden', 'terminirani oddaji na teden', 'terminiranih oddaj na teden')}${overridesNote}`);
+}
+
+// -- 15. imaging plasti [Val 26] --------------------------------------------------
+// Štiri .m3u plasti, ki jih radio.liq bere (imagingPlaylists.js): ID-ji ob
+// polni uri, stingerji, promosi (OPT-IN, Val 21) in nujna rezerva. Resnica o
+// ETU je .m3u datoteka (vsakih 30 min jo tik prenaredi iz mape), zato merimo
+// OBOJE: kipe v mapi (vir) in vrstice v m3u (eter). Plast z kipi in praznim
+// m3u je "tik ne teče"; prazna mapa pa je "plast molči, postaja igra dalje"
+// (imagingPlaylists.js pogodba: vsaka plast degenerira v obnašanje pred svojim
+// obstojem, nikoli v tišino) -- nujna rezerva je edina izjema, njena praznost
+// je "ob padcu VSEH virov je spredaj tišina".
+const IMAGING_LAYER_AUDIO = ['.mp3', '.flac', '.m4a', '.ogg', '.opus', '.wav']; // == AUDIO_EXTENSIONS (imagingPlaylists.js:38)
+
+// Ravno mapa, ne rekurzivna hoja: imaging plasti so NAMERNO plitve ("one flat
+// directory per layer keeps what's on air auditable at a glance" -- isti vir).
+async function countFlatAudio(dir) {
+  let names;
+  try { names = await fsp.readdir(dir); } catch { return null; }
+  let count = 0;
+  for (const name of names) {
+    if (!IMAGING_LAYER_AUDIO.includes(path.extname(name).toLowerCase())) continue;
+    try { if ((await fsp.stat(path.join(dir, name))).isFile()) count += 1; } catch { /* med pometanjem */ }
+  }
+  return count;
+}
+
+export async function checkImaging({
+  imagingDirs = null, // { id, stingers, emergency, promos } -- poti map plasti
+  imagingM3us = null, // { id, stingers, emergency, promos } -- poti .m3u datotek
+  promosEnabled = false,
+  readFileImpl = null,
+} = {}) {
+  if (!imagingDirs || typeof imagingDirs !== 'object'
+    || !['id', 'stingers', 'emergency'].some((k) => typeof imagingDirs[k] === 'string')) {
+    return result('imaging', 'imaging plasti', STATUS.SKIP,
+      'preskočeno -- poti plasti niso podane (izpeljava iz config.paths živi v CLI-ju)');
+  }
+  const parts = [];
+  const problems = [];
+  let fix = null;
+  const alwaysOn = [
+    { key: 'id', label: 'ID-ji (polna ura)' },
+    { key: 'stingers', label: 'stingerji' },
+    { key: 'emergency', label: 'nujna rezerva' },
+  ];
+  for (const layer of alwaysOn) {
+    const dir = imagingDirs[layer.key];
+    if (typeof dir !== 'string') continue; // posamezna pot ni podana -- ostale še vedno preverimo
+    const clips = await countFlatAudio(dir);
+    const m3uPath = imagingM3us?.[layer.key];
+    const m3uCount = typeof m3uPath === 'string' && typeof readFileImpl === 'function'
+      ? await m3uEntryCount(readFileImpl, m3uPath)
+      : undefined; // undefined = nismo merili (brez bralnika/poti) -- nikoli 0
+    if (clips === null || clips === 0) {
+      problems.push(layer.key === 'emergency'
+        ? 'nujna rezerva je prazna -- ob padcu VSEH virov je spredaj tišina'
+        : `${layer.label} molčijo (mapa prazna ali manjka) -- postaja igra dalje`);
+      if (!fix) fix = FIXES['load-imaging-clips'];
+      parts.push(`${layer.label}: 0`);
+    } else if (m3uCount === null || m3uCount === 0) {
+      // kipi so, a etrna lista ne nastaja -- tik (30 min) ne teče ali je ravno
+      // med zagonom; ločiti ne moremo, zato iskreni dvojnik.
+      problems.push(`${layer.label}: ${clips} ${slPlural(clips, 'kip je v mapi', 'kipa sta v mapi', 'kipov je v mapi')}, a m3u je prazen ali pogrešan -- imaging tik (30 min) ne teče ali še ni vzel novih kipov`);
+      if (!fix) fix = FIXES['check-scheduler'];
+      parts.push(`${layer.label}: ${clips} (m3u prazen!)`);
+    } else {
+      parts.push(`${layer.label}: ${clips}`);
+    }
+  }
+  if (promosEnabled === true) {
+    const dir = imagingDirs.promos;
+    if (typeof dir === 'string') {
+      const clips = await countFlatAudio(dir);
+      if (clips === null || clips === 0) {
+        problems.push('promosi so vklopljeni, a mapa je prazna -- ni oddaj v obzorju ali produkcija pada (dnevnik ve)');
+        if (!fix) fix = FIXES['load-imaging-clips'];
+      }
+      parts.push(`promosi: ${clips ?? 0} (vklopljeni)`);
+    }
+  } else {
+    parts.push('promosi: izklopljeni (OPT-IN)');
+  }
+  if (problems.length > 0) {
+    return result('imaging', 'imaging plasti', STATUS.WARN, `${parts.join(' · ')} -- ${problems.join(' · ')}`,
+      'docs/imaging-layer.md -- plasti so mape v dataDir/imaging/, m3u datoteke pa piše schedulerjev imaging tik vsakih 30 min',
+      fix);
+  }
+  return result('imaging', 'imaging plasti', STATUS.OK, parts.join(' · '));
+}
+
+// -- 16. formatna ura (postelje) [Val 26] ------------------------------------------
+// Paket D (Val 23) + nočno okno (Val 25): plast GOVORI na etru, zato je njena
+// tiha izklopljenost draga. Gumbi so F2 (odsotno/šmetano -> privzeto -- nit
+// se ne pritoži), zato doctor pogleda SVEŽE vrednosti in pove, kateri gumb je
+// padel. HH:MM slovnica je INJICIRANA (parseWheelTime iz clockwheel.js --
+// postaja ne raste dveh časovnih slovnic, Val 25 dogovor); pometanje
+// generiranih postelj merimo z ISTIM GENERATED_BED_RE (formatClock.js:126),
+// da operaterjevih datotek (ki jih pometanje NIKOLI ne sme brisati) ne bi
+// ujeli po pomoti.
+export async function checkBeds({
+  bedsEnabled = false,
+  imagingBedsRaw = {},
+  bedsDir = null,
+  bedsLedgerPath = null,
+  parseWheelTimeImpl = null,
+  generatedBedRe = null,
+  readFileImpl = null,
+  nowMs = Date.now(),
+} = {}) {
+  if (bedsEnabled !== true) {
+    // Izklopljena plast ni vrzel, ampak podprto stanje -- poštena opomba, ne
+    // opozorilo (isti razred kot wheel izklopljen).
+    return result('beds', 'formatna ura (postelje)', STATUS.OK,
+      'izklopljene (OPT-IN) -- plast, ki govori na etru, se ne prikaže nepovabljena');
+  }
+  const beds = imagingBedsRaw && typeof imagingBedsRaw === 'object' && !Array.isArray(imagingBedsRaw)
+    ? imagingBedsRaw
+    : {};
+  const parts = ['vklopljene'];
+  const problems = [];
+  let fix = null;
+
+  // gumbi: ISTA F2 pravila kot formatClock.js bedSettings (:157-199), povedana
+  // operaterju namesto tiho padla. POZOR na asimetrijo izvira: produceLead se
+  // PRETVORI (Number(beds.produceLeadMinutes ?? 4), :139), retention pa NE
+  // (Number.isFinite(retentionHours), :148) -- string "4" je za produkcijo
+  // veljaven lead, za retention pa šmetan privzeti 2 h.
+  const wm = beds.weatherMinutes;
+  if (wm === undefined) {
+    parts.push('vreme ob: 15, 45 (privzeto)');
+  } else if (!Array.isArray(wm)) {
+    problems.push('weatherMinutes ni seznam -- padel na privzeto [15, 45]');
+    if (!fix) fix = FIXES['fix-format-clock'];
+  } else {
+    const valid = wm.filter((m) => Number.isInteger(m) && m >= 0 && m < 60);
+    if (wm.length - valid.length > 0) {
+      problems.push(`${wm.length - valid.length} ${slPlural(wm.length - valid.length, 'vnos v weatherMinutes je ven', 'vnosa v weatherMinutes sta ven', 'vnosov v weatherMinutes je ven')} [0, 59] -- tiho padli`);
+      if (!fix) fix = FIXES['fix-format-clock'];
+    }
+    if (valid.length === 0) {
+      parts.push('vreme: izklopljeno (prazen seznam, namerno)');
+    } else {
+      parts.push(`vreme ob: ${[...new Set(valid)].sort((a, b) => a - b).join(', ')}`);
+    }
+  }
+  const wd = beds.weatherDaypart;
+  if (wd == null) {
+    parts.push('okno vremena: ves dan');
+  } else if (typeof parseWheelTimeImpl !== 'function') {
+    // brez šiva ne ugibamo -- povedano pošteno, ne opozorilo (CLI šiv prinese
+    // vedno; ta veja je le injekcijska vljudnost)
+    parts.push('okno vremena: nepreverjeno (časovni bralnik ni podan)');
+  } else {
+    const fromMin = parseWheelTimeImpl(wd?.from);
+    const toMin = parseWheelTimeImpl(wd?.to);
+    if (fromMin == null || toMin == null || toMin <= fromMin) {
+      problems.push(`weatherDaypart ${JSON.stringify(wd?.from)}-${JSON.stringify(wd?.to)} je nerazumljen -- okno ne velja, vreme teče ves dan`);
+      if (!fix) fix = FIXES['fix-format-clock'];
+    } else {
+      parts.push(`okno vremena: ${wd.from}-${wd.to}`);
+    }
+  }
+  const pl = beds.produceLeadMinutes;
+  if (pl !== undefined && !(Number.isFinite(Number(pl)) && Number(pl) > 0)) {
+    problems.push('produceLeadMinutes je nerazumljen -- padel na privzeti 4 min');
+    if (!fix) fix = FIXES['fix-format-clock'];
+  }
+  const cr = beds.clipRetentionHours;
+  if (cr !== undefined && cr !== 0 && !(Number.isFinite(cr) && cr > 0)) {
+    problems.push('clipRetentionHours je nerazumljen -- padel na privzeti 2 h');
+    if (!fix) fix = FIXES['fix-format-clock'];
+  }
+
+  // pometanje: retention v ms, ISTA pretvorba kot formatClock.js:148-153
+  // (0 = večno -> Infinity -- takrat nič ni zastarelo, po dogovoru).
+  const retentionMs = cr === 0
+    ? Infinity
+    : Number.isFinite(cr) && cr > 0
+      ? cr * 3600_000
+      : 2 * 3600_000;
+  if (bedsDir && typeof bedsDir === 'string' && generatedBedRe && Number.isFinite(retentionMs)) {
+    let names = [];
+    try { names = await fsp.readdir(bedsDir); } catch { names = []; }
+    let stale = 0;
+    for (const name of names) {
+      if (!generatedBedRe.test(name)) continue; // operaterjeve datoteke so NEDOTAKNJIVE -- nikoli preštete
+      try {
+        const st = await fsp.stat(path.join(bedsDir, name));
+        if (st.mtimeMs < nowMs - retentionMs) stale += 1;
+      } catch { /* med pometanjem */ }
+    }
+    if (stale > 0) {
+      problems.push(`${stale} ${slPlural(stale, 'generirana postelja je čez', 'generirani postelji sta čez', 'generiranih postelj je čez')} zadrževanje -- pometanje ni pometalo (formatna ura morda ne teče)`);
+      if (!fix) fix = FIXES['check-scheduler'];
+    }
+  }
+
+  if (bedsLedgerPath && typeof bedsLedgerPath === 'string' && typeof readFileImpl === 'function') {
+    let text = null;
+    try { text = await readFileImpl(bedsLedgerPath, 'utf8'); } catch { text = null; }
+    if (text === null) {
+      parts.push('knjiga sprožitev: še ni je (svež vklop?)');
+    } else {
+      let fired = 0;
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try { JSON.parse(line); fired += 1; } catch { /* tolerantna kot loadFiredKeys */ }
+      }
+      parts.push(`knjiga sprožitev: ${fired}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    return result('beds', 'formatna ura (postelje)', STATUS.WARN, `${parts.join(' · ')} -- ${problems.join(' · ')}`,
+      'docs/imaging-layer.md (razdelek o formatni uri) + docs/auto-radio.md Paket D -- gumbi so imaging.beds v config.json',
+      fix);
+  }
+  return result('beds', 'formatna ura (postelje)', STATUS.OK, parts.join(' · '));
+}
+
+// -- 17. kolo (clockwheel) [Val 26] -------------------------------------------------
+// Slično kolo (Val 20): filler.clockwheel v config.json s koraki, bazeni in
+// dayparti. Vsa njegova toleranca je drop-and-count (clockwheel.js:70 -- "a
+// typo degrades, never crashes"), povedana SAMO v dnevniku generiranja
+// fillerja; doctor jo izreče operaterju. Bralnik je INJICIRAN clockwheelConfig
+// (clockwheel.js:110) -- edini vir kapljelnih števk (droppedSteps/
+// droppedDayparts), ki jih koda že šteje; doctor si NE dela svojega parserja,
+// ker bi bila to druga slovnica.
+export function checkWheel({ clockwheelConfigImpl = null } = {}) {
+  if (typeof clockwheelConfigImpl !== 'function') {
+    return result('wheel', 'kolo (clockwheel)', STATUS.SKIP,
+      'preskočeno -- bralnik kolesa ni podan (injekcija CLI-ja ali testov; clockwheel.js potegne config na vrhu)');
+  }
+  let wheel;
+  try {
+    wheel = clockwheelConfigImpl();
+  } catch (err) {
+    return result('wheel', 'kolo (clockwheel)', STATUS.WARN,
+      `bralnik kolesa je padel: ${err?.message ?? err}`);
+  }
+  if (!wheel) {
+    return result('wheel', 'kolo (clockwheel)', STATUS.OK,
+      'kolo izklopljen -- filler izbira skladbe po navadni rotaciji (rotate/weighted)');
+  }
+  const problems = [];
+  const pools = wheel.pools && typeof wheel.pools === 'object' && !Array.isArray(wheel.pools)
+    ? Object.keys(wheel.pools)
+    : [];
+  if ((wheel.droppedSteps ?? 0) > 0) {
+    problems.push(`${wheel.droppedSteps} ${slPlural(wheel.droppedSteps, 'korak je tiho padel', 'koraka sta tiho padla', 'korakov je tiho padlo')} (vsak rabi pool + count > 0)`);
+  }
+  if ((wheel.droppedDayparts ?? 0) > 0) {
+    problems.push(`${wheel.droppedDayparts} ${slPlural(wheel.droppedDayparts, 'daypart je tiho padel', 'dayparta sta tiho padla', 'daypartov je tiho padlo')} (vsak rabi from < to + neprazne steps)`);
+  }
+  if (pools.includes('rotation')) {
+    problems.push('bazen z imenom "rotation" je rezerviran in se IGNORIRA -- njegova definicija ne naredi nič');
+  }
+  // walkWheel tiho preskoči korak, če njegov bazen ne obstaja (clockwheel.js:236
+  // "if (!queue) continue") -- take korake izrečemo po imenu.
+  const known = new Set(pools.filter((p) => p !== 'rotation').concat('rotation'));
+  const allSteps = [...(wheel.steps ?? []), ...((wheel.dayparts ?? []).flatMap((d) => d.steps ?? []))];
+  const unknownPools = [];
+  for (const s of allSteps) {
+    if (s && typeof s === 'object' && !known.has(s.pool) && !unknownPools.includes(s.pool)) unknownPools.push(s.pool);
+  }
+  if (unknownPools.length > 0) {
+    problems.push(`koraki kažejo na nedoločene bazene: ${unknownPools.map((p) => `"${p}"`).join(', ')} -- tiho prispevajo nič sledi`);
+  }
+  const namedPoolCount = pools.filter((p) => p !== 'rotation').length;
+  const detail = `${(wheel.steps ?? []).length} ${slPlural((wheel.steps ?? []).length, 'korak', 'koraka', 'korakov')} · ${(wheel.dayparts ?? []).length} ${slPlural((wheel.dayparts ?? []).length, 'daypart', 'dayparta', 'daypartov')} · ${namedPoolCount} ${slPlural(namedPoolCount, 'bazen', 'bazena', 'bazenov')}`;
+  if (problems.length > 0) {
+    return result('wheel', 'kolo (clockwheel)', STATUS.WARN, `${detail} -- ${problems.join(' · ')}`,
+      'filler.clockwheel v config.json: steps [{pool, count}], dayparts [{from, to, steps}], pools {ime: {artists/genres/keywords/excludeKeywords}}',
+      FIXES['fix-clockwheel']);
+  }
+  return result('wheel', 'kolo (clockwheel)', STATUS.OK, detail);
+}
+
+// -- 18. rezervne kopije [Val 26] ----------------------------------------------------
+// Dnevna rezervna kopija (backupStation.js, schedulerjeva every() registracija
+// z backup.intervalMinutes) piše datirane podmape v config.backup.dir. Njena
+// odpoved je TIHA: napake joba že šteje checkErrors, a scheduler, ki sploh ne
+// teče, ne piše NIČESAR -- "zadnja kopija je stara 5 dni" je natanko tista
+// resnica, ki jo lažni občutek varnosti ne želi slišati. Starost merimo iz
+// IMENA najnovejše datirane mape (ISTI vzorec kot backupStation.js
+// BACKUP_DATE_DIR_RE), ne iz mtime (dotikanje mape ni nova kopija).
+const BACKUP_DATE_DIR_RE = /^\d{4}-\d{2}-\d{2}$/; // == BACKUP_DATE_DIR_RE (backupStation.js:59)
+
+export async function checkBackup({
+  backupDir = null,
+  backupIntervalMinutes = undefined,
+  retentionDays = undefined,
+  nowMs = Date.now(),
+} = {}) {
+  if (!backupDir || typeof backupDir !== 'string') {
+    return result('backup', 'rezervne kopije', STATUS.SKIP,
+      'preskočeno -- config.backup.dir ni nastavljen (rezervne kopije se ne izvajajo; glej deploy/ubuntu/DEPLOYMENT_GUIDE.md)');
+  }
+  // ISTA ogledalna pretvorba kot schedulerjeva cadence(): odsotno/šmetano ->
+  // privzeti 1440 (dnevno); doctor tu NE dviguje stropa nad obnašanjem postaje.
+  const rawInterval = Number(backupIntervalMinutes);
+  const intervalMinutes = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : 1440;
+  const problems = [];
+  const parts = [];
+  let hint = null;
+  let fix = null;
+
+  // retention: resolveRetentionDays (backupStation.js:126-133) -- 0 = večno,
+  // pozitivno število = dni, vse ostalo = zavrnjeno ugibanje (hrani VSE).
+  if (retentionDays !== undefined && retentionDays !== null
+    && !(Number.isFinite(retentionDays) && retentionDays >= 0)) {
+    problems.push('backup.retentionDays je nerazumljen -- kopije se hranijo VSE (disk raste)');
+    if (!fix) fix = FIXES['fix-backup-config'];
+  }
+
+  let names = [];
+  try {
+    names = await fsp.readdir(backupDir);
+  } catch {
+    return result('backup', 'rezervne kopije', STATUS.WARN,
+      `cilj ${backupDir} ne obstaja -- še nobena rezervna kopija ni bila narejena`,
+      'preveri, ali scheduler teče in ali je pot zapisljiva; prvi tek ustvari mapo',
+      FIXES['check-scheduler']);
+  }
+  const dated = names.filter((n) => BACKUP_DATE_DIR_RE.test(n)).sort();
+  if (dated.length === 0) {
+    return result('backup', 'rezervne kopije', STATUS.WARN,
+      'v cilju ni datiranih kopij -- prvi tek še ni bil ali jih je nekaj pobrisalo',
+      'preveri dnevnik postaje za vrstice z "backup" in ali scheduler teče',
+      FIXES['check-scheduler']);
+  }
+  const newest = dated[dated.length - 1];
+  const [y, m, d] = newest.split('-').map(Number);
+  // Lokalna polnoč imenovanja: backupStation imenuje po LOKALNEM datumu dneva
+  // pisanja, zato starost merimo od lokalne polnoči -- največji primanjkljaj je
+  // en dan lenobe, ki ga spodnja meja (2x interval) namenno prenaša.
+  const newestStart = new Date(y, m - 1, d).getTime();
+  const ageHours = Math.max(0, Math.floor((nowMs - newestStart) / 3600_000));
+  const fmtH = (mins) => (mins >= 60 ? `${mins / 60} h` : `${mins} min`);
+  parts.push(`zadnja kopija ${newest} (pred ${ageHours} ${slPlural(ageHours, 'uro', 'urama', 'urami')})`);
+  parts.push(`${dated.length} ${slPlural(dated.length, 'kopija', 'kopiji', 'kopij')}`);
+  if (retentionDays === 0) parts.push('zadrževanje: večno');
+  else if (Number.isFinite(retentionDays) && retentionDays > 0) parts.push(`zadrževanje: ${retentionDays} ${slPlural(retentionDays, 'dan', 'dneva', 'dni')}`);
+  if (nowMs - newestStart > 2 * intervalMinutes * 60_000) {
+    // dvakratnik intervala: ena zamujena kopija je lenoba, dve sta vzorec
+    problems.push(`zadnja kopija je čez mejo -- pričakovana vsakih ${fmtH(intervalMinutes)}, dovoljena lenoba ${fmtH(2 * intervalMinutes)}`);
+    hint = 'preveri, ali scheduler teče (npm run runstation / systemctl status radioclyde) in dnevnik za vrstice "backup"';
+    fix = fix ?? FIXES['check-scheduler'];
+  }
+  if (problems.length > 0) {
+    return result('backup', 'rezervne kopije', STATUS.WARN,
+      `${parts.join(' · ')} -- ${problems.join(' · ')}`,
+      hint ?? 'config.backup v config.json (dir, intervalMinutes, retentionDays)',
+      fix ?? FIXES['fix-backup-config']);
+  }
+  return result('backup', 'rezervne kopije', STATUS.OK, parts.join(' · '));
+}
+
 // -- sestava -------------------------------------------------------------------
 export function orderResults(results) {
   const byId = new Map(results.map((r) => [r.id, r]));
@@ -838,6 +1381,28 @@ export async function runDoctor({
   icecastUrl = null,
   telnetPort = null,
   archiveEnabled = false,
+  // Val 26 (doktor dohiti postajo): poti/flagi, ki jih izpelje CLI iz configa
+  // (ISTA disciplina kot zgoraj -- doctor ne bere configa), ter PRAVI bralci
+  // produkcijske kode kot šivi (clockwheel/formatClock/scheduleUtil potegnejo
+  // config na vrhu modula; CLI jih uvozi dinamično šele z dobrim configom,
+  // telnetClient precedens). Brez šiva je pošten preskok ali nepreverjen
+  // podatek -- nikoli dvojna slovnica: HH:MM meri PRAVI parseWheelTime,
+  // generirane postelje šteje PRAVI GENERATED_BED_RE.
+  stationFilePath = null,
+  imagingDirs = null,
+  imagingM3us = null,
+  promosEnabled = false,
+  bedsEnabled = false,
+  imagingBedsRaw = {},
+  bedsDir = null,
+  bedsLedgerPath = null,
+  backupDir = null,
+  backupIntervalMinutes = undefined,
+  retentionDays = undefined,
+  parseWheelTimeImpl = null,
+  generatedBedRe = null,
+  timeToMinutesImpl = null,
+  clockwheelConfigImpl = null,
 } = {}) {
   const configOk = !(configOrError instanceof Error) && configOrError && typeof configOrError === 'object';
   const dataDir = configOk ? configOrError.dataDir : null;
@@ -891,6 +1456,23 @@ export async function runDoctor({
     configOk
       ? safe('errors', 'dnevnik napak (24 h)', () => checkErrors({ logsDir, nowMs, readFileImpl }))
       : result('errors', 'dnevnik napak (24 h)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    // Val 26 -- pet dohitevanj pod istim configOk pokrovom (zlomljen config
+    // pomeni "ne vem", ne "vse ušerno").
+    configOk
+      ? safe('station', 'urnik (station.json)', () => checkStation({ stationFilePath, readFileImpl, timeToMinutesImpl }))
+      : result('station', 'urnik (station.json)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    configOk
+      ? safe('imaging', 'imaging plasti', () => checkImaging({ imagingDirs, imagingM3us, promosEnabled, readFileImpl }))
+      : result('imaging', 'imaging plasti', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    configOk
+      ? safe('beds', 'formatna ura (postelje)', () => checkBeds({ bedsEnabled, imagingBedsRaw, bedsDir, bedsLedgerPath, parseWheelTimeImpl, generatedBedRe, readFileImpl, nowMs }))
+      : result('beds', 'formatna ura (postelje)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    configOk
+      ? safe('wheel', 'kolo (clockwheel)', () => checkWheel({ clockwheelConfigImpl }))
+      : result('wheel', 'kolo (clockwheel)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    configOk
+      ? safe('backup', 'rezervne kopije', () => checkBackup({ backupDir, backupIntervalMinutes, retentionDays, nowMs }))
+      : result('backup', 'rezervne kopije', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
   ];
 
   // POMENBNO: najprej await, ŠELE nato orderResults -- orderResults bere
@@ -909,6 +1491,11 @@ export async function runDoctor({
 //   const { results, verdict, exitCode } = await runDoctor({ configOrError });
 // CLI: src/cli/doctorCli.js (npm run doctor) -- ta izpelje vse configne
 //   poti/nize (nowPlayingPath, fillerPath, archiveRoot, logsDir, icecastUrl,
-//   telnetPort, archiveEnabled), injicira telnetClient.sendCommand in
-//   fs.promises.readFile ter pusti fetch/nowMs na privzetkah tu.
+//   telnetPort, archiveEnabled + Val 26: stationFilePath, imagingDirs,
+//   imagingM3us, promosEnabled, bedsEnabled, imagingBedsRaw, bedsDir,
+//   bedsLedgerPath, backupDir, backupIntervalMinutes, retentionDays), injicira
+//   telnetClient.sendCommand, fs.promises.readFile, fs.promises.statfs TER
+//   (Val 26) PRAVE bralce produkcijske slovnice -- clockwheelConfig in
+//   parseWheelTime iz clockwheel.js, GENERATED_BED_RE iz formatClock.js,
+//   timeToMinutes iz scheduleUtil.js -- in pusti fetch/nowMs na privzetkah tu.
 //   Opozorila novih preverjanj nosijo hint/fix (Finding model, FIXES zgoraj).

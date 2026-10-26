@@ -14,7 +14,7 @@
 //   H. feeds: dead probe -> WARN, NIKOLI fail (the P4 #28-#30 contract, pinned);
 //      any HTTP answer (even 4xx) counts as reachable; skip without --net.
 // SUB/WAVE 4-c nadgradnja (Finding model + šest novih preverjanj):
-//   I. FIXES zaprt nabor {id,label} + CHECK_ORDER 13 vnosov (zamrznjeno),
+//   I. FIXES zaprt nabor {id,label} + CHECK_ORDER 18 vnosov (zamrznjeno),
 //   J. icecast: vsak HTTP odgovor -> ok, mrtva povezava -> warn + fix,
 //   K. liquidsoap: živ "uptime" -> ok z izrezkom, napaka/prazno/ERROR -> warn,
 //   L. m3u: štetje ne-komentar vrstic, obe prazni -> warn (nujni seznam),
@@ -22,7 +22,25 @@
 //   N. host: load1/mem meje, /proc neberljiv -> preskok,
 //   O. errors: sveže/stare/nečasovne/.log.1 vrstice, 21+ -> warn,
 //   P. runDoctor sestava: šest preskokov ob zlomljenem configu, polna
-//      injekcija -> 13 rezultatov, hint/fix SAMO na opozorilih, determinizem.
+//      injekcija -> 18 rezultatov, hint/fix SAMO na opozorilih, determinizem.
+// Val 26 (doktor dohiti postajo) -- pet novih preverjanj + PRAVI šivi:
+//   Q. station: zdrav urnik s prepiši, manjkajoč -> warn, pokvarjen JSON ->
+//      FAIL, ne-seznam -> FAIL (loadSchedule vrže), neznan dan/slabi datumi/
+//      nevzdržne pojavitve -> warn z imeni,
+//   R. imaging: štetje kipov IN etrnih m3u, prazna plast -> warn, kipi z
+//      praznim m3u -> "tik ne teče", promosi OPT-IN,
+//   S. beds: izklopljene -> OK, F2 gumbi (padli na privzeto), pometanje
+//      generiranih postelj (operaterjeve NIKOLI preštete), knjiga sprožitev,
+//      produceLead coerces / retention ne (asimetrija izvira, pripeta),
+//   T. wheel: izklopljen -> ok, padli koraki/dayparti -> warn, rezervirano
+//      ime, koraki v nedoločene bazene,
+//   U. backup: brez dir -> skip, sveža/stara kopija, datirane mape,
+//      retentionDays mirror resolveRetentionDays,
+//   V. PRAVI šivi: setupTestConfig + dinamični uvoz -- parseWheelTime pozna
+//      "24:00" senčilo, URNIK je odpuščujoč tam kjer je kolo strogo,
+//      GENERATED_BED_RE ne ujame operaterjevih imen,
+//   W. runDoctor sestava: brez novih šivov -> 4 preskoki + beds OK, zlomljen
+//      config -> 5 preskokov, polna postaja -> 18 rezultatov + determinizem.
 // No test touches the network -- fetchImpl is always stubbed; /proc, statfs
 // in telnet so injicirane fike; datoteke so pravi tmp peskovniki.
 import { test, describe } from 'node:test';
@@ -52,12 +70,18 @@ import {
   checkStorage,
   checkHost,
   checkErrors,
+  checkStation,
+  checkImaging,
+  checkBeds,
+  checkWheel,
+  checkBackup,
   orderResults,
   doctorExitCode,
   doctorVerdict,
   runDoctor,
   slPlural,
 } from '../src/auto/doctor.js';
+import { setupTestConfig } from './fixtures.mjs';
 
 // Repo root -- za preverjanje, da poti v cron vzorcu kažejo na obstoječe
 // datoteke (bramba proti preimenovanju CLI-ja brez posodobitve vzorca).
@@ -76,6 +100,23 @@ const healthyConfig = (dir) => ({
     voice: { mode: 'clips', clipsDir: 'voice-clips', edgeFallback: 'none' },
   },
 });
+
+// Val 26: PRAVI šivi produkcijske slovnice. setupTestConfig napiše scratch
+// config.json (obstoječega hrani in obnovi ob izhodu), ŠELE NATO dinamično
+// uvozimo module, ki potegnejo config na vrhu (clockwheel/formatClock/
+// scheduleUtil). Memoizirano -- ena namestitev na datoteko; testi tako pripnejo
+// DOKAZANO prave bralce, ne zrcalna dvojnika slovnic (dva HH:MM parserja sta
+// valu 25 izrecno prepovedana, doctor naj jih ne goji nazaj skozi teste).
+let realSeamsCache = null;
+async function realSeams() {
+  if (realSeamsCache) return realSeamsCache;
+  setupTestConfig('doctor-val26');
+  const { parseWheelTime, clockwheelConfig } = await import('../src/scheduler/clockwheel.js');
+  const { GENERATED_BED_RE } = await import('../src/scheduler/formatClock.js');
+  const { timeToMinutes } = await import('../src/scheduler/scheduleUtil.js');
+  realSeamsCache = { parseWheelTime, clockwheelConfig, GENERATED_BED_RE, timeToMinutes };
+  return realSeamsCache;
+}
 
 describe('P4 #31 doctor -- config', () => {
   test('healthy enabled config -> ok with station name', () => {
@@ -325,12 +366,13 @@ describe('P4 #31 doctor -- runDoctor end-to-end (sandbox, no network)', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(run2.results)), JSON.parse(JSON.stringify(run1.results)));
   });
 
-  test('broken config -> config fail, dependent checks skip, corpus STILL ok, exit 1', async () => {
+  test('broken config -> config fail, dependent checks skip (tudi pet Val 26), corpus STILL ok, exit 1', async () => {
     const report = await runDoctor({ configOrError: new Error('config.json not found'), netProbe: false });
     assert.equal(report.exitCode, 1);
     assert.equal(report.results.find((r) => r.id === 'config').status, 'fail');
-    for (const id of ['dataDir', 'tts', 'library', 'ledger']) {
+    for (const id of ['dataDir', 'tts', 'library', 'ledger', 'station', 'imaging', 'beds', 'wheel', 'backup']) {
       assert.equal(report.results.find((r) => r.id === id).status, 'skip', id);
+      assert.match(report.results.find((r) => r.id === id).detail, /config ni berljiv/);
     }
     assert.equal(report.results.find((r) => r.id === 'corpus').status, 'ok');
     assert.match(report.verdict, /NAPAKA/);
@@ -405,9 +447,10 @@ const fakeProc = ({ load1, memTotalKb, memAvailKb }) => async (file) => {
 };
 
 describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
-  test('FIXES je ZAPRT nabor {id, label} z nepraznimi nizi in zamrznjenimi id-ji', () => {
+  test('FIXES je ZAPRT nabor {id, label} z nepraznimi nizi in zamrznjenimi id-ji (6 SUB/WAVE + 6 Val 26)', () => {
     assert.deepEqual(Object.keys(FIXES), [
       'check-icecast', 'restart-liquidsoap', 'regenerate-filler', 'prune-archives', 'free-disk', 'inspect-logs',
+      'fix-station-json', 'load-imaging-clips', 'fix-format-clock', 'fix-clockwheel', 'check-scheduler', 'fix-backup-config',
     ]);
     for (const [id, fix] of Object.entries(FIXES)) {
       assert.equal(fix.id, id, 'id se mora ujemati s ključem');
@@ -417,10 +460,11 @@ describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
     }
   });
 
-  test('CHECK_ORDER ima 13 vnosov v zamrznjenem redu (starih 7 + novih 6 za viri)', () => {
+  test('CHECK_ORDER ima 18 vnosov v zamrznjenem redu (7 + 6 za viri + 5 Val 26 za errors)', () => {
     assert.deepEqual(CHECK_ORDER.map((c) => c.id), [
       'config', 'dataDir', 'tts', 'library', 'ledger', 'corpus', 'feeds',
       'icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors',
+      'station', 'imaging', 'beds', 'wheel', 'backup',
     ]);
     for (const c of CHECK_ORDER) {
       assert.equal(typeof c.label, 'string');
@@ -751,29 +795,33 @@ describe('SUB/WAVE 4-c doctor -- dnevnik napak (24 h)', () => {
 });
 
 describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrovom)', () => {
-  test('zlomljen config -> vseh šest novih preskoči z istim vzorcem "config ni berljiv"', async () => {
+  test('zlomljen config -> vseh šest novih + pet Val 26 preskoči z istim vzorcem "config ni berljiv"', async () => {
     const report = await runDoctor({ configOrError: new Error('config.json not found'), netProbe: false });
-    for (const id of ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors']) {
+    for (const id of ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'beds', 'wheel', 'backup']) {
       const r = report.results.find((x) => x.id === id);
       assert.equal(r.status, STATUS.SKIP, id);
       assert.match(r.detail, /preskočeno -- config ni berljiv/, id);
     }
   });
 
-  test('brez injekcij -> šest poštenih preskokov (nobenega pravega omrežja, /proc ali statfs)', async () => {
+  test('brez injekcij -> pošteni preskoki (nobenega pravega omrežja, /proc, statfs ali novih poti)', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
     const report = await runDoctor({ configOrError: cfg, netProbe: false });
-    const ids = ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors'];
+    const ids = ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'wheel', 'backup'];
     for (const id of ids) {
       assert.equal(report.results.find((r) => r.id === id).status, STATUS.SKIP, id);
     }
     assert.match(report.results.find((r) => r.id === 'host').detail, /bralnik \/proc ni podan/);
     assert.match(report.results.find((r) => r.id === 'icecast').detail, /config\.icecast ni nastavljen/);
+    // beds so EDINI novi, ki ne rabi poti za svoj odgovor: izklopljene je
+    // podprto stanje (OPT-IN), ne vrzel -- OK z opombo, ne preskok.
+    assert.equal(report.results.find((r) => r.id === 'beds').status, STATUS.OK);
+    assert.match(report.results.find((r) => r.id === 'beds').detail, /izklopljene \(OPT-IN\)/);
   });
 
-  test('polna injekcija -> 13 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
+  test('polna injekcija -> 18 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -836,6 +884,676 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
       if (r.status === 'warn') {
         assert.equal(typeof r.hint, 'string', `${r.id}: opozorilo potrebuje namig`);
         assert.ok(r.hint.length > 0, `${r.id}: namig ne sme biti prazen`);
+      } else {
+        assert.ok(!('hint' in r) && !('fix' in r), `${r.id}: ok/skip brez namiga in popravka`);
+      }
+    }
+    // determinizem: isti vhodi -> bajtno isti izpis
+    const report2 = await runDoctor(inputs());
+    assert.deepEqual(JSON.parse(JSON.stringify(report2.results)), JSON.parse(JSON.stringify(report.results)));
+    assert.equal(report2.verdict, report.verdict);
+  });
+});
+
+// ---- Val 26: doktor dohiti postajo -- pet novih preverjanj -------------------
+// Q. station (station.json) -- pokvarjenost, ki jo fail-open bralci tiho
+// pogoltnejo, tu dobi glas. timeToMinutes je fika z ISTO semantiko kot
+// scheduleUtil (split/Number/NaN); PRAVI bralnik je pripet v V bloku.
+const fakeTimeToMinutes = (s) => {
+  const [h, m] = String(s).split(':').map(Number);
+  return h * 60 + m;
+};
+
+describe('Val 26 doctor -- station (station.json)', () => {
+  const writeStation = (dir, obj) => {
+    const file = path.join(dir, 'station.json');
+    fs.writeFileSync(file, typeof obj === 'string' ? obj : JSON.stringify(obj));
+    return file;
+  };
+
+  test('zdrav urnik z vejica-ključi, ne-strogim "6:00" in prepiši -> ok s številkami', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, {
+      station: { name: 'Test' },
+      schedule: {
+        'monday,wednesday': [{ id: 'a', startTime: '20:00', durationMinutes: 60 }],
+        friday: [{ id: 'b', startTime: '6:00', durationMinutes: 30 }],
+        dates: { '2026-12-25': [{ id: 'd', startTime: '10:00', durationMinutes: 60 }] },
+      },
+    });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.OK);
+    // "6:00" runtime velja (timeToMinutes je odpuščujoč) -- doctor ne sme biti
+    // strožji od postaje, ki jo opisuje.
+    assert.match(r.detail, /2 terminirani oddaji na teden/);
+    assert.match(r.detail, /1 nadomeščen dan/);
+    assert.ok(!('hint' in r) && !('fix' in r), 'ok brez namiga in popravka');
+  });
+
+  test('manjkajoč station.json -> warn "še ne obstaja" (nova postaja, ne napaka)', async () => {
+    const r = await checkStation({ stationFilePath: path.join(tmpDir(), 'station.json'), readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /še ne obstaja -- urnik je prazen/);
+  });
+
+  test('pokvarjen JSON -> FAIL "se ne prebere" + hint + fix (nobena oddaja ne bo terminirana)', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, '{"schedule": {"monday": [,,,');
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.FAIL);
+    assert.match(r.detail, /se ne prebere/);
+    assert.match(r.detail, /NOBENA oddaja ne bo terminirana/);
+    assert.equal(typeof r.hint, 'string');
+    assert.deepEqual(r.fix, FIXES['fix-station-json']);
+  });
+
+  test('veljaven JSON, a ne-objekt / brez schedule -> warn z opombo oblike', async () => {
+    const d1 = tmpDir();
+    const r1 = await checkStation({ stationFilePath: writeStation(d1, '"samo niz"'), readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r1.status, STATUS.WARN);
+    assert.match(r1.detail, /ni objekt/);
+    const d2 = tmpDir();
+    const r2 = await checkStation({ stationFilePath: writeStation(d2, { station: {} }), readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r2.status, STATUS.WARN);
+    assert.match(r2.detail, /schedule blok manjka/);
+    assert.deepEqual(r2.fix, FIXES['fix-station-json']);
+  });
+
+  test('ne-seznam pod delovnim dnem -> FAIL (loadSchedule vrže TypeError ob vsakem branju)', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, { schedule: { monday: 'oops', friday: [{ id: 'a', startTime: '20:00' }] } });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.FAIL);
+    assert.match(r.detail, /urnik pod ključem "monday" ni seznam/);
+    assert.match(r.detail, /ob vsakem branju vrže napako/);
+    assert.deepEqual(r.fix, FIXES['fix-station-json']);
+  });
+
+  test('neznan dnevni žeton -> warn po imenu; vejica-ključi se razširijo s trim', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, { schedule: { boats: [{ id: 'a', startTime: '09:00' }], ' monday ,tuesday': [{ id: 'b', startTime: '20:00' }] } });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /neznan\(i\) dnevni ključ\(i\): "boats"/);
+    // " monday ,tuesday" se razširi s trim -> NI neznan žeton (pripet tudi
+    // prek V bloka z realim bralnikom, tu na fiki z isto semantiko)
+    assert.ok(!r.detail.includes('"monday"'));
+    assert.ok(!r.detail.includes('"tuesday"'));
+  });
+
+  test('slabi datumski prepiši -> warn z imeni (vzorec + koledarski povratni izlet)', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, {
+      schedule: {
+        monday: [{ id: 'a', startTime: '20:00' }],
+        dates: { '2026-13-45': [{ id: 'x', startTime: '10:00' }], '2026-1-5': [{ id: 'y', startTime: '11:00' }], '2026-12-25': [{ id: 'd', startTime: '12:00' }] },
+      },
+    });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /neveljavan\(i\) datumski prepiš\(i\): "2026-13-45", "2026-1-5"/);
+    assert.match(r.detail, /1 nadomeščen dan/); // samo 2026-12-25 je preživel
+  });
+
+  test('nevzdržne pojavitve (brez id / brez časa / črn čas) -> warn s številom', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, {
+      schedule: { monday: [
+        { id: 'dobra', startTime: '20:00' },
+        {},
+        { id: 'y', startTime: 'abc' },
+        { startTime: '21:00' },
+      ] },
+    });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /3 pojavitvi brez veljavnega id\/startTime/);
+    assert.match(r.detail, /te oddaje nikoli ne bodo terminirane/);
+  });
+
+  test('prazen urnik -> warn (sveža namestitev ali namerni temni teden)', async () => {
+    const dir = tmpDir();
+    const stationFile = writeStation(dir, { schedule: {} });
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: fakeTimeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /urnik je prazen/);
+  });
+
+  test('brez poti ali brez bralnikov -> preskok', async () => {
+    assert.equal((await checkStation({})).status, STATUS.SKIP);
+    const noReader = await checkStation({ stationFilePath: 'x' });
+    assert.equal(noReader.status, STATUS.SKIP);
+    assert.match(noReader.detail, /časovni bralnik ni podan/);
+  });
+});
+
+// R. imaging plasti -- merimo OBOJE: kipe v mapi (vir) in vrstice v m3u (eter)
+describe('Val 26 doctor -- imaging plasti', () => {
+  const mkImaging = (dir) => {
+    const dirs = { id: path.join(dir, 'id'), stingers: path.join(dir, 'stingers'), emergency: path.join(dir, 'emergency'), promos: path.join(dir, 'promos') };
+    const m3us = { id: path.join(dir, 'id.m3u'), stingers: path.join(dir, 'stingers.m3u'), emergency: path.join(dir, 'emergency.m3u'), promos: path.join(dir, 'promos.m3u') };
+    for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
+    return { dirs, m3us };
+  };
+  const m3uLine = (tag, file) => `annotate:source_tag="${tag}",liq_fade_in="0":${file}\n`;
+
+  test('vse plasti napolnjjene -> ok s številkami; promosi izklopljeni so poštena opomba', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.stingers, 's2.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
+    fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s1.mp3') + m3uLine('stinger', '/tmp/s2.mp3'));
+    fs.writeFileSync(m3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
+    const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, promosEnabled: false, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /ID-ji \(polna ura\): 1/);
+    assert.match(r.detail, /stingerji: 2/);
+    assert.match(r.detail, /nujna rezerva: 1/);
+    assert.match(r.detail, /promosi: izklopljeni \(OPT-IN\)/);
+    assert.ok(!('hint' in r) && !('fix' in r));
+  });
+
+  test('prazna mapa ID-jev -> warn "molčijo, postaja igra dalje" + fix load-imaging-clips', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s1.mp3'));
+    fs.writeFileSync(m3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
+    const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /ID-ji \(polna ura\): 0/);
+    assert.match(r.detail, /molčijo/);
+    assert.deepEqual(r.fix, FIXES['load-imaging-clips']);
+  });
+
+  test('prazna nujna rezerva -> warn "ob padcu VSEH virov je spredaj tišina"', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
+    fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s.mp3'));
+    const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /nujna rezerva je prazna -- ob padcu VSEH virov je spredaj tišina/);
+  });
+
+  test('kipi v mapi, a m3u prazen/pogrešan -> warn "imaging tik ne teče" + fix check-scheduler', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(m3us.id, '# še prazen\n');
+    // stingers.m3u in emergency.m3u sploh ne nastaneta -- null, ne 0
+    const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /m3u je prazen ali pogrešan -- imaging tik \(30 min\) ne teče/);
+    assert.deepEqual(r.fix, FIXES['check-scheduler']);
+  });
+
+  test('promosi vklopljeni: prazni -> warn; napolnjeni -> ok del "vklopljeni"', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
+    fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s.mp3'));
+    fs.writeFileSync(m3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
+    const empty = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, promosEnabled: true, readFileImpl: fsp.readFile });
+    assert.equal(empty.status, STATUS.WARN);
+    assert.match(empty.detail, /promosi so vklopljeni, a mapa je prazna/);
+    fs.writeFileSync(path.join(dirs.promos, 'promo_vecer_2026-10-26_18-00.mp3'), 'x');
+    fs.writeFileSync(m3us.promos, m3uLine('promo', '/tmp/p.mp3'));
+    const full = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, promosEnabled: true, readFileImpl: fsp.readFile });
+    assert.equal(full.status, STATUS.OK);
+    assert.match(full.detail, /promosi: 1 \(vklopljeni\)/);
+  });
+
+  test('brez poti plasti -> preskok (izpeljava živi v CLI-ju)', async () => {
+    assert.equal((await checkImaging({})).status, STATUS.SKIP);
+    const r = await checkImaging({ imagingDirs: {} });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /poti plasti niso podane/);
+  });
+});
+
+// S. beds (formatna ura) -- F2 gumbi, pometanje, knjiga; asimetrija izvira
+// (produceLead COERCES, retention NE) je tu pripeta, ker je dokazano vedenje.
+describe('Val 26 doctor -- formatna ura (postelje)', () => {
+  const NOW = new Date(2026, 9, 26, 12).getTime();
+  const WHEEL_TIME = (text) => {
+    if (text === '24:00') return 24 * 60;
+    const s = String(text ?? '');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) return null;
+    const [h, min] = s.split(':').map(Number);
+    return h * 60 + min;
+  };
+
+  test('izklopljene -> OK s pošteno opombo (OPT-IN ni vrzel)', async () => {
+    const r = await checkBeds({ bedsEnabled: false });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /izklopljene \(OPT-IN\)/);
+    assert.ok(!('hint' in r) && !('fix' in r));
+  });
+
+  test('vklopljene z zdravimi gumbi, svežim kipom in knjigo -> ok', async () => {
+    const dir = tmpDir();
+    const bedsDir = path.join(dir, 'beds');
+    fs.mkdirSync(bedsDir);
+    const fresh = path.join(bedsDir, 'weather_2026-10-26_11-15.mp3');
+    fs.writeFileSync(fresh, 'x');
+    fs.utimesSync(fresh, new Date(NOW - 30 * 60_000), new Date(NOW - 30 * 60_000));
+    const ledger = path.join(dir, 'beds-fired.jsonl');
+    fs.writeFileSync(ledger, JSON.stringify({ key: 'k1' }) + '\n' + JSON.stringify({ key: 'k2' }) + '\npokvarjena vrstica\n');
+    const r = await checkBeds({
+      bedsEnabled: true,
+      imagingBedsRaw: { weatherMinutes: [15, 45], weatherDaypart: { from: '06:00', to: '22:00' } },
+      bedsDir,
+      bedsLedgerPath: ledger,
+      parseWheelTimeImpl: WHEEL_TIME,
+      generatedBedRe: /^(weather|nextshow)(?:_.+)?_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})\.mp3$/,
+      readFileImpl: fsp.readFile,
+      nowMs: NOW,
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /vklopljene/);
+    assert.match(r.detail, /vreme ob: 15, 45/);
+    assert.match(r.detail, /okno vremena: 06:00-22:00/);
+    assert.match(r.detail, /knjiga sprožitev: 2/); // pokvarjena vrstica se tolerantly preskoči
+  });
+
+  test('weatherMinutes: šmetani vnosi -> warn "ven [0, 59]"; ne-seznam -> warn "ni seznam"; [] -> namerno izklopljeno (OK)', async () => {
+    const junk = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherMinutes: [15, 75, 'x'] }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(junk.status, STATUS.WARN);
+    assert.match(junk.detail, /2 vnosa v weatherMinutes sta ven \[0, 59\]/);
+    assert.deepEqual(junk.fix, FIXES['fix-format-clock']);
+    const notArray = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherMinutes: '15' }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(notArray.status, STATUS.WARN);
+    assert.match(notArray.detail, /weatherMinutes ni seznam -- padel na privzeto \[15, 45\]/);
+    const off = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherMinutes: [] }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(off.status, STATUS.OK);
+    assert.match(off.detail, /vreme: izklopljeno \(prazen seznam, namerno\)/);
+  });
+
+  test('weatherDaypart: slaba oblika / obrnjeno okno -> warn "teče ves dan"; odsotno -> "ves dan" (OK)', async () => {
+    const bad = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherDaypart: { from: '06:00', to: 'zzz' } }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(bad.status, STATUS.WARN);
+    assert.match(bad.detail, /weatherDaypart "06:00"-"zzz" je nerazumljen -- okno ne velja, vreme teče ves dan/);
+    const flipped = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherDaypart: { from: '22:00', to: '06:00' } }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(flipped.status, STATUS.WARN);
+    assert.match(flipped.detail, /nerazumljen/);
+    const absent = await checkBeds({ bedsEnabled: true, imagingBedsRaw: {}, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(absent.status, STATUS.OK);
+    assert.match(absent.detail, /okno vremena: ves dan/);
+  });
+
+  test('ASIMETRIJA IZVIRA (formatClock.js): produceLeadMinutes "4" (string) je VELJAVEN, clipRetentionHours "2" (string) je ŠMETAN', async () => {
+    const lead = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { produceLeadMinutes: '4' }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(lead.status, STATUS.OK, 'Number() pretvorba -- runtime sprejme string');
+    const retention = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { clipRetentionHours: '2' }, parseWheelTimeImpl: WHEEL_TIME });
+    assert.equal(retention.status, STATUS.WARN, 'Number.isFinite brez pretvorbe -- runtime pade na privzeti 2 h');
+    assert.match(retention.detail, /clipRetentionHours je nerazumljen -- padel na privzeti 2 h/);
+  });
+
+  test('pometanje: zastarela GENERIRANA postelja -> warn; operaterjeva datoteka NIKOLI prešteta', async () => {
+    const dir = tmpDir();
+    const bedsDir = path.join(dir, 'beds');
+    fs.mkdirSync(bedsDir);
+    const OLD = new Date(NOW - 10 * 3600_000); // 10 h -- čez privzeti 2 h
+    const stale = path.join(bedsDir, 'weather_2026-10-25_10-15.mp3');
+    fs.writeFileSync(stale, 'x');
+    fs.utimesSync(stale, OLD, OLD);
+    const operatorFile = path.join(bedsDir, 'moja_postelja.mp3'); // operaterjeva -- nedotakljiva
+    fs.writeFileSync(operatorFile, 'x');
+    fs.utimesSync(operatorFile, OLD, OLD);
+    const r = await checkBeds({
+      bedsEnabled: true,
+      imagingBedsRaw: {},
+      bedsDir,
+      generatedBedRe: /^(weather|nextshow)(?:_.+)?_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})\.mp3$/,
+      nowMs: NOW,
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /1 generirana postelja je čez zadrževanje -- pometanje ni pometalo/);
+    assert.deepEqual(r.fix, FIXES['check-scheduler']);
+  });
+
+  test('clipRetentionHours 0 = večno: zastarela generirana postelja NI opozorilo', async () => {
+    const dir = tmpDir();
+    const bedsDir = path.join(dir, 'beds');
+    fs.mkdirSync(bedsDir);
+    const OLD = new Date(NOW - 30 * 24 * 3600_000);
+    const stale = path.join(bedsDir, 'nextshow_vecer_2026-09-01_20-00.mp3');
+    fs.writeFileSync(stale, 'x');
+    fs.utimesSync(stale, OLD, OLD);
+    const r = await checkBeds({
+      bedsEnabled: true,
+      imagingBedsRaw: { clipRetentionHours: 0 },
+      bedsDir,
+      generatedBedRe: /^(weather|nextshow)(?:_.+)?_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2})\.mp3$/,
+      nowMs: NOW,
+    });
+    assert.equal(r.status, STATUS.OK);
+  });
+
+  test('knjiga sprožitev manjka -> poštena opomba, ne opozorilo (svež vklop)', async () => {
+    const r = await checkBeds({ bedsEnabled: true, imagingBedsRaw: {}, bedsLedgerPath: path.join(tmpDir(), 'beds-fired.jsonl'), readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /knjiga sprožitev: še ni je \(svež vklop\?\)/);
+  });
+
+  test('brez šivov ne lažemo: okno "nepreverjeno", nikoli izmišljen padec', async () => {
+    const r = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherDaypart: { from: '06:00', to: '22:00' } } });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /okno vremena: nepreverjeno \(časovni bralnik ni podan\)/);
+  });
+});
+
+// T. wheel (clockwheel) -- drop-and-count števke prihajajo iz bralnika (fika
+// vrača oblike, kot jih vrača pravi clockwheelConfig)
+describe('Val 26 doctor -- kolo (clockwheel)', () => {
+  test('brez bralnika -> preskok', () => {
+    assert.equal(checkWheel({}).status, STATUS.SKIP);
+    assert.match(checkWheel({}).detail, /bralnik kolesa ni podan/);
+  });
+
+  test('null (izklopljen) -> ok z opombo o navadni rotaciji', () => {
+    const r = checkWheel({ clockwheelConfigImpl: () => null });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /kolo izklopljen -- filler izbira skladbe po navadni rotaciji/);
+  });
+
+  test('zdravo kolo -> ok s številkami (koraki · dayparti · bazeni)', () => {
+    const r = checkWheel({
+      clockwheelConfigImpl: () => ({
+        pools: { rock: { genres: ['rock'] }, klasika: { genres: ['classical'] } },
+        steps: [{ pool: 'rock', count: 2 }, { pool: 'rotation', count: 3 }],
+        dayparts: [{ fromMin: 420, toMin: 1320, steps: [{ pool: 'klasika', count: 1 }] }],
+        droppedSteps: 0,
+        droppedDayparts: 0,
+      }),
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /2 koraka · 1 daypart · 2 bazena/);
+    assert.ok(!('hint' in r) && !('fix' in r));
+  });
+
+  test('padli koraki in dayparti -> warn s frazno množino + fix fix-clockwheel', () => {
+    const r = checkWheel({
+      clockwheelConfigImpl: () => ({ pools: {}, steps: [], dayparts: [], droppedSteps: 1, droppedDayparts: 2 }),
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /1 korak je tiho padel \(vsak rabi pool \+ count > 0\)/);
+    assert.match(r.detail, /2 dayparta sta tiho padla/);
+    assert.deepEqual(r.fix, FIXES['fix-clockwheel']);
+  });
+
+  test('rezervirano ime "rotation" med bazeni -> warn "se IGNORIRA"', () => {
+    const r = checkWheel({
+      clockwheelConfigImpl: () => ({ pools: { rotation: { genres: ['x'] }, rock: {} }, steps: [{ pool: 'rock', count: 1 }], dayparts: [], droppedSteps: 0, droppedDayparts: 0 }),
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /bazen z imenom "rotation" je rezerviran in se IGNORIRA/);
+  });
+
+  test('korak v NEDOLOČEN bazen -> warn po imenu (walkWheel "if (!queue) continue")', () => {
+    const r = checkWheel({
+      clockwheelConfigImpl: () => ({
+        pools: { rock: {} },
+        steps: [{ pool: 'rock', count: 1 }, { pool: 'jazz', count: 2 }],
+        dayparts: [{ fromMin: 420, toMin: 1320, steps: [{ pool: 'pop', count: 1 }] }],
+        droppedSteps: 0,
+        droppedDayparts: 0,
+      }),
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /koraki kažejo na nedoločene bazene: "jazz", "pop"/);
+  });
+
+  test('bralnik vrže -> warn, doctor ne pade', () => {
+    const r = checkWheel({ clockwheelConfigImpl: () => { throw new Error('kaboom'); } });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /bralnik kolesa je padel: kaboom/);
+  });
+});
+
+// U. backup (rezervne kopije) -- starost iz IMENA datirane mape, ne mtime
+describe('Val 26 doctor -- rezervne kopije', () => {
+  const NOW = new Date(2026, 9, 26, 12).getTime();
+
+  test('brez config.backup.dir -> preskok z opombo o DEPLOYMENT_GUIDE', async () => {
+    const r = await checkBackup({ nowMs: NOW });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /config\.backup\.dir ni nastavljen/);
+    assert.match(r.detail, /DEPLOYMENT_GUIDE/);
+  });
+
+  test('sveža kopija -> ok (starost od lokalne polnoči, številka, zadrževanje)', async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, '2026-10-25'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '2026-10-26'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'opombe.txt'), 'ni datirana mapa'); // ne šteje
+    const r = await checkBackup({ backupDir: dir, backupIntervalMinutes: 1440, retentionDays: 30, nowMs: NOW });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /zadnja kopija 2026-10-26 \(pred 12 urami\)/);
+    assert.match(r.detail, /2 kopiji/);
+    assert.match(r.detail, /zadrževanje: 30 dni/);
+  });
+
+  test('stara kopija (čez 2x interval) -> warn "čez mejo" + fix check-scheduler', async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, '2026-10-20'), { recursive: true });
+    const r = await checkBackup({ backupDir: dir, backupIntervalMinutes: 1440, nowMs: NOW });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /čez mejo -- pričakovana vsakih 24 h, dovoljena lenoba 48 h/);
+    assert.deepEqual(r.fix, FIXES['check-scheduler']);
+  });
+
+  test('cilj obstaja, a datiranih map ni -> warn; cilj sploh ne obstaja -> warn "še nobena"', async () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'samo-datoteka.txt'), 'x');
+    const noDated = await checkBackup({ backupDir: dir, nowMs: NOW });
+    assert.equal(noDated.status, STATUS.WARN);
+    assert.match(noDated.detail, /v cilju ni datiranih kopij/);
+    const noDir = await checkBackup({ backupDir: path.join(tmpDir(), 'backups-nope'), nowMs: NOW });
+    assert.equal(noDir.status, STATUS.WARN);
+    assert.match(noDir.detail, /ne obstaja -- še nobena rezervna kopija/);
+  });
+
+  test('retentionDays šmetan -> warn "kopije se hranijo VSE" + fix fix-backup-config; 0 = večno (OK)', async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, '2026-10-26'), { recursive: true });
+    const junk = await checkBackup({ backupDir: dir, retentionDays: -5, nowMs: NOW });
+    assert.equal(junk.status, STATUS.WARN);
+    assert.match(junk.detail, /backup\.retentionDays je nerazumljen -- kopije se hranijo VSE/);
+    assert.deepEqual(junk.fix, FIXES['fix-backup-config']);
+    const forever = await checkBackup({ backupDir: dir, retentionDays: 0, nowMs: NOW });
+    assert.equal(forever.status, STATUS.OK);
+    assert.match(forever.detail, /zadrževanje: večno/);
+  });
+
+  test('intervalMinutes šmetan -> privzeti 1440 (ogledalo cadence()), včerajšnja kopija še OK', async () => {
+    const dir = tmpDir();
+    fs.mkdirSync(path.join(dir, '2026-10-25'), { recursive: true });
+    const r = await checkBackup({ backupDir: dir, backupIntervalMinutes: 'abc', nowMs: NOW });
+    assert.equal(r.status, STATUS.OK); // starost 36 h < 48 h meje privzetega intervala
+  });
+});
+
+// V. PRAVI šivi -- dokaz, da doctorji testi govorijo produkcijsko slovnico
+describe('Val 26 doctor -- PRAVI šivi (dinamični uvoz po setupTestConfig)', () => {
+  test('realSeams prinese PRAVE module: "24:00" senčilo, urnik odpuščujoč tam kjer je kolo strogo', async () => {
+    const seams = await realSeams();
+    assert.equal(typeof seams.parseWheelTime, 'function');
+    assert.equal(seams.parseWheelTime('24:00'), 1440);
+    assert.equal(seams.parseWheelTime('6:00'), null, 'kolo je strogo nič-polnjeno');
+    assert.ok(seams.GENERATED_BED_RE instanceof RegExp);
+    assert.equal(seams.GENERATED_BED_RE.test('weather_2026-10-26_10-15.mp3'), true);
+    assert.equal(seams.GENERATED_BED_RE.test('nextshow_vecer_2026-10-26_19-55.mp3'), true);
+    assert.equal(seams.GENERATED_BED_RE.test('moja_postelja.mp3'), false, 'operaterjeva imena so izven vzorca');
+    assert.ok(Number.isNaN(seams.timeToMinutes('abc')));
+    assert.equal(seams.timeToMinutes('6:00'), 360, 'URNIK sprejme "6:00" -- drugačna slovnica kot kolo, namerno');
+    assert.equal(typeof seams.clockwheelConfig, 'function');
+    assert.equal(seams.clockwheelConfig(), null, 'fixture config brez filler.clockwheel -> null, ne padec');
+  });
+
+  test('checkStation z REALIM timeToMinutes: "6:00" velja, "abc" ne (ogledalna toleranca)', async () => {
+    const { timeToMinutes } = await realSeams();
+    const dir = tmpDir();
+    const stationFile = path.join(dir, 'station.json');
+    fs.writeFileSync(stationFile, JSON.stringify({
+      schedule: { monday: [{ id: 'a', startTime: '6:00' }, { id: 'b', startTime: 'abc' }] },
+    }));
+    const r = await checkStation({ stationFilePath: stationFile, readFileImpl: fsp.readFile, timeToMinutesImpl: timeToMinutes });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /1 pojavitev brez veljavnega id\/startTime -- ta oddaja nikoli ne bo terminirana/);
+  });
+
+  test('checkBeds z REALIM parseWheelTime: okno "6:00" je šmetano (stroga slovnica kolesa)', async () => {
+    const { parseWheelTime } = await realSeams();
+    const r = await checkBeds({ bedsEnabled: true, imagingBedsRaw: { weatherDaypart: { from: '6:00', to: '22:00' } }, parseWheelTimeImpl: parseWheelTime });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /nerazumljen -- okno ne velja, vreme teče ves dan/);
+  });
+});
+
+// W. runDoctor sestava -- pet novih pod istim pokrovom
+describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
+  test('polna postaja (urnik + imaging + postelje + kolo + backup) -> 18 rezultatov, novi OK, determinizem', async () => {
+    const dir = tmpDir();
+    const cfg = healthyConfig(dir);
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    fs.mkdirSync(cfg.autoRadio.music.localDirs[0], { recursive: true });
+    fs.writeFileSync(path.join(cfg.autoRadio.music.localDirs[0], 'a.mp3'), 'x');
+    const clips = path.join(cfg.dataDir, 'voice-clips');
+    fs.mkdirSync(clips);
+    fs.writeFileSync(path.join(clips, 'open.wav'), 'x');
+    fs.mkdirSync(path.join(cfg.dataDir, 'history'), { recursive: true });
+    const entry = { ratingKey: 'rk', artist: 'A', title: 'T', album: 'L', durationMs: 1, showId: 'j', playedAt: '2026-10-25T08:00:00+02:00' };
+    fs.writeFileSync(path.join(cfg.dataDir, 'history', 'aired.jsonl'), JSON.stringify(entry) + '\n');
+    fs.writeFileSync(path.join(cfg.dataDir, 'now_playing.m3u'), '# trenutna\nskladba-1.mp3\n');
+    fs.writeFileSync(path.join(cfg.dataDir, 'filler.m3u'), 'filler-1.mp3\n');
+    const logsDir = path.join(cfg.dataDir, 'logs');
+    fs.mkdirSync(logsDir);
+    fs.writeFileSync(path.join(logsDir, 'station.log'), '[2026-10-25T11:00:00+02:00] ERROR ena sama, ne vzorec\n');
+
+    // Val 26: postaja, kakršna je po valu 25 -- urnik, imaging, postelje, kolo, backup
+    const nowMs = new Date(2026, 9, 26, 12).getTime();
+    const stationFilePath = path.join(cfg.dataDir, 'station.json');
+    fs.writeFileSync(stationFilePath, JSON.stringify({
+      station: { name: 'Test Stanica' },
+      schedule: {
+        'monday,wednesday': [{ id: 'vecer', startTime: '20:00', durationMinutes: 60 }],
+        friday: [{ id: 'jutro', startTime: '07:30', durationMinutes: 90 }],
+      },
+    }));
+    const imagingDirs = {
+      id: path.join(dir, 'imaging', 'id'), stingers: path.join(dir, 'imaging', 'stingers'),
+      emergency: path.join(dir, 'imaging', 'emergency'), promos: path.join(dir, 'imaging', 'promos'),
+    };
+    const imagingM3us = {
+      id: path.join(dir, 'imaging', 'id.m3u'), stingers: path.join(dir, 'imaging', 'stingers.m3u'),
+      emergency: path.join(dir, 'imaging', 'emergency.m3u'), promos: path.join(dir, 'imaging', 'promos.m3u'),
+    };
+    fs.mkdirSync(imagingDirs.id, { recursive: true });
+    fs.mkdirSync(imagingDirs.stingers, { recursive: true });
+    fs.mkdirSync(imagingDirs.emergency, { recursive: true });
+    fs.mkdirSync(imagingDirs.promos, { recursive: true });
+    fs.writeFileSync(path.join(imagingDirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(imagingDirs.stingers, 's1.mp3'), 'x');
+    fs.writeFileSync(path.join(imagingDirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(path.join(imagingDirs.promos, 'promo_vecer_2026-10-26_18-00.mp3'), 'x');
+    const m3uLine = (tag, file) => `annotate:source_tag="${tag}",liq_fade_in="0":${file}\n`;
+    fs.writeFileSync(imagingM3us.id, m3uLine('id', '/tmp/a.mp3'));
+    fs.writeFileSync(imagingM3us.stingers, m3uLine('stinger', '/tmp/s.mp3'));
+    fs.writeFileSync(imagingM3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
+    fs.writeFileSync(imagingM3us.promos, m3uLine('promo', '/tmp/p.mp3'));
+    const bedsDir = path.join(cfg.dataDir, 'beds');
+    fs.mkdirSync(bedsDir);
+    const freshBed = path.join(bedsDir, 'weather_2026-10-26_11-15.mp3');
+    fs.writeFileSync(freshBed, 'x');
+    fs.utimesSync(freshBed, new Date(nowMs - 30 * 60_000), new Date(nowMs - 30 * 60_000));
+    const bedsLedgerPath = path.join(cfg.dataDir, 'history', 'beds-fired.jsonl');
+    fs.writeFileSync(bedsLedgerPath, JSON.stringify({ key: 'k1' }) + '\n');
+    const backupDir = path.join(dir, 'backups');
+    fs.mkdirSync(path.join(backupDir, '2026-10-25'), { recursive: true });
+    fs.mkdirSync(path.join(backupDir, '2026-10-26'), { recursive: true });
+
+    const seams = await realSeams();
+    const readFileImpl = async (file, enc) => {
+      if (file === '/proc/loadavg') return '0.10 0.10 0.05 1/100 12345\n';
+      if (file === '/proc/meminfo') return 'MemTotal:       16777216 kB\nMemAvailable:   8388608 kB\n';
+      return fsp.readFile(file, enc);
+    };
+    const healthyWheel = () => ({
+      pools: { rock: { genres: ['rock'] } },
+      steps: [{ pool: 'rock', count: 2 }, { pool: 'rotation', count: 3 }],
+      dayparts: [],
+      droppedSteps: 0,
+      droppedDayparts: 0,
+    });
+    const inputs = () => ({
+      configOrError: cfg,
+      netProbe: false,
+      nowMs,
+      fetchImpl: async () => ({ status: 200 }),
+      sendCommandImpl: async () => { throw new Error('connect ECONNREFUSED'); }, // mrtva miza -> warn z fixom
+      readFileImpl,
+      statfsImpl: fakeStatfs(50 * GB),
+      nowPlayingPath: path.join(cfg.dataDir, 'now_playing.m3u'),
+      fillerPath: path.join(cfg.dataDir, 'filler.m3u'),
+      archiveRoot: path.join(cfg.dataDir, 'archive'),
+      archiveEnabled: true,
+      logsDir,
+      icecastUrl: 'http://localhost:8001/status-json.xsl',
+      telnetPort: 1234,
+      stationFilePath,
+      imagingDirs,
+      imagingM3us,
+      promosEnabled: true,
+      bedsEnabled: true,
+      imagingBedsRaw: { weatherMinutes: [15, 45], weatherDaypart: { from: '06:00', to: '22:00' } },
+      bedsDir,
+      bedsLedgerPath,
+      backupDir,
+      backupIntervalMinutes: 1440,
+      retentionDays: 30,
+      parseWheelTimeImpl: seams.parseWheelTime,
+      generatedBedRe: seams.GENERATED_BED_RE,
+      timeToMinutesImpl: seams.timeToMinutes,
+      clockwheelConfigImpl: healthyWheel,
+    });
+
+    const report = await runDoctor(inputs());
+    assert.equal(report.results.length, 18);
+    assert.deepEqual(report.results.map((r) => r.id), CHECK_ORDER.map((c) => c.id));
+    assert.equal(report.exitCode, 0); // opozorilo (mrtva miza), ne napaka
+    const byId = Object.fromEntries(report.results.map((r) => [r.id, r]));
+    assert.equal(byId.station.status, STATUS.OK);
+    assert.match(byId.station.detail, /2 terminirani oddaji na teden/);
+    assert.equal(byId.imaging.status, STATUS.OK);
+    assert.match(byId.imaging.detail, /ID-ji \(polna ura\): 1/);
+    assert.match(byId.imaging.detail, /promosi: 1 \(vklopljeni\)/);
+    assert.equal(byId.beds.status, STATUS.OK);
+    assert.match(byId.beds.detail, /vreme ob: 15, 45/);
+    assert.match(byId.beds.detail, /okno vremena: 06:00-22:00/);
+    assert.match(byId.beds.detail, /knjiga sprožitev: 1/);
+    assert.equal(byId.wheel.status, STATUS.OK);
+    assert.match(byId.wheel.detail, /2 koraka · 0 daypartov · 1 bazen/);
+    assert.equal(byId.backup.status, STATUS.OK);
+    assert.match(byId.backup.detail, /zadnja kopija 2026-10-26/);
+    assert.match(byId.backup.detail, /zadrževanje: 30 dni/);
+    // Finding model: hint/fix nosijo SAMO opozorila (edino opozorilo je mrtva miza)
+    for (const r of report.results) {
+      if (r.status === 'warn') {
+        assert.equal(typeof r.hint, 'string', `${r.id}: opozorilo potrebuje namig`);
+        assert.ok(r.hint.length > 0);
       } else {
         assert.ok(!('hint' in r) && !('fix' in r), `${r.id}: ok/skip brez namiga in popravka`);
       }

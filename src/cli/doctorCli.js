@@ -7,6 +7,14 @@
 // (24 h). Opozorila teh šestih nosijo tudi »namig« (kje poglej) in »popravi«
 // (kaj stori) -- Finding model SUB/WAVE, izpisan pod vrstico najdenja.
 //
+// Val 26 (doktor dohiti postajo): PET novih preverjanj za površino, ki je
+// zrasla po SUB/WAVE valu in bralci namenoma tiho odpustijo napake --
+// urnik (station.json: pokvarjen JSON, ne-seznami, slabi datumski prepiši,
+// pojavitve brez veljavnega časa), imaging plasti (kipi v mapah IN etrne
+// m3u datoteke, promosi OPT-IN), formatna ura (F2 gumbi postelj, pometanje
+// generiranih kipov, knjiga sprožitev), kolo (clockwheel drop-and-count)
+// in rezervne kopije (starost najnovejše datirane mape).
+//
 //   npm run doctor [-- --net] [-- --json] [-- --cron [--minutes-before=15]]
 //
 // --net   sproži omrežne preverjanje virov (ARSO, RTV x2, Wikidata, Open-Meteo)
@@ -122,6 +130,35 @@ const doctorInputs = {
     : null,
   telnetPort: configOk ? configOrError.liquidsoap?.telnetPort ?? null : null,
   archiveEnabled: configOk ? configOrError.archive?.enabled === true : false,
+  // Val 26: izpeljave petih dohitevanj. Vsaka zrcali svoj izvir, da se poti
+  // nikoli ne razidejo (en vir resnice na stran):
+  //   stationFilePath  == config.paths.stationFile (scheduleUtil.js readStationFile)
+  //   imagingDirs/M3us == config.paths.imaging* (scheduler/imagingPlaylists.js)
+  //   promos/beds      == config.imaging (strog === true, OPT-IN discipline)
+  //   beds* poti        == config.paths.bedsDir/bedsFiredLedgerFile (formatClock.js)
+  //   backup*          == config.backup (backupStation.js; raw vrednosti,
+  //                       ker jih checkBackup ogledalno pretvori sam)
+  stationFilePath: configOk ? configOrError.paths?.stationFile ?? null : null,
+  imagingDirs: configOk && configOrError.paths ? {
+    id: configOrError.paths.imagingIdDir ?? null,
+    stingers: configOrError.paths.imagingStingerDir ?? null,
+    emergency: configOrError.paths.imagingEmergencyDir ?? null,
+    promos: configOrError.paths.imagingPromosDir ?? null,
+  } : null,
+  imagingM3us: configOk && configOrError.paths ? {
+    id: configOrError.paths.imagingIdPath ?? null,
+    stingers: configOrError.paths.imagingStingerPath ?? null,
+    emergency: configOrError.paths.imagingEmergencyPath ?? null,
+    promos: configOrError.paths.imagingPromosPath ?? null,
+  } : null,
+  promosEnabled: configOk ? configOrError.imaging?.promos?.enabled === true : false,
+  bedsEnabled: configOk ? configOrError.imaging?.beds?.enabled === true : false,
+  imagingBedsRaw: configOk ? configOrError.imaging?.beds ?? {} : {},
+  bedsDir: configOk ? configOrError.paths?.bedsDir ?? null : null,
+  bedsLedgerPath: configOk ? configOrError.paths?.bedsFiredLedgerFile ?? null : null,
+  backupDir: configOk ? configOrError.backup?.dir ?? null : null,
+  backupIntervalMinutes: configOk ? configOrError.backup?.intervalMinutes : undefined,
+  retentionDays: configOk ? configOrError.backup?.retentionDays : undefined,
 };
 
 // Pravi telnet odjemalec (sendCommand iz src/liquidsoap/telnetClient.js) se
@@ -138,13 +175,39 @@ if (configOk) {
   }
 }
 
+// Val 26: PRAVI bralci produkcijske slovnice, isti duh kot telnetClient zgoraj
+// (clockwheel/formatClock/scheduleUtil potegnejo config na vrhu modula):
+// parseWheelTime + clockwheelConfig (HH:MM slovnica + drop-and-count števke),
+// GENERATED_BED_RE (operaterjeve datoteke ostanejo nedotaknjene) in
+// timeToMinutes (urnikova časovna toleranca). Doctor sam ostaja brez configa;
+// brez šiva njegova preverjanja pošteno povedo "nepreverjeno".
+let parseWheelTimeImpl = null;
+let clockwheelConfigImpl = null;
+let generatedBedRe = null;
+let timeToMinutesImpl = null;
+if (configOk) {
+  try {
+    ({ clockwheelConfig: clockwheelConfigImpl, parseWheelTime: parseWheelTimeImpl } = await import('../scheduler/clockwheel.js'));
+  } catch { /* praktično nedosegljivo -- a doctor ne sme pasti */ }
+  try {
+    ({ GENERATED_BED_RE: generatedBedRe } = await import('../scheduler/formatClock.js'));
+  } catch { /* enako */ }
+  try {
+    ({ timeToMinutes: timeToMinutesImpl } = await import('../scheduler/scheduleUtil.js'));
+  } catch { /* enako */ }
+}
+
 const { runDoctor } = await import('../auto/doctor.js');
 const report = await runDoctor({
   configOrError,
   netProbe,
   sendCommandImpl,
-  readFileImpl: fsp.readFile, // pravi bralnik za m3u/host/errors
+  readFileImpl: fsp.readFile, // pravi bralnik za m3u/host/errors/station/imaging
   statfsImpl: fsp.statfs,      // pravi fs.statfs za prostor na disku (fetch/nowMs že imata privzetka v doctorju)
+  parseWheelTimeImpl,          // Val 26: PRAVI HH:MM parser (clockwheel.js)
+  clockwheelConfigImpl,        // Val 26: PRAVI bralnik kolesa (clockwheel.js)
+  generatedBedRe,              // Val 26: PRAVI vzorec generiranih postelj (formatClock.js)
+  timeToMinutesImpl,           // Val 26: PRAVI urnikov časovni bralnik (scheduleUtil.js)
   ...doctorInputs,
 });
 

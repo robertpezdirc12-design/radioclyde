@@ -402,8 +402,22 @@ prose for humans. The selection section supports:
   sam — icecast dosegljivost, liquidsoap telnet (`uptime`), stanje
   predvajalnih list (m3u), arhiv/prostor na disku (20 GB / 2 GB meji),
   obremenitev gostitelja (CPU/spomin) in število napak v dnevnikih zadnjih
-  24 h. Vse pošteno preskoči, ko config ni berljiv, in nobeno
-  preverjanje ne more sesati doctorja samega.
+  24 h. Val 26 (doktor dohiti postajo) dodaja PET preverjanj za površino,
+  ki je zrasla naknadno in jo bralci namenoma tiho odpuščajo: **urnik**
+  (station.json — pokvarjen JSON je NAPAKA, ne-seznam pod delovnim dnem
+  prav tako, saj loadSchedule ob vsakem branju vrže; slabi datumski
+  prepiši, neznani dnevni ključi in pojavitve brez veljavnega časa so
+  poimenovana opozorila), **imaging plasti** (kipi v mapah IN etrne .m3u
+  datoteke — kipi brez etrne liste pomenijo »tik ne teče«; prazna nujna
+  rezerva je opozorilo o tišini ob padcu vseh virov), **formatno uro**
+  (F2 gumbi postelj, pometanje generiranih kipov čez zadrževanje —
+  operaterjeve datoteke niso nikoli preštete — in knjiga sprožitev;
+  HH:MM slovnica je pravi `parseWheelTime`, pometanje šteje s pravim
+  `GENERATED_BED_RE`), **kolo** (clockwheel drop-and-count števke, koraki
+  v nedoločene bazene, rezervirano ime) in **rezervne kopije** (starost
+  najnovejše datirane mape proti dvakratniku intervala — tiho ugasnjen
+  scheduler ne piše ničesar, doktor pa pove). Vse pošteno preskoči, ko
+  config ni berljiv, in nobeno preverjanje ne more sesati doctorja samega.
 - **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
   deterministic standalone five-minute episode — talk, music, talk, music,
   talk — from the real library + the offline rock-facts corpus, in the
