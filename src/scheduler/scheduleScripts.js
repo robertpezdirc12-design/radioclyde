@@ -39,6 +39,16 @@ export async function checkAndTriggerScripts() {
     : config.schedule?.scriptLeadTimeMinutes ?? 120;
 
   for (const { show, weekday, date } of scheduleUtil.upcomingOccurrences(schedule, now, horizon)) {
+    // Paket C2 (Val 22): a replay occurrence never gets a script.md of its
+    // own, and this skip is THE "first-air statistics survive" guarantee.
+    // Without it, the missing script.md at the replay date queues a fresh
+    // generateScript for the slot: wrong content (the replay airs the SOURCE
+    // episode's audio, not a new episode) AND a double-burned repeat window
+    // (generateScript -> recordPlayed logs the replay date's tracks as
+    // freshly played -- exactly what replay exists to avoid). The skip sits
+    // BEFORE the script.md check so the slot can never be pulled into
+    // re-production, not even by a leftover script.md at that dateDir.
+    if (show.type === 'replay') continue;
     const showDateDir = scheduleUtil.dateDir(weekday, show.id, date);
     if (fs.existsSync(path.join(showDateDir, 'script.md'))) continue;
     if (inFlight.has(showDateDir)) continue;

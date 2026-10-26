@@ -591,6 +591,21 @@ function renderSchedule(data) {
       const d = new Date(`${day.date}T12:00:00`);
       date.textContent = Number.isNaN(d.getTime()) ? day.date : d.toLocaleDateString('sl-SI', { day: 'numeric', month: 'short' });
       col.append(name, date);
+      // Paket C1 (Val 22): a day carrying a date override (schedule.dates)
+      // renders its own lineup instead of the weekday template -- a small
+      // badge says so. Inline styles because the listener stylesheet is
+      // deliberately untouched by this surface change (.mark-chip does the
+      // shaping; the neutrals say "schedule fact", not "on air/next").
+      if (day.dateOverride) {
+        const badge = document.createElement('span');
+        badge.className = 'mark-chip';
+        badge.style.background = 'var(--raise)';
+        badge.style.border = '1px solid var(--card-edge)';
+        badge.style.color = 'var(--text-dim)';
+        badge.textContent = 'poseben program';
+        badge.title = 'Ta dan ne sledi tedenski predlogi.';
+        date.append(' ', badge);
+      }
       for (const show of day.shows) {
         const item = document.createElement('div');
         item.className = 'show-item' + (show.mark ? ` mark-${show.mark}` : '');

@@ -202,7 +202,7 @@ Razporejevalnik enkrat na `backup.intervalMinutes` (privzeto 1440 = dnevno) zapi
 
 | vir | zakaj je v kopiji |
 |---|---|
-| `station.json`, `show-descriptions/`, `prompts.json` | ročno avtorstvo (urnik, osebnost, briefi) — edini izvod |
+| `station.json`, `show-descriptions/`, `prompts.json` | ročno avtorstvo (urnik, osebnost, briefi) — edini izvod; datumski prenosi (`schedule.dates`) in replay vnosi živijo v isti datoteki, zato jih dnevna kopija pokriva brez dodatnega dela |
 | `requests.jsonl`, `polls.json` | poslušalčevi podatki (želje, posvetila, ankete) — nastanejo sami od poslušalcev, iz etra se ne da rekonstruirati |
 | `push/` (vapid.json, subscriptions.json, sent.jsonl) | poverilnice obvestil: izguba `vapid.json` razveljavi VSE obstoječe naročnine brskalnikov |
 | `history/*.jsonl` (played, aired, listener-samples, filler-rotation, deadair) | dokaz o etru: analitika, »najbolj poslušano«, rotacija fillerja, epizode mrtvega etra |

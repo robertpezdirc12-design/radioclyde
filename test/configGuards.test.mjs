@@ -111,6 +111,34 @@ describe('scheduleUtil fail-open station.json read', () => {
       fs.writeFileSync(stationFile, JSON.stringify({ station: { name: 'Test Station', neverPlay: { keywords: [], artists: [] } } }));
     }
   });
+
+  // Paket C1 (Val 22) fail-open pin: a hand-corrupted schedule.dates block
+  // must not take the weekday map down with it -- /api/schedule (grid,
+  // now-playing, upcoming) all keep answering on the template while the
+  // overrides read as none.
+  test('a corrupt schedule.dates block fails open: loadDateOverrides() {} and the weekday map still loads', () => {
+    const stationFile = config.paths.stationFile;
+    const original = fs.readFileSync(stationFile, 'utf8');
+    for (const garbage of ['corrupt', ['2026-12-25'], 42]) {
+      fs.writeFileSync(
+        stationFile,
+        JSON.stringify({
+          station: { name: 'N' },
+          schedule: {
+            monday: [{ id: 'm', startTime: '08:00', durationMinutes: 60 }],
+            dates: garbage,
+          },
+        })
+      );
+      try {
+        assert.deepEqual(scheduleUtil.loadDateOverrides(), {}, `dates=${JSON.stringify(garbage)} must fail open`);
+        assert.deepEqual(scheduleUtil.loadSchedule().monday, [{ id: 'm', startTime: '08:00', durationMinutes: 60 }]);
+        assert.equal('dates' in scheduleUtil.loadSchedule(), false, 'the weekday map never leaks the dates key');
+      } finally {
+        fs.writeFileSync(stationFile, original);
+      }
+    }
+  });
 });
 
 describe('cadence() (the every() tick-storm guard)', () => {

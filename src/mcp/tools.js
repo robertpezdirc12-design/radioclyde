@@ -1,4 +1,4 @@
-// The MCP tool catalog for Radio Markec (29 tools: 17 read, 12 write) --
+// The MCP tool catalog for Radio Markec (30 tools: 17 read, 13 write) --
 // the surface an AI client (Claude Desktop & friends) drives through
 // src/mcp/server.js over stdio JSON-RPC. See docs/mcp-server.md (Slovenian)
 // for the operator-facing contract.
@@ -145,6 +145,10 @@ function loadBackend() {
         addOccurrence: stationWriterMod.addOccurrence,
         updateOccurrence: stationWriterMod.updateOccurrence,
         removeOccurrence: stationWriterMod.removeOccurrence,
+        // Paket C1 (Val 22) -- date-bound full-day override writes (the
+        // schedule.dates block the read side resolves via effectiveDayLineup).
+        replaceDateSchedule: stationWriterMod.replaceDateSchedule,
+        removeDateSchedule: stationWriterMod.removeDateSchedule,
         updateStationMeta: stationWriterMod.updateStationMeta,
         checkScheduleChanged: scheduleWatchMod.checkScheduleChanged,
         listShowSummaries: showsApiMod.listShowSummaries,
@@ -896,7 +900,7 @@ const forceNextShowTool = {
 const scheduleAddOccurrenceTool = {
   name: 'schedule_add_occurrence',
   description:
-    'Add a show occurrence to one weekday\'s lineup (the same write POST /api/schedule/:weekday performs). The day is one ordered, gapless sequence: a start time that conflicts with existing slots reorders and repacks the rest of the day instead of being rejected. The show brief must already exist under show-descriptions/. Returns the whole day as written.',
+    'Add a show occurrence to one weekday\'s lineup (the same write POST /api/schedule/:weekday performs). The day is one ordered, gapless sequence: a start time that conflicts with existing slots reorders and repacks the rest of the day instead of being rejected. The show brief must already exist under show-descriptions/. A replay entry re-airs an existing episode: type "replay" with sourceDate (YYYY-MM-DD, the date the source episode aired -- must not be in the future) and optional sourceTimeKey (HH-MM); omit "type" or pass "normal" for a fresh show. Returns the whole day as written.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -911,6 +915,15 @@ const scheduleAddOccurrenceTool = {
           startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
           durationMinutes: { type: 'number', exclusiveMinimum: 0 },
           description: { type: 'string' },
+          // Paket C2 (Val 22) -- the replay fields, optional on every
+          // occurrence the MCP surface accepts. The writer stays the single
+          // source of truth: assertValidOccurrence rejects unknown types and
+          // future sourceDates, normalizeReplayFields strips these fields
+          // from anything that is not a replay ("normal" is the explicit
+          // clearing value a JSON client can send).
+          type: { type: 'string', enum: ['replay', 'normal'] },
+          sourceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          sourceTimeKey: { type: 'string', pattern: '^([01][0-9]|2[0-3])-[0-5][0-9]$' },
         },
         required: ['id', 'startTime', 'durationMinutes'],
         additionalProperties: false,
@@ -929,8 +942,10 @@ const scheduleAddOccurrenceTool = {
     // truth. durationMinutes is a plain number (not integer), mirroring the
     // writer's Number.isFinite && > 0 check (stationWriter.js:73);
     // description is optional because the studio UI sends it only on
-    // cross-day moves (public/studio/js/schedule.js:429) and no src code
-    // reads it.
+    // cross-day moves (public/studio/js/schedule.js:429) -- it IS read on
+    // the src side though (generateScript.js:168 resolves entry.description
+    // as the brief path; showName.js:27 keys a show's display name off it);
+    // the writer simply does not require it.
     let day;
     try {
       day = await be.addOccurrence(weekday, args?.occurrence ?? {});
@@ -946,7 +961,7 @@ const scheduleAddOccurrenceTool = {
 const scheduleUpdateOccurrenceTool = {
   name: 'schedule_update_occurrence',
   description:
-    'Change an existing occurrence -- start time, duration, or show reassignment (the same write PATCH /api/schedule/:weekday/:timeKey performs). A plain start-time move landing on another occurrence\'s slot swaps the two in place; a resize, reassignment, or move into empty space repacks the day. time_key addresses the occurrence by its CURRENT start time with ":" replaced by "-" (e.g. "08-00"). An id-changing patch requires the new show\'s brief to exist.',
+    'Change an existing occurrence -- start time, duration, or show reassignment (the same write PATCH /api/schedule/:weekday/:timeKey performs). A plain start-time move landing on another occurrence\'s slot swaps the two in place; a resize, reassignment, or move into empty space repacks the day. time_key addresses the occurrence by its CURRENT start time with ":" replaced by "-" (e.g. "08-00"). An id-changing patch requires the new show\'s brief to exist (and drops replay fields -- a replay\'s sourceDate belongs to the old show). The patch also carries the replay fields: type "replay" with sourceDate (YYYY-MM-DD, not in the future) and optional sourceTimeKey (HH-MM) re-airs an existing episode; "type": "normal" clears them.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -962,6 +977,14 @@ const scheduleUpdateOccurrenceTool = {
           startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
           durationMinutes: { type: 'number', exclusiveMinimum: 0 },
           description: { type: 'string' },
+          // Paket C2 (Val 22) -- the replay patch fields (a patch has no
+          // required keys by definition). Writer-side discipline mirrors
+          // add_occurrence's: the merged RAW shape is validated first (bad
+          // type values rejected, never silently normalized), then
+          // normalizeReplayFields keeps only actual replays carrying these.
+          type: { type: 'string', enum: ['replay', 'normal'] },
+          sourceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+          sourceTimeKey: { type: 'string', pattern: '^([01][0-9]|2[0-3])-[0-5][0-9]$' },
         },
         additionalProperties: false,
       },
@@ -1026,6 +1049,83 @@ const scheduleRemoveOccurrenceTool = {
     invalidateSoon(be);
     be.audit(`schedule_remove_occurrence: ${weekday} ${timeKey} (${removed?.id})`);
     return removed;
+  },
+};
+
+// Paket C1 (Val 22) -- date-bound full-day overrides, the MCP write half of
+// the schedule.dates block. Where the three tools above edit the weekly
+// TEMPLATE, this one pins one specific calendar date (holidays, one-off
+// events, deliberate dark days): the date's stored override fully replaces
+// what that date's weekday template would have aired -- a merge would make
+// both this write and the template read ambiguous, so it never merges.
+// clear:true removes the override again (that date falls back to its weekly
+// template); clear deliberately wins over a simultaneously-sent occurrences
+// array rather than guessing which the client meant. An empty/omitted
+// occurrences array is a DELIBERATE dark day: the override is stored as []
+// so it still suppresses the template, and filler/emergency cover the date
+// honestly. The writer validates everything (the date key as a real calendar
+// date via regex + round-trip, every occurrence through the same
+// assertValidOccurrence the weekday writes use -- replay rules included) and
+// sorts + gap-packs the day; this handler adds zero validation of its own,
+// the exact passthrough discipline of the three schedule tools above (the
+// schema patterns are advisory client-side documentation, the writer is the
+// single source of truth).
+const scheduleSetDateTool = {
+  name: 'schedule_set_date',
+  description:
+    'Set one calendar date\'s whole lineup as a date-bound override (holidays, one-off events): schedule.dates[date] fully replaces that date\'s weekly template for that one date -- the template is suppressed entirely, never merged with. An empty occurrences array (or omitting it) is a deliberate dark day: the override is still stored, the template suppressed, and filler covers the date. clear: true instead removes the override so the date falls back to its weekly template. Occurrences are the same shape schedule_add_occurrence takes, including replay entries (type "replay" with sourceDate YYYY-MM-DD and optional sourceTimeKey HH-MM re-airs an existing episode; the source must not be in the future). Returns the placed entries (or the removed ones when clearing).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+      occurrences: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', minLength: 1 },
+            startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+            durationMinutes: { type: 'number', exclusiveMinimum: 0 },
+            description: { type: 'string' },
+            type: { type: 'string', enum: ['replay', 'normal'] },
+            sourceDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            sourceTimeKey: { type: 'string', pattern: '^([01][0-9]|2[0-3])-[0-5][0-9]$' },
+          },
+          required: ['id', 'startTime', 'durationMinutes'],
+          additionalProperties: false,
+        },
+      },
+      clear: { type: 'boolean' },
+    },
+    required: ['date'],
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args) => {
+    const be = await loadBackend();
+    const date = requireString(args, 'date', 'Manjka "date" (YYYY-MM-DD).');
+    if (args?.clear === true) {
+      // removeDateSchedule throws when no override exists at that date --
+      // an honest refusal, never a silent no-op (stationWriter.js).
+      let removed;
+      try {
+        removed = await be.removeDateSchedule(date);
+      } catch (err) {
+        throw new ToolFailure(err.message);
+      }
+      invalidateSoon(be);
+      be.audit(`schedule_set_date: ${date} clear (${removed?.length ?? 0} removed)`);
+      return { date, cleared: true, removed };
+    }
+    let placed;
+    try {
+      placed = await be.replaceDateSchedule(date, args?.occurrences ?? []);
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    invalidateSoon(be);
+    be.audit(`schedule_set_date: ${date} (${placed.length} occurrence${placed.length === 1 ? '' : 's'})`);
+    return { date, occurrences: placed };
   },
 };
 
@@ -1128,6 +1228,7 @@ export const TOOLS = [
   scheduleAddOccurrenceTool,
   scheduleUpdateOccurrenceTool,
   scheduleRemoveOccurrenceTool,
+  scheduleSetDateTool,
   updateStationMetaTool,
 ];
 

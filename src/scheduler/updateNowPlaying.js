@@ -120,7 +120,14 @@ function sameOccurrence(state, weekday, id, date, timeKey) {
 }
 
 function currentShowEntry(schedule, state) {
-  return (schedule[state.weekday] ?? []).find(
+  // Paket C1 (Val 22): resolve through the date's EFFECTIVE lineup -- on an
+  // override date the loaded occurrence's identity (state.date) lives in
+  // schedule.dates, not the weekday template. A weekday lookup would miss,
+  // currentShow would go null, and the resync path below would swap the
+  // TEMPLATE show in mid-holiday -- the single most dangerous consumer to
+  // leave date-blind.
+  const dayShows = scheduleUtil.effectiveDayLineup(schedule, scheduleUtil.loadDateOverrides(), state.date);
+  return dayShows.find(
     (s) => s.id === state.id && scheduleUtil.timeKey(s.startTime) === state.timeKey
   );
 }
@@ -146,9 +153,9 @@ function loadOccurrence({ show, weekday, date, timeKey }, now) {
   // station sits on filler until someone deletes the occurrence dir by
   // hand); an unparseable context just means "not safely loadable" -- the
   // same false the missing-file check above returns.
-  let durationSeconds;
+  let durationSeconds, replayOf;
   try {
-    ({ durationSeconds } = JSON.parse(fs.readFileSync(contextPath, 'utf8')));
+    ({ durationSeconds, replayOf } = JSON.parse(fs.readFileSync(contextPath, 'utf8')));
   } catch {
     return false;
   }
@@ -166,6 +173,12 @@ function loadOccurrence({ show, weekday, date, timeKey }, now) {
     // first segment is confirmed actually airing (see its own comment above).
     estimatedEndAt: now.getTime() + (durationSeconds ?? (show.durationMinutes ?? 60) * 60) * 1000,
     confirmed: false,
+    // Paket C2 (Val 22): a materialized replay occurrence's context.json
+    // carries replayOf ({ date, timeKey } of the SOURCE episode) -- passthrough
+    // so the scrobble hook can stamp aired.jsonl entries with replay: true
+    // without re-deriving anything. Additive: normal occurrences have no
+    // replayOf and their state stays exactly the shape it always was.
+    ...(replayOf ? { replayOf } : {}),
   });
   log(`Now playing: "${show.id}" (${weekday} ${timeKey}) -> ${playlistPath}`);
   return true;

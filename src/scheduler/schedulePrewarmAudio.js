@@ -39,6 +39,12 @@ export async function checkAndTriggerPrewarmAudio() {
   const horizon = config.schedule?.prewarmHorizonMinutes ?? 24 * 60;
 
   for (const { show, weekday, date } of scheduleUtil.upcomingOccurrences(schedule, now, horizon)) {
+    // Paket C2 (Val 22): a replay never produces dj-audio of its own. It is
+    // naturally inert here too (no script.md -> the check below continues),
+    // but the explicit skip mirrors scheduleScripts.js so an operator
+    // reading the logs sees the same guarantee stated the same way:
+    // first-air statistics survive because nothing re-produces a replay.
+    if (show.type === 'replay') continue;
     const showDateDir = scheduleUtil.dateDir(weekday, show.id, date);
     const scriptPath = path.join(showDateDir, 'script.md');
     if (!fs.existsSync(scriptPath)) continue; // scripts job hasn't produced this yet -- picked up on a later tick

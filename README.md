@@ -67,6 +67,11 @@ phases hand off through.
   lineup, each slot backed by a plain-prose brief (artist/genre/decade,
   exclusions, repeat rules, popularity weighting, max track length; details
   below) resolved against your actual library.
+- **Date overrides and replays**: a whole calendar day can replace its weekly
+  template (`schedule.dates["2026-12-25"]` — holidays, one-off events; an
+  empty list is a deliberate dark day), and any slot can be a `replay` of a
+  recent episode instead of a fresh production — see Paket C in
+  [docs/auto-radio.md](docs/auto-radio.md).
 - **Auto mode: rule-based selection you can audit**: artist cooldown against
   real play history (`history/played.jsonl`), a popularity mix (~70% well
   known / 30% deep cuts) split at the library's popularity median, decade
@@ -314,7 +319,8 @@ now-playing page and the Google TV app.
    (Plex token, Icecast credentials, studio admin password; for AI mode also
    LM Studio/Chatterbox URLs, for auto mode the `autoRadio` block)
 3. Put your show briefs in `<dataDir>/show-descriptions/` and your weekly
-   lineup in `<dataDir>/station.json`
+   lineup in `<dataDir>/station.json` (date overrides for holidays and
+   `replay` slots ride in the same file)
 4. `npm run runweb` — the scheduler + web server in one process
 
 For a station without a language model, set `"autoRadio": { "enabled": true,

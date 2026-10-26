@@ -127,10 +127,24 @@
 
       <section id="view-schedule" class="view" hidden>
         <h1>Schedule</h1>
-        <p class="view-hint">Drag the &#8942;&#8942; handle to move a show &mdash; drop it on another to swap them, or into empty space to move it there (the gap it leaves closes up). Drag its bottom edge to resize. Click a show's name to reassign or delete it, click empty space to add one.</p>
+        <p class="view-hint">Drag the &#8942;&#8942; handle to move a show &mdash; drop it on another to swap them, or into empty space to move it there (the gap it leaves closes up). Drag its bottom edge to resize. Click a show's name to reassign or delete it, click empty space to add one. The grid is the weekly TEMPLATE &mdash; single dates that break out of it live in the Datumi list below.</p>
         <div class="card">
           <div class="schedule-scroll" id="schedule-scroll">
             <div id="schedule-grid" class="schedule-grid"></div>
+          </div>
+        </div>
+        <!-- Paket C1 (Val 22): date-bound full-day overrides. A compact LIST,
+             deliberately not a second grid: a date override is edited as one
+             list (SAVE = full-day replacement), which is a different gesture
+             than the weekday grid's per-slot drag dance. -->
+        <div class="card">
+          <h2>Datumi</h2>
+          <p class="view-hint">Datumski prenos nadomesti CELOTEN dan &mdash; tedenska predloga za ta datum ne velja in se ne združuje s prenosom. Praznega dne ne shrani po nesreči: prazen seznam je NAMERNEN prazen dan (samo filler). Odstranitev prenosa vrne dan na tedensko predlogo.</p>
+          <ul id="schedule-dates-list" class="data-list"></ul>
+          <p class="empty-note" id="schedule-dates-empty" hidden>Nobenih datumskih prenosov &mdash; vsak dan sledi svoji tedenski predlogi.</p>
+          <div class="toolbar">
+            <input id="schedule-date-new" class="input-inline" type="text" placeholder="YYYY-MM-DD (npr. 2026-12-25)" aria-label="Datum novega prenosa">
+            <button id="schedule-date-add" type="button" class="btn btn-primary">Dodaj datumski prenos</button>
           </div>
         </div>
       </section>

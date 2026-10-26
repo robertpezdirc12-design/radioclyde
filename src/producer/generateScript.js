@@ -42,8 +42,17 @@ import { resolveSpecialTheme, ensureThemedBrief } from '../auto/showCatalog.js';
 
 const log = createLogger('station');
 
-function loadShowEntry(id) {
+function loadShowEntry(id, date) {
   if (!fs.existsSync(config.paths.stationFile)) return null;
+  // Paket C1 (Val 22): a date override can carry shows that exist NOWHERE
+  // in the weekly template (a one-off holiday special) -- search the date's
+  // own override first, then fall back to the weekly template as before.
+  // Without this, an override-only show's generateScript would throw "No
+  // show ... found" and the slot would fall to filler.
+  if (date) {
+    const override = scheduleUtil.loadDateOverrides()[date]?.find((s) => s.id === id);
+    if (override) return override;
+  }
   const schedule = scheduleUtil.loadSchedule();
   for (const day of Object.keys(schedule)) {
     const match = schedule[day].find((s) => s.id === id);
@@ -150,7 +159,7 @@ export async function generateScript({ id, weekday, date, descriptionPath, durat
   date = date || scheduleUtil.dateKey(now);
 
   if (!descriptionPath || !durationMinutes) {
-    const entry = loadShowEntry(id);
+    const entry = loadShowEntry(id, date);
     if (!entry) {
       throw new Error(
         `No show "${id}" found in ${config.paths.stationFile}, and no description/duration given directly.`

@@ -26,7 +26,7 @@ vsako orodje je bodisi čisto branje obstoječih datotek bodisi klic obstoječe
 funkcije, ki jo že poganjajo HTTP poti (npr. `POST /studio/api/on-air/skip`).
 Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 
-## Orodja (29: 17 bralnih, 12 pisalnih)
+## Orodja (30: 17 bralnih, 13 pisalnih)
 
 | Orodje | B/P | Ena vrstica |
 |---|---|---|
@@ -58,6 +58,7 @@ Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 | `schedule_add_occurrence` | P | Doda oddajo v dnevni urnik; dan se preuredi brez lukenj (oglas oddaje mora obstajati). |
 | `schedule_update_occurrence` | P | Premakne/prevelja/predi obstoječi termin (zamenjava na mestu ali preureditev dneva). |
 | `schedule_remove_occurrence` | P | Odstrani termin iz urnika in zapre nastalo luknjo. |
+| `schedule_set_date` | P | Celodnevni override enega koledarskega datuma (prazniki, enkratni dogodki): `schedule.dates[date]` povsem nadomesti tedensko predlogo tega dne; prazen seznam pomeni namerno temno dan; `clear` odstrani prekrivko. Vnosi so enaki `schedule_add_occurrence` (vključno z replay vnosi). |
 | `update_station_meta` | P | Ime postaje, izvzete ključnice/izvajalce (neverPlay) in okno mirovanja. |
 
 B = branje, P = pisanje (spremeni skupno stanje).
@@ -121,7 +122,7 @@ procesa z različnimi posledicami:
 
 ## Oddaljeni prenos (HTTP)
 
-Od Vala 17 obstaja tudi oddaljeni prenos: isto JSON-RPC 2.0 jedro (29
+Od Vala 17 obstaja tudi oddaljeni prenos: isto JSON-RPC 2.0 jedro (30
 orodij), dosegljivo prek javnega strežnika postaje na **`POST /studio/api/mcp`**.
 Odjemalec, ki ne more zagnati lokalnega stdio procesa (oddaljen stroj,
 kontejner), pošlje celo JSON-RPC sporočilo kot telo zahteve; odgovor pride

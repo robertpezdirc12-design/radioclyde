@@ -987,6 +987,86 @@ vreme danes: napoved preprosto utihne, poslovilni pozdrav pa povede naprej.
 V načinu `none` seveda utihne ves govor — besedilo ostane v `script.md` in
 `transcript.json`.
 
+### Paket C (Val 22): datumsko-vezani dnevi in ponovitve
+
+Urnik je bil od začetka TEDENSKA predloga: božičnega zajtrka ni bilo mogoče
+izraziti, enkratna oddaja ob prireditvi pa je zahtevala ročno prestavljanje
+cele predloge. Paket C zapre obe vrzeli iz raziskave 19
+(docs/programming-research.md §5) — z dvema mehanizmoma, ki živita v isti
+datoteki (`station.json`), isti vzdrževalni disciplini (atomske operacije,
+fail-open bralci, poštena degradacija) in istem urejevalnem površju (studio
+Spored → zavihek Datumi; MCP in ročno urejanje sta enakovredni poti).
+
+#### C1: Datumsko-vezani dnevi (`schedule.dates`)
+
+`schedule.dates["2026-12-25"] = [ ... ]` **nadomesti celoten dan**: tedenska
+predloga za ta datum NE velja in se z prenosom NE združuje. Precedens je
+en sam izraz — `dates[datum] ?? predloga[teden-dneva]` — izveden v eni
+funkciji (`scheduleUtil.effectiveDayLineup`), ki jo delijo vsi sprehajalci
+po urniku (razporejevalnik, `now-playing`, mreža na javni strani, napoved
+naslednje oddaje), zato se ti o tem, kaj je tisti dan na zraku, NIKOLI ne
+morejo raziti. **Prazna lestvica `[]` je namenja prazen dan**: filler in
+nujni sloj ga pokrijeta natanko tako, kot pokrijeta vsak dan brez urnika,
+javna mreža pa izriše »Brez oddaj«.
+
+- **Neveljavni ključi se ob branju preskočijo** (fail-open po ključu:
+  tipkarske napake in ne-tabelične vrednosti ne sesujejo vsakega
+  `/api/schedule` polla); pisanje je strožje — ključ mora biti PRAVI
+  koledarski datum (`2026-13-45` gre skozi obliko, ne skozi preverjanje
+  povratne pretvorbe) in vsak vnos veljaven, sicer celoten ZAVRNJEN.
+- **Doctorjev cron vzorec se izpelje ŠE VEDNO samo iz tedenske predloge**
+  (`cronVzorec.js` ignorira ne-tedenske ključe) — datumski prenosi ne
+  motijo terminiranih ur.
+- **Urejanje bloka `dates` sredi dneva sproži `scheduleWatch` invalidacijo
+  NATANČNO kot vsak drugi poseg v `station.json`**: produkcija, ki še ni
+  šla v eter znotraj obzorja, se pobriše; oddaja, ki je ravno na zraku, je
+  zaščitena.
+- Studio UI je NAMENJEMA glasno: »Nadomesti celoten dan — tedenska
+  predloga za ta datum ne velja.« Shrani pomeni CEL POPOLN dan (PUT),
+  nikoli združevanje; prazen seznam je vidna, poimenovana odločitev
+  (»prazen dan — samo filler«), ne tiho presenečenje.
+
+#### C2: Replay/ponovitve (`type: "replay"`)
+
+Vsak vnos v urniku (tedenski ali datumski) je lahko ponovitev obstoječe
+epizode:
+
+```
+{ "type": "replay", "sourceDate": "2026-12-20", "sourceTimeKey": "08-00", ... }
+```
+
+`sourceDate` je dan, ko je epizoda PRVIČ šla v eter; `sourceTimeKey`
+(HH-MM) je neobvezen — izpuščen pomeni »prva pojavitev te oddaje na
+sourceDate«. Vir ne sme biti v prihodnosti (validacija ob pisanju); sme pa
+biti isti dan — večernja ponovitev jutranje epizode je zakonita. Polje
+`"type": "normal"` ali njegova odsotnost je navaden vnos;
+`normalizeReplayFields` poskrbi, da odmrli replay-podatki nikoli ne ostanejo
+prilepljeni na navadne vnose.
+
+Ob času neposredne priprave (~15 minut pred etrom,
+`directLeadTimeMinutes`) razporejevalnik replay **materializira**: KOPIRA
+vir-pojavitvino `playlist.m3u` in `context.json` v svoj imenik pojavitve
+(kopija, ne symlink, ne živo razreševanje — fillerjeva detekcija v
+`scrobbleTrack.js` prebere playlist iz imenika pojavitve in ponovljene
+skladbe morajo pristati v svojem lastnem vrtilnem dnevniku). Nove
+produkcije ni — skripta se ne gradi znova, zato **statistika prvega etra
+preživi**: `played.jsonl` ostane nedotaknjen, vnosi v `aired.jsonl` pa
+dobijo dodatno zastavico `replay: true`.
+
+Manjkajoč ali potekel vir je **pošten no-op**: filler pokrije slot, nič se
+ne zgenerira in ne javi kot napaka. Veljavnostno okno ponovitve je
+`cleanup.retentionDays` (privzeto 7 dni) — po tem dnevu čiščenje pobriše
+vir in ponovitev čaka usodo vsakega manjkajočega vira.
+
+**Ograja o svežini (ista življenjska doba kot B1, le dlje):** živi segmenti
+(vreme, čas, napoved naslednje oddaje) so bili sintetizirani ob ETERSKEM
+času VIRA in so zvarjeni v govorne datoteke — ponovitev torej izgovori
+tudi zaključno napoved, ki imenuje oddajo, ki je sledila IZVORNEMU
+predvajanju. To je natanko razred »iskrene obrambe pred zastarelostjo« iz
+razdelka Paket B1 zgoraj (urejevalnik urnika v zadnjih minutah pred etrom
+premaga vsako predprodukcijo); replay živi eno retencijo dni dlje, princip
+je isti — vsebina je bila resnična ob času, ko je nastala.
+
 ### Nadgradnja iz SUB/WAVE (4-c): Finding model + šest novih preverjanj
 
 SUB/WAVE-ov doktorjev poroča najdbe (Finding): `{label, status, detail,

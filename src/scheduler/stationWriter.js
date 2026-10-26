@@ -23,8 +23,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { withLock } from '../lib/lock.js';
+// Pure formatter only -- the read half stays the read half (scheduleUtil
+// imports nothing from this file, so no cycle).
+import { dateKey } from './scheduleUtil.js';
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const SOURCE_TIME_KEY_PATTERN = /^([01]\d|2[0-3])-[0-5]\d$/;
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const DAY_MINUTES = 24 * 60;
 
@@ -50,6 +55,10 @@ function atomicWrite(data) {
 // Expands any comma-joined weekday keys in the raw schedule object into
 // plain per-weekday keys, same expansion loadSchedule() does for readers --
 // needed here too since a write must know which day it's actually editing.
+// Paket C1 (Val 22): the literal "dates" key passes through VERBATIM (its
+// value is the override object, not a lineup) -- a weekday write must never
+// wipe date overrides; removeShowOccurrences() is the one place that walks
+// into it, and it does so explicitly.
 function expandSchedule(rawSchedule) {
   const expanded = {};
   for (const [key, shows] of Object.entries(rawSchedule ?? {})) {
@@ -66,6 +75,35 @@ function assertValidWeekday(weekday) {
   }
 }
 
+// Paket C1 (Val 22) -- a date override key must be a real calendar date, not
+// just regex-shaped: "2026-13-45" passes ^\d{4}-\d{2}-\d{2}$ but
+// new Date(2026, 12, 45) rolls over into the next year/month -- the
+// round-trip check catches what the regex can't (same conservatism class as
+// scheduler.js's station-theme date guard). Past and far-future dates are
+// both allowed: walkers cap at 14 days anyway, and a distant key is inert
+// until its date enters the horizon.
+function assertValidDateKey(date) {
+  if (typeof date !== 'string' || !DATE_KEY_PATTERN.test(date)) {
+    throw new Error(`Invalid date "${date}" -- expected YYYY-MM-DD.`);
+  }
+  const [y, m, d] = date.split('-').map(Number);
+  const roundTrip = new Date(y, m - 1, d);
+  if (roundTrip.getFullYear() !== y || roundTrip.getMonth() !== m - 1 || roundTrip.getDate() !== d) {
+    throw new Error(`Invalid date "${date}" -- not a real calendar date.`);
+  }
+}
+
+// Paket C2 (Val 22) -- replay fields only ever persist on entries that ARE
+// replays: anything else ("type": "normal"/null from a clearing patch, a
+// patch that dropped the type, an orphaned sourceDate) is normalized away
+// here so a normal entry can't carry stale replay metadata into future
+// writes.
+function normalizeReplayFields(entry) {
+  if (entry.type === 'replay') return entry;
+  const { type, sourceDate, sourceTimeKey, ...rest } = entry;
+  return rest;
+}
+
 function assertValidOccurrence(occurrence) {
   if (!TIME_PATTERN.test(occurrence.startTime)) {
     throw new Error(`Invalid startTime "${occurrence.startTime}" -- expected HH:MM (24-hour).`);
@@ -79,6 +117,36 @@ function assertValidOccurrence(occurrence) {
   const briefPath = path.join(config.paths.showDescriptionsDir, `${occurrence.id}.md`);
   if (!fs.existsSync(briefPath)) {
     throw new Error(`No show "${occurrence.id}" found under show-descriptions/ -- create the show first.`);
+  }
+  // Paket C2 (Val 22) -- the replay occurrence type. "normal"/null/omitted
+  // are all a plain show (normalizeReplayFields() strips them before
+  // storage); anything else is rejected so a typo can't silently downgrade a
+  // replay into a fresh-production slot. Source-audio existence is
+  // deliberately NOT validated here: a replay may legitimately be scheduled
+  // before its source airs (an evening replay of the morning episode) -- the
+  // source only needs to exist at materialization time, where a missing
+  // episode degrades honestly (materializer no-ops, filler covers the slot)
+  // instead of being rejected at write time.
+  const type = occurrence.type ?? undefined; // null == unset (JSON clients)
+  if (type !== undefined && type !== 'normal' && type !== 'replay') {
+    throw new Error(`Invalid occurrence type "${occurrence.type}" -- only "replay" is supported (omit "type", or "normal", for a fresh show).`);
+  }
+  if (type === 'replay') {
+    if (typeof occurrence.sourceDate !== 'string' || !DATE_KEY_PATTERN.test(occurrence.sourceDate)) {
+      throw new Error('A replay occurrence requires "sourceDate" (YYYY-MM-DD -- the date the source episode aired).');
+    }
+    assertValidDateKey(occurrence.sourceDate);
+    // Not in the future (YYYY-MM-DD string compare == calendar compare,
+    // dateKey() is local-calendar): a same-day source is fine (evening
+    // replay of the morning episode), a tomorrow source is a lie.
+    if (occurrence.sourceDate > dateKey(new Date())) {
+      throw new Error(`Replay sourceDate "${occurrence.sourceDate}" is in the future -- the source episode hasn't aired yet.`);
+    }
+    if (occurrence.sourceTimeKey !== undefined && occurrence.sourceTimeKey !== null) {
+      if (typeof occurrence.sourceTimeKey !== 'string' || !SOURCE_TIME_KEY_PATTERN.test(occurrence.sourceTimeKey)) {
+        throw new Error(`Invalid sourceTimeKey "${occurrence.sourceTimeKey}" -- expected HH-MM (e.g. "10-30").`);
+      }
+    }
   }
 }
 
@@ -152,10 +220,13 @@ async function withStation(mutate) {
 // so the caller can see exactly what else moved to make room.
 export async function addOccurrence(weekday, occurrence) {
   assertValidWeekday(weekday);
+  // Validate the RAW entry first (an invalid "type" must be REJECTED, not
+  // silently normalized away), then strip "normal"/null replay fields.
   assertValidOccurrence(occurrence);
+  const normalized = normalizeReplayFields(occurrence);
   return withStation((data) => {
     const day = data.schedule[weekday] ?? [];
-    const placed = reorderAndPack(day, occurrence);
+    const placed = reorderAndPack(day, normalized);
     data.schedule[weekday] = placed;
     return placed;
   });
@@ -179,10 +250,24 @@ export async function updateOccurrence(weekday, timeKey, patch) {
     const idx = day.findIndex((s) => s.startTime.replace(':', '-') === timeKey);
     if (idx === -1) throw new Error(`No occurrence at ${weekday} ${timeKey} to update.`);
     const updated = { ...day[idx], ...patch };
+    // Paket C2 (Val 22): show reassignment -- a replay's sourceDate points
+    // at the OLD show's episode; carrying it over to a new id would
+    // silently replay the wrong show's material. Strip on any id change.
+    if (patch.id !== undefined && patch.id !== day[idx].id) {
+      delete updated.type;
+      delete updated.sourceDate;
+      delete updated.sourceTimeKey;
+    }
+    // Paket C2: a patch may explicitly clear the replay ("type": "normal"
+    // or null) -- validate the merged RAW shape first (a bad type value is
+    // rejected, never silently normalized), then normalizeReplayFields
+    // keeps the stored entry clean (replay fields persist only on actual
+    // replays).
     assertValidOccurrence(updated);
+    const final = normalizeReplayFields(updated);
 
     const isPlainMove = patch.startTime !== undefined && patch.durationMinutes === undefined && patch.id === undefined;
-    const swapTarget = isPlainMove ? findSwapTarget(day, idx, updated) : null;
+    const swapTarget = isPlainMove ? findSwapTarget(day, idx, final) : null;
     if (swapTarget) {
       const swapIdx = day.indexOf(swapTarget);
       const placed = [...day];
@@ -194,7 +279,7 @@ export async function updateOccurrence(weekday, timeKey, patch) {
     }
 
     const rest = day.filter((_, i) => i !== idx);
-    const placed = reorderAndPack(rest, updated);
+    const placed = reorderAndPack(rest, final);
     data.schedule[weekday] = placed;
     return placed;
   });
@@ -223,6 +308,10 @@ export async function removeShowOccurrences(id) {
     data.schedule = expandSchedule(data.schedule);
     const removed = [];
     for (const [weekday, day] of Object.entries(data.schedule ?? {})) {
+      // Paket C1 (Val 22): "dates" is the override block (an object keyed by
+      // YYYY-MM-DD), not a weekday lineup -- day.filter would TypeError on
+      // it. Swept separately right below.
+      if (weekday === 'dates') continue;
       const kept = day.filter((occ) => {
         if (occ.id === id) {
           removed.push({ weekday, startTime: occ.startTime });
@@ -234,6 +323,32 @@ export async function removeShowOccurrences(id) {
         data.schedule[weekday] = closeGaps(kept);
       }
     }
+    // Paket C1 (Val 22): date overrides can reference the show too -- a
+    // deleted brief must not leave orphaned override entries (the same
+    // guarantee the weekday sweep above gives). Emptied date keys are
+    // dropped; the whole dates block goes away with the last key. Entries
+    // removed from overrides report as { date, startTime } -- additive to
+    // the { weekday, startTime } shape weekday removals have always
+    // returned, and the only consumer (showBriefWriter.deleteShowBrief)
+    // just passes the array through.
+    const dates = data.schedule.dates;
+    if (dates && typeof dates === 'object' && !Array.isArray(dates)) {
+      for (const [date, day] of Object.entries(dates)) {
+        if (!Array.isArray(day)) continue; // fail-open: hand-edited garbage is not ours to fix here
+        const kept = day.filter((occ) => {
+          if (occ.id === id) {
+            removed.push({ date, startTime: occ.startTime });
+            return false;
+          }
+          return true;
+        });
+        if (kept.length !== day.length) {
+          if (kept.length === 0) delete dates[date];
+          else dates[date] = closeGaps(kept);
+        }
+      }
+      if (Object.keys(dates).length === 0) delete data.schedule.dates;
+    }
     if (removed.length > 0) atomicWrite(data);
     return removed;
   });
@@ -241,12 +356,59 @@ export async function removeShowOccurrences(id) {
 
 export async function replaceDaySchedule(weekday, occurrences) {
   assertValidWeekday(weekday);
+  // RAW validation first (bad "type" rejected), then normalization
+  // ("normal"/null stripped) -- same order discipline as addOccurrence.
   for (const occurrence of occurrences) assertValidOccurrence(occurrence);
+  const normalized = occurrences.map(normalizeReplayFields);
   return withStation((data) => {
-    const sorted = [...occurrences].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    const sorted = [...normalized].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
     const placed = closeGaps(sorted);
     data.schedule[weekday] = placed;
     return placed;
+  });
+}
+
+// Paket C1 (Val 22) -- replace a whole calendar DATE's lineup (holiday /
+// one-off event override): schedule.dates[date] fully replaces that date's
+// weekly template ("that date skips recurrence"), never merges with it.
+// Same ordering discipline as replaceDaySchedule: sorted, then packed
+// back-to-back with closeGaps. An EMPTY occurrences array is a deliberate
+// dark day -- stored as [] so the override suppresses the template and
+// filler/emergency cover the date honestly.
+export async function replaceDateSchedule(date, occurrences) {
+  assertValidDateKey(date);
+  if (!Array.isArray(occurrences)) {
+    throw new Error('"occurrences" must be an array (an empty one means a deliberate dark day).');
+  }
+  // RAW validation first (bad "type" rejected), then normalization
+  // ("normal"/null stripped) -- same order discipline as addOccurrence.
+  for (const occurrence of occurrences) assertValidOccurrence(occurrence);
+  const normalized = occurrences.map(normalizeReplayFields);
+  return withStation((data) => {
+    const sorted = [...normalized].sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    const placed = closeGaps(sorted);
+    data.schedule.dates = { ...(data.schedule.dates ?? {}) };
+    data.schedule.dates[date] = placed;
+    return placed;
+  });
+}
+
+// Paket C1 (Val 22) -- removes a date override entirely: that date falls
+// back to its weekday's weekly template again. Removing the LAST override
+// key removes the whole schedule.dates block (station.json stays tidy).
+// Throws when there is nothing at that date -- a silent no-op here would
+// read as "removed" in the studio UI while the file never changed.
+export async function removeDateSchedule(date) {
+  assertValidDateKey(date);
+  return withStation((data) => {
+    const dates = data.schedule.dates;
+    if (!dates || typeof dates !== 'object' || Array.isArray(dates) || !(date in dates)) {
+      throw new Error(`No date override for "${date}" to remove.`);
+    }
+    const removed = dates[date];
+    delete dates[date];
+    if (Object.keys(dates).length === 0) delete data.schedule.dates;
+    return removed;
   });
 }
 

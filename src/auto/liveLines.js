@@ -6,7 +6,15 @@
 import { fetchCurrentWeather } from '../director/weather.js';
 import { createLogger } from '../lib/logger.js';
 import { renderSlot, currentValues, slovenianWeatherDescription } from './templates.js';
-import { loadSchedule, nextOccurrence, timeKey, dateKey, absoluteStart } from '../scheduler/scheduleUtil.js';
+import {
+  loadSchedule,
+  loadDateOverrides,
+  effectiveDayLineup,
+  nextOccurrence,
+  timeKey,
+  dateKey,
+  absoluteStart,
+} from '../scheduler/scheduleUtil.js';
 // resolveShowInfo (the brief's H1 title + capitalized primaryPersona) -- the
 // exact import scheduler/pushDispatch.js:14 already makes, so the closing
 // announcement, the push notification and /api/schedule all resolve one name
@@ -91,7 +99,13 @@ export async function resolveNextShowValues(occurrence) {
       return { offline: true, reason: 'no occurrence identity (standalone caller?)' };
     }
     const schedule = loadSchedule();
-    const entry = (schedule[occurrence.weekday] ?? []).find((s) => timeKey(s.startTime) === occurrence.timeKey);
+    // Paket C1 (Val 22): the occurrence's own DATE decides the lineup -- on
+    // an override date the weekday lookup would miss and EVERY closing
+    // announcement on that holiday would degrade to the offline pool with
+    // the misleading reason "timeKey no longer in the schedule".
+    const entry = effectiveDayLineup(schedule, loadDateOverrides(), occurrence.date).find(
+      (s) => timeKey(s.startTime) === occurrence.timeKey
+    );
     if (!entry) return { offline: true, reason: 'timeKey no longer in the schedule (edited after direction?)' };
     const next = nextOccurrence(schedule, { show: entry, weekday: occurrence.weekday, date: occurrence.date, timeKey: occurrence.timeKey });
     if (!next) return { offline: true, reason: 'no next show in the next 7 days' };

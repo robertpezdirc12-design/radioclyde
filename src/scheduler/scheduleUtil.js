@@ -15,6 +15,11 @@ const log = createLogger('station');
 
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+// Paket C1 (Val 22): the shape of a date-override key in station.json's
+// schedule.dates block. Kept local like cleanupOldShows.js/asrun.js keep
+// their own -- three lines, no cross-module dependency for a literal.
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 // Fail-open read: a missing or corrupt station.json must not 500 every
 // /api/now-playing, /api/schedule, /api/upcoming poll on a half-configured
 // deploy (Fastify's default error body also leaks absolute paths). Every
@@ -65,11 +70,71 @@ export function loadSchedule() {
   const raw = readStationFile().schedule ?? {};
   const schedule = {};
   for (const [key, shows] of Object.entries(raw)) {
+    // Paket C1 (Val 22): "dates" is the date-bound full-day override block
+    // (schedule.dates["2026-12-25"] = [...]) -- an OBJECT keyed by YYYY-MM-DD,
+    // not a weekday lineup. Expanding it here would crash shows.map() and
+    // leak a non-weekday key into every schedule[weekday] consumer
+    // (generateScript.js's Object.keys walk, studioShowsApi's
+    // Object.values, stationWriter's day sweeps). It has its own reader:
+    // loadDateOverrides() below.
+    if (key === 'dates') continue;
     for (const day of key.split(',').map((d) => d.trim())) {
       schedule[day] = shows.map((show) => (show.special ? resolveSpecialOccurrence(show) : show));
     }
   }
   return schedule;
+}
+
+// Paket C1 (Val 22) -- date-bound full-day overrides: station.json may carry
+// schedule.dates["YYYY-MM-DD"] = [occurrences...] to REPLACE a whole calendar
+// day's lineup (a holiday, a one-off event) instead of that date's weekly
+// template -- the template is suppressed for that date, never merged with
+// the override. An empty array is a deliberate dark day (filler/emergency
+// cover it exactly like any lineup-less weekday; the grid shows "Brez
+// oddaj"). Load time resolves `special` blocks against the CURRENT week,
+// exactly like loadSchedule() does for the template -- generateScript.js
+// re-resolves against the true occurrence date, the one honest correction
+// point, same as it always has.
+//
+// Fail-open per key, the readStationFile() doctrine: a typo'd key
+// ("2026-12-5", "boats") or a non-array value is skipped, not thrown -- one
+// bad hand-edit must not 500 every /api/schedule poll. Note the doctor's
+// cron vzorec intentionally still derives from the weekly template only
+// (cronVzorec.js's CRON_DOW guard skips non-weekday keys); overrides ride
+// the day-walks below, not the cron.
+export function loadDateOverrides() {
+  const raw = readStationFile().schedule?.dates;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const dates = {};
+  for (const [key, shows] of Object.entries(raw)) {
+    if (!DATE_KEY_PATTERN.test(key) || !Array.isArray(shows)) continue;
+    // Calendar round-trip, the writer's own assertValidDateKey check: a
+    // shape-valid but impossible key ("2026-13-45") can only arrive by hand
+    // edit (the writer rejects it at write time) -- the reader skips it the
+    // same way, keeping read/write symmetric instead of surfacing a row the
+    // studio DELETE route would then honestly refuse (impl-22c1's finding,
+    // fixed here so the reader never advertises what the writer would never
+    // have written).
+    const [y, m, d] = key.split('-').map(Number);
+    const roundTrip = new Date(y, m - 1, d);
+    if (roundTrip.getMonth() !== m - 1 || roundTrip.getDate() !== d) continue;
+    dates[key] = shows.map((show) => (show.special ? resolveSpecialOccurrence(show) : show));
+  }
+  return dates;
+}
+
+// THE single precedence rule of Paket C1: the effective lineup for a
+// calendar date is the date's override if one exists (even an empty one --
+// a deliberate dark day), otherwise that date's weekday template. Every
+// day-walk below resolves through here, so no consumer can disagree about
+// what airs on an override date. Pure -- callers inject `dates` (tests,
+// pre-loaded readers); the walkers default it to loadDateOverrides(). An
+// unparseable dateStr fails open to [] (dateFromKey -> Invalid Date ->
+// weekdayKey -> undefined -> ?? []).
+export function effectiveDayLineup(schedule, dates, dateStr) {
+  const override = dates?.[dateStr];
+  if (override !== undefined) return override;
+  return schedule[weekdayKey(dateFromKey(dateStr))] ?? [];
 }
 
 // The station's personality block: { name, filler: { excludeKeywords } }.
@@ -173,7 +238,10 @@ export function timeToMinutes(startTime) {
   return h * 60 + m;
 }
 
-function dateFromKey(date) {
+// Exported since Paket C2 (Val 22): the replay materializer derives the
+// SOURCE occurrence's weekday from its sourceDate the same way the walkers
+// do -- one parsing convention for YYYY-MM-DD keys, not two.
+export function dateFromKey(date) {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
@@ -259,13 +327,13 @@ export function hasLeadTime(date, show, now, weekday) {
 // 10am and 2pm) shares one script.md, so it's still worth producing as long
 // as ANY of today's occurrences still has enough runway, even if the
 // specific occurrence that triggered this particular check no longer does.
-export function anyOccurrenceHasLeadTime(schedule, weekday, showId, date, now) {
-  const todays = (schedule[weekday] ?? []).filter((s) => s.id === showId);
+export function anyOccurrenceHasLeadTime(schedule, weekday, showId, date, now, dates = loadDateOverrides()) {
+  const todays = effectiveDayLineup(schedule, dates, date).filter((s) => s.id === showId);
   return todays.some((s) => hasLeadTime(date, s, now, weekday));
 }
 
-function sortedDayShows(schedule, weekday) {
-  return [...(schedule[weekday] ?? [])].sort(
+function sortedLineup(lineup) {
+  return [...(lineup ?? [])].sort(
     (a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
   );
 }
@@ -281,7 +349,7 @@ function sortedDayShows(schedule, weekday) {
 // 90min) that's still running past midnight is found correctly -- a real
 // weekly schedule (unlike the old single-repeating showday.json template)
 // means today's and yesterday's lineups can differ.
-export function mostRecentOccurrence(schedule, now) {
+export function mostRecentOccurrence(schedule, now, dates = loadDateOverrides()) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   // Yesterday via addCalendarDays, never a -24h epoch step: on the fall-back
   // day's last local hour (23:xx CET = 24+ real hours since midnight) a -24h
@@ -295,7 +363,9 @@ export function mostRecentOccurrence(schedule, now) {
   for (const { day, offset } of candidates) {
     const weekday = weekdayKey(day);
     const date = dateKey(day);
-    for (const show of schedule[weekday] ?? []) {
+    // Paket C1: the EFFECTIVE lineup for that calendar date -- an override
+    // date's occurrences replace the weekday template entirely.
+    for (const show of effectiveDayLineup(schedule, dates, date)) {
       const start = timeToMinutes(show.startTime) + offset;
       if (start <= nowMinutes && (!best || start > best.start)) {
         best = { show, weekday, date, timeKey: timeKey(show.startTime), start };
@@ -313,7 +383,7 @@ export function mostRecentOccurrence(schedule, now) {
 // AND tomorrow's schedule (tomorrow's entries shifted forward a full day) --
 // replaces the old minutesUntilNext mod-1440 trick, which only worked
 // because showday.json was the same lineup every day.
-export function upcomingOccurrences(schedule, now, horizonMinutes) {
+export function upcomingOccurrences(schedule, now, horizonMinutes, dates = loadDateOverrides()) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const results = [];
   // Tomorrow via addCalendarDays for the same DST reason as the -24h case
@@ -327,7 +397,8 @@ export function upcomingOccurrences(schedule, now, horizonMinutes) {
   for (const { day, offset } of candidates) {
     const weekday = weekdayKey(day);
     const date = dateKey(day);
-    for (const show of schedule[weekday] ?? []) {
+    // Paket C1: effective lineup per calendar date (override > template).
+    for (const show of effectiveDayLineup(schedule, dates, date)) {
       const start = timeToMinutes(show.startTime) + offset;
       const minutesUntil = start - nowMinutes;
       if (minutesUntil >= 0 && minutesUntil <= horizonMinutes) {
@@ -345,14 +416,16 @@ export function upcomingOccurrences(schedule, now, horizonMinutes) {
 // "however many happen to fall in the next X minutes." Walks forward day by
 // day, capped at 14 days so a schedule with entirely dark days (or an empty
 // schedule) can't loop forever.
-export function nextOccurrences(schedule, now, count) {
+export function nextOccurrences(schedule, now, count, dates = loadDateOverrides()) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const results = [];
   let day = new Date(now);
   for (let daysChecked = 0; results.length < count && daysChecked < 14; daysChecked++) {
     const weekday = weekdayKey(day);
     const date = dateKey(day);
-    for (const show of sortedDayShows(schedule, weekday)) {
+    // Paket C1: effective lineup per calendar date -- "coming up" honors
+    // overrides (and deliberate dark days) exactly like the scheduler does.
+    for (const show of sortedLineup(effectiveDayLineup(schedule, dates, date))) {
       if (daysChecked === 0 && timeToMinutes(show.startTime) < nowMinutes) continue;
       results.push({ show, weekday, date, timeKey: timeKey(show.startTime) });
       if (results.length >= count) break;
@@ -378,9 +451,13 @@ export function nextOccurrences(schedule, now, count) {
 // end) -- the one case filler is meant to fill deliberately, so the caller
 // should wait for wall-clock to reach `nextStart` rather than cutting over
 // immediately.
-export function nextOccurrence(schedule, current) {
+export function nextOccurrence(schedule, current, dates = loadDateOverrides()) {
   const { show: currentShow, weekday, date, timeKey: currentTimeKey } = current;
-  const todays = sortedDayShows(schedule, weekday);
+  // Paket C1: the CURRENT occurrence's own date decides its effective
+  // lineup -- on an override date, "what follows" must come from the same
+  // override list (or the next non-override day), never the suppressed
+  // weekday template.
+  const todays = sortedLineup(effectiveDayLineup(schedule, dates, date));
   const idx = todays.findIndex((s) => timeKey(s.startTime) === currentTimeKey);
 
   let next, nextWeekday, nextDate;
@@ -395,14 +472,16 @@ export function nextOccurrence(schedule, current) {
     // step via addCalendarDays -- the +24h epoch step this used to be is the
     // fall-back-day bug: it re-landed on the SAME Sunday, picked shows[0]
     // (the already-aired morning show) and looped the replay all night.
+    // Paket C1: each walked day resolves through its own effective lineup,
+    // so a dark override date is honestly skipped like any dark day.
     let day = addCalendarDays(dateFromKey(date), 1);
     for (let i = 0; i < 7; i++) {
-      const wd = weekdayKey(day);
-      const shows = sortedDayShows(schedule, wd);
+      const dayKeyStr = dateKey(day);
+      const shows = sortedLineup(effectiveDayLineup(schedule, dates, dayKeyStr));
       if (shows.length > 0) {
         next = shows[0];
-        nextWeekday = wd;
-        nextDate = dateKey(day);
+        nextWeekday = weekdayKey(day);
+        nextDate = dayKeyStr;
         break;
       }
       day = addCalendarDays(day, 1);

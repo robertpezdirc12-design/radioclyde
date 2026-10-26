@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { config } from '../config/index.js';
 import { readNowPlayingState } from '../scheduler/updateNowPlaying.js';
-import { loadSchedule, loadStation } from '../scheduler/scheduleUtil.js';
+import { loadSchedule, loadStation, loadDateOverrides, effectiveDayLineup } from '../scheduler/scheduleUtil.js';
 import { resolveShowInfo, capitalizePersonaList } from './showName.js';
 import { streamEntries } from './streamUrls.js';
 
@@ -54,7 +54,12 @@ export function composeNowPlaying() {
     return { station, show: null, track, dj, scheduledStart: null, estimatedEndAt: null };
   }
 
-  const showEntry = (loadSchedule()[state.weekday] ?? []).find((s) => s.id === state.id);
+  // Paket C1 (Val 22): the state's own DATE decides the lineup -- on an
+  // override date a weekday lookup would miss and the listener-facing
+  // now-playing payload would lose the show's real name/host/start time.
+  const showEntry = effectiveDayLineup(loadSchedule(), loadDateOverrides(), state.date).find(
+    (s) => s.id === state.id
+  );
   const { name, host } = resolveShowInfo(showEntry, showEntry?.specialTitle ?? state.id);
   return {
     station,

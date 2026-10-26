@@ -3,11 +3,15 @@
 // and section D (repeat/diagnosis work needs an honest template view).
 // Pins the date-scoped marking rules, including the overnight trap: a show
 // past midnight belongs to YESTERDAY's date and must never light up NEXT
-// week's same-weekday cell.
+// week's same-weekday cell. Paket C1 (Val 22) additions: an override date
+// renders its own entries + the additive dateOverride flag (the deeper
+// override walker/writer/API coverage lives in scheduleDates.test.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
-import { setupTestConfig } from './fixtures.mjs';
+import { setupTestConfig, repoRoot } from './fixtures.mjs';
 
 setupTestConfig('schedule-grid');
 
@@ -88,5 +92,69 @@ describe('buildWeeklyGrid marks', () => {
     const grid = buildWeeklyGrid(SCHEDULE, WED_AT_1430);
     assert.equal(typeof grid.timezone, 'string');
     assert.ok(grid.timezone.length > 0);
+  });
+});
+
+describe('buildWeeklyGrid date overrides (Paket C1, Val 22)', () => {
+  // The fixtures' scratch station.json is the read side buildWeeklyGrid
+  // resolves overrides from (its own loadDateOverrides call) -- seeded per
+  // test and restored in finally, the configGuards.test.mjs station-file
+  // pattern.
+  const stationFile = path.join(repoRoot(), 'data', 'test-schedule-grid', 'station.json');
+
+  test('an override date renders its own entries, flags dateOverride, suppresses the template', () => {
+    const original = fs.readFileSync(stationFile, 'utf8');
+    // 2026-10-21 is this suite's fixed Wednesday.
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify({
+        station: { name: 'Test Station' },
+        schedule: {
+          wednesday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }],
+          dates: { '2026-10-21': [{ id: 'praznicni', startTime: '14:00', durationMinutes: 60 }] },
+        },
+      })
+    );
+    try {
+      const grid = buildWeeklyGrid(SCHEDULE, WED_AT_1430);
+      const wed = findDay(grid, 'wednesday');
+      assert.equal(wed.dateOverride, true);
+      assert.deepEqual(wed.shows.map((s) => s.id), ['praznicni'], 'the override replaces the whole day');
+      // The injected SCHEDULE's wednesday template entries must NOT leak in:
+      assert.ok(!wed.shows.some((s) => ['afternoon', 'evening', 'latenight'].includes(s.id)));
+      assert.equal(wed.shows[0].mark, 'on-air', 'the mark logic is date-scoped on the override entry');
+      assert.equal(grid.currentShow.id, 'praznicni');
+      // next walks off the override to Thursday's template morning show:
+      assert.equal(grid.nextShow.id, 'morning');
+      assert.equal(findDay(grid, 'thursday').shows[0].mark, 'next');
+      // The flag lives on the DATE, not the weekday -- every other rendered
+      // day is unflagged:
+      assert.ok(grid.days.filter((d) => d.date !== '2026-10-21').every((d) => d.dateOverride === undefined));
+    } finally {
+      fs.writeFileSync(stationFile, original);
+    }
+  });
+
+  test('a deliberate dark day renders empty but flagged; every other day stays unflagged', () => {
+    const original = fs.readFileSync(stationFile, 'utf8');
+    fs.writeFileSync(
+      stationFile,
+      JSON.stringify({
+        station: { name: 'Test Station' },
+        schedule: {
+          wednesday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }],
+          dates: { '2026-10-21': [] },
+        },
+      })
+    );
+    try {
+      const grid = buildWeeklyGrid(SCHEDULE, WED_AT_1430);
+      const wed = findDay(grid, 'wednesday');
+      assert.deepEqual(wed.shows, [], 'an empty override suppresses the template too');
+      assert.equal(wed.dateOverride, true);
+      assert.ok(grid.days.filter((d) => d.date !== '2026-10-21').every((d) => d.dateOverride === undefined));
+    } finally {
+      fs.writeFileSync(stationFile, original);
+    }
   });
 });

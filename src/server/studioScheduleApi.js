@@ -5,6 +5,9 @@ import {
   loadSchedule,
   loadStation,
   loadDowntime,
+  loadDateOverrides,
+  effectiveDayLineup,
+  addCalendarDays,
   weekdayKey,
   dateKey,
   timeKey,
@@ -16,6 +19,8 @@ import {
   updateOccurrence,
   removeOccurrence,
   updateStationMeta,
+  replaceDateSchedule,
+  removeDateSchedule,
 } from '../scheduler/stationWriter.js';
 
 // Runs scheduleWatch's own invalidation check inline, right after a write,
@@ -42,7 +47,7 @@ export function registerStudioScheduleApi(fastify) {
   // The weekly grid shows one recurring template slot per weekday, but
   // readiness (has a script/playlist actually been produced) only exists for
   // real calendar occurrences -- so this only ever has an answer for today's
-  // and tomorrow's weekday, the two days scheduleScripts.js/scheduleDirect.js
+  // and tomorrow's DATE, the two days scheduleScripts.js/scheduleDirect.js
   // can plausibly have already touched (scriptLeadTimeMinutes/
   // directLeadTimeMinutes are both well under 24h by default). Every other
   // weekday's slot has no real occurrence dir yet, so it's simply absent from
@@ -51,8 +56,16 @@ export function registerStudioScheduleApi(fastify) {
   // logStartupStatus() draws for occurrences outside its own horizon.
   fastify.get('/api/schedule/readiness', () => {
     const schedule = loadSchedule();
+    const dates = loadDateOverrides();
     const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    // Tomorrow via addCalendarDays, never a +24h epoch step: on the DST
+    // fall-back day (Europe/Ljubljana 2026-10-25) epoch+24h re-lands on the
+    // SAME calendar date, so "tomorrow" would have answered today's weekday
+    // twice and tomorrow's real slots would have gone unanswered -- the same
+    // day-walk class the scheduleUtil walkers already fixed. The key stays
+    // "weekday/time": today and tomorrow are always different weekdays, so
+    // it remains unambiguous.
+    const tomorrow = addCalendarDays(now, 1);
     const days = [
       { weekday: weekdayKey(now), date: dateKey(now) },
       { weekday: weekdayKey(tomorrow), date: dateKey(tomorrow) },
@@ -60,12 +73,55 @@ export function registerStudioScheduleApi(fastify) {
 
     const readiness = {};
     for (const { weekday, date } of days) {
-      for (const show of schedule[weekday] ?? []) {
+      // Paket C1 (Val 22): the EFFECTIVE lineup per calendar date -- an
+      // override date answers readiness for its override entries, and the
+      // suppressed weekday template's slots stay absent (they never get
+      // produced, so "not due yet" is the honest reading for them).
+      for (const show of effectiveDayLineup(schedule, dates, date)) {
         const time = timeKey(show.startTime);
         readiness[`${weekday}/${time}`] = occurrenceReadiness(weekday, show.id, date, time);
       }
     }
     return { readiness };
+  });
+
+  // Paket C1 (Val 22) -- the date-bound full-day overrides (station.json's
+  // schedule.dates["YYYY-MM-DD"]): reads return the raw persisted block; the
+  // writes below go through stationWriter's replaceDateSchedule/
+  // removeDateSchedule (same validate + lock + atomic discipline as the
+  // weekday routes further down).
+  fastify.get('/api/schedule/dates', () => ({
+    dates: loadDateOverrides(),
+  }));
+
+  // Full-day REPLACEMENT, never a merge: the body's occurrences array
+  // becomes the entire effective lineup for that date (its weekday template
+  // is suppressed for it). An empty array is a deliberate dark day --
+  // filler/emergency cover it, exactly like any lineup-less weekday. The
+  // response echoes what replaceDateSchedule actually placed (sorted, packed
+  // back-to-back), the same convention as the weekday POST/PATCH below.
+  fastify.put('/api/schedule/dates/:date', async (request, reply) => {
+    try {
+      const occurrences = await replaceDateSchedule(request.params.date, request.body?.occurrences);
+      invalidateSoon();
+      return { date: request.params.date, occurrences };
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // Removing an override returns that date to its weekday's weekly template.
+  // 400 (not 404) when nothing is stored at that date: a nonexistent date is
+  // a validation-shaped problem for this API's one-resource-per-date shape,
+  // and the studio surfaces the message either way.
+  fastify.delete('/api/schedule/dates/:date', async (request, reply) => {
+    try {
+      const removed = await removeDateSchedule(request.params.date);
+      invalidateSoon();
+      return removed;
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
   });
 
   // addOccurrence/updateOccurrence return the whole day post-reflow (not

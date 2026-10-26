@@ -74,7 +74,13 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // every show has an override yet, and a configured path whose file hasn't
   // landed yet shouldn't fail the whole show) -- both just skip rather than
   // erroring.
-  const showEntry = (scheduleUtil.loadSchedule()[weekday] ?? []).find((s) => s.id === id);
+  // Paket C1 (Val 22): the occurrence's own DATE decides the effective
+  // lineup -- on an override date the jingle lookup must find the override
+  // entry, not fall back to the station jingle because the weekday template
+  // doesn't know this show.
+  const showEntry = scheduleUtil
+    .effectiveDayLineup(scheduleUtil.loadSchedule(), scheduleUtil.loadDateOverrides(), date)
+    .find((s) => s.id === id);
   const jingleRelPath = showEntry?.jingle ?? scheduleUtil.loadStation().jingle;
   if (jingleRelPath) {
     const resolvedJinglePath = path.join(config.dataDir, jingleRelPath);

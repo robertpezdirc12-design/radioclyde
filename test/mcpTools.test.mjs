@@ -71,10 +71,10 @@ function noTmpLeftovers() {
 }
 
 describe('catalog shape', () => {
-  test('29 tools: 17 read + 12 write, unique names, object schemas', () => {
-    assert.equal(TOOLS.length, 29);
-    assert.equal(TOOLS.filter((t) => t.write).length, 12);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 29);
+  test('30 tools: 17 read + 13 write, unique names, object schemas', () => {
+    assert.equal(TOOLS.length, 30);
+    assert.equal(TOOLS.filter((t) => t.write).length, 13);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 30);
     for (const t of TOOLS) {
       assert.equal(typeof t.name, 'string');
       assert.equal(typeof t.description, 'string');
@@ -620,6 +620,217 @@ describe('schedule & station-meta writes', () => {
     );
   });
 
+  // Paket C1/C2 (Val 22) -- schedule_set_date (the date-override write)
+  // and the replay fields on add/update. Wall-clock-independent dates: a
+  // past source is anchored well before any possible test run, a future one
+  // well after (the writer's not-in-the-future check is a plain YYYY-MM-DD
+  // string compare against the local calendar's dateKey).
+  const PAST_SOURCE = '2020-06-15';
+  const FUTURE_SOURCE = '2999-06-15';
+
+  test('schedule_set_date: full-day override lands in schedule.dates, template untouched, audit + hash written', async () => {
+    writeBriefs();
+    writeStation({
+      monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }],
+    });
+    fs.rmSync(path.join(DATA_DIR, '.station_hash'), { force: true });
+    const res = await tool('schedule_set_date').handler(
+      {
+        date: '2026-12-25',
+        occurrences: [
+          { id: 'vecerni', startTime: '20:00', durationMinutes: 60 },
+          { id: 'jutranji', startTime: '10:00', durationMinutes: 30 },
+        ],
+      },
+      {}
+    );
+    // unordered input -> sorted, then packed back-to-back (the same
+    // closeGaps discipline weekday writes follow); returned exactly as
+    // written to disk.
+    assert.equal(res.date, '2026-12-25');
+    assert.deepEqual(res.occurrences, [
+      { id: 'jutranji', startTime: '10:00', durationMinutes: 30 },
+      { id: 'vecerni', startTime: '10:30', durationMinutes: 60 },
+    ]);
+    const raw = readStation();
+    assert.deepEqual(raw.schedule.dates['2026-12-25'], res.occurrences, 'persisted atomically');
+    assert.deepEqual(
+      raw.schedule.monday,
+      [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }],
+      'a date write never touches the weekly template'
+    );
+    assert.ok(
+      fs.existsSync(path.join(DATA_DIR, '.station_hash')),
+      'invalidateSoon ran (the studioScheduleApi.js:27-33 mirror)'
+    );
+    const mcpLog = fs.readFileSync(path.join(DATA_DIR, 'logs', 'mcp.log'), 'utf8');
+    assert.ok(
+      mcpLog.includes('schedule_set_date: 2026-12-25'),
+      "the tool's own audit line landed in logs/mcp.log"
+    );
+  });
+
+  test('schedule_set_date: an empty/omitted occurrences array is a deliberate dark day', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    const res = await tool('schedule_set_date').handler({ date: '2026-12-25' }, {});
+    assert.deepEqual(res.occurrences, []);
+    assert.deepEqual(
+      readStation().schedule.dates['2026-12-25'],
+      [],
+      'the override is stored as an empty day -- it suppresses the template instead of falling back to it'
+    );
+  });
+
+  test('schedule_set_date: clear removes the override (and the whole dates block with the last key)', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    await tool('schedule_set_date').handler(
+      { date: '2026-12-25', occurrences: [{ id: 'vecerni', startTime: '20:00', durationMinutes: 60 }] },
+      {}
+    );
+    const res = await tool('schedule_set_date').handler({ date: '2026-12-25', clear: true }, {});
+    assert.equal(res.date, '2026-12-25');
+    assert.equal(res.cleared, true);
+    assert.equal(res.removed.length, 1);
+    assert.equal(res.removed[0].id, 'vecerni');
+    const raw = readStation();
+    assert.equal(raw.schedule.dates, undefined, 'removing the last override key removes the whole dates block');
+    assert.deepEqual(
+      raw.schedule.monday,
+      [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }],
+      'the weekly template is what the date falls back to'
+    );
+    // clearing something that is not there refuses honestly and changes nothing
+    await assert.rejects(
+      tool('schedule_set_date').handler({ date: '2026-12-25', clear: true }, {}),
+      /No date override for "2026-12-25" to remove/
+    );
+    assert.equal(readStation().schedule.dates, undefined);
+  });
+
+  test('schedule_set_date: writer validation passes through as ToolFailure, station.json unchanged', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'jutranji', startTime: '08:00', durationMinutes: 60 }] });
+    const before = readStation();
+    await assert.rejects(
+      tool('schedule_set_date').handler({ date: '2026-13-45', occurrences: [] }, {}),
+      /Invalid date "2026-13-45" -- not a real calendar date/
+    );
+    await assert.rejects(
+      tool('schedule_set_date').handler({ date: 'not-a-date', occurrences: [] }, {}),
+      /Invalid date "not-a-date" -- expected YYYY-MM-DD/
+    );
+    await assert.rejects(
+      tool('schedule_set_date').handler(
+        { date: '2026-12-25', occurrences: [{ id: 'ne-obstaja', startTime: '20:00', durationMinutes: 60 }] },
+        {}
+      ),
+      /No show "ne-obstaja" found under show-descriptions/
+    );
+    await assert.rejects(
+      tool('schedule_set_date').handler(
+        {
+          date: '2026-12-25',
+          occurrences: [
+            { id: 'vecerni', startTime: '20:00', durationMinutes: 60, type: 'replay', sourceDate: FUTURE_SOURCE },
+          ],
+        },
+        {}
+      ),
+      new RegExp(`Replay sourceDate "${FUTURE_SOURCE}" is in the future`)
+    );
+    await assert.rejects(
+      tool('schedule_set_date').handler(
+        {
+          date: '2026-12-25',
+          occurrences: [{ id: 'vecerni', startTime: '20:00', durationMinutes: 60, type: 'maraton' }],
+        },
+        {}
+      ),
+      /Invalid occurrence type "maraton"/
+    );
+    await assert.rejects(
+      tool('schedule_set_date').handler({ occurrences: [] }, {}),
+      /Manjka "date"/
+    );
+    assert.deepEqual(readStation(), before, 'refused writes change nothing');
+  });
+
+  test('schedule_add_occurrence: replay fields land in station.json; a "normal" entry normalizes them away', async () => {
+    writeBriefs();
+    writeStation({ monday: [] });
+    const res = await tool('schedule_add_occurrence').handler(
+      {
+        weekday: 'monday',
+        occurrence: {
+          id: 'vecerni',
+          startTime: '20:00',
+          durationMinutes: 60,
+          type: 'replay',
+          sourceDate: PAST_SOURCE,
+          sourceTimeKey: '08-00',
+        },
+      },
+      {}
+    );
+    assert.deepEqual(res.occurrences, [
+      {
+        id: 'vecerni',
+        startTime: '20:00',
+        durationMinutes: 60,
+        type: 'replay',
+        sourceDate: PAST_SOURCE,
+        sourceTimeKey: '08-00',
+      },
+    ]);
+    assert.deepEqual(readStation().schedule.monday, res.occurrences, 'the replay fields persisted on the entry');
+
+    // "normal" (or an omitted type) must not carry stale replay metadata
+    // into the file -- normalizeReplayFields strips it before storage.
+    const plain = await tool('schedule_add_occurrence').handler(
+      {
+        weekday: 'monday',
+        occurrence: { id: 'jutranji', startTime: '22:00', durationMinutes: 30, type: 'normal', sourceDate: PAST_SOURCE },
+      },
+      {}
+    );
+    assert.deepEqual(plain.occurrences[1], {
+      id: 'jutranji',
+      startTime: '21:00',
+      durationMinutes: 30,
+    });
+  });
+
+  test('schedule_update_occurrence: a patch accepts replay fields, and "type": "normal" clears them', async () => {
+    writeBriefs();
+    writeStation({ monday: [{ id: 'vecerni', startTime: '20:00', durationMinutes: 60 }] });
+    const res = await tool('schedule_update_occurrence').handler(
+      { weekday: 'monday', time_key: '20-00', patch: { type: 'replay', sourceDate: PAST_SOURCE, sourceTimeKey: '08-00' } },
+      {}
+    );
+    assert.deepEqual(res.occurrences, [
+      {
+        id: 'vecerni',
+        startTime: '20:00',
+        durationMinutes: 60,
+        type: 'replay',
+        sourceDate: PAST_SOURCE,
+        sourceTimeKey: '08-00',
+      },
+    ]);
+    assert.deepEqual(readStation().schedule.monday, res.occurrences, "the patch's replay fields persisted");
+
+    const cleared = await tool('schedule_update_occurrence').handler(
+      { weekday: 'monday', time_key: '20-00', patch: { type: 'normal' } },
+      {}
+    );
+    assert.deepEqual(cleared.occurrences, [
+      { id: 'vecerni', startTime: '20:00', durationMinutes: 60 },
+    ], '"type": "normal" strips the replay fields from the stored entry');
+    assert.deepEqual(readStation().schedule.monday, cleared.occurrences);
+  });
+
   test('update_station_meta: name change + downtime set, omitted keys untouched', async () => {
     writeBriefs();
     fs.writeFileSync(
@@ -863,6 +1074,10 @@ describe('allowWriteTools kill-switch (protocol-level, real TOOLS)', () => {
     const names = list.result.tools.map((t) => t.name);
     assert.equal(names.length, 17);
     for (const t of TOOLS.filter((x) => x.write)) assert.ok(!names.includes(t.name), `${t.name} omitted`);
+    // Paket C (Val 22): the newest write tool hides with the rest -- pinned
+    // explicitly so a future catalog regression cannot hide behind the
+    // loop's genericity.
+    assert.ok(!names.includes('schedule_set_date'));
 
     const call = JSON.parse(
       await server.handleLine(
@@ -878,5 +1093,16 @@ describe('allowWriteTools kill-switch (protocol-level, real TOOLS)', () => {
       )
     );
     assert.notEqual(read.result.isError, true, 'read tools unaffected');
+
+    // A direct call of the newest write tool is refused with the same
+    // kill-switch isError -- protocol.js refuses BEFORE any handler (and
+    // any config/dataDir touch) runs.
+    const setDate = JSON.parse(
+      await server.handleLine(
+        JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'schedule_set_date', arguments: { date: '2026-12-25' } } })
+      )
+    );
+    assert.equal(setDate.result.isError, true);
+    assert.match(setDate.result.content[0].text, /allowWriteTools/);
   });
 });

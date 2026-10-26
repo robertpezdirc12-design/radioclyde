@@ -90,13 +90,13 @@ describe('POST /studio/api/mcp (remote transport on)', () => {
     await fastify.close();
   });
 
-  test('tools/list -> all 29 tools, now_playing + poll_create among them', async () => {
+  test('tools/list -> all 30 tools, now_playing + poll_create among them', async () => {
     const fastify = await app();
     const res = await post(fastify, rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' }));
     assert.equal(res.statusCode, 200);
     const body = res.json();
     const names = body.result.tools.map((t) => t.name);
-    assert.equal(names.length, 29);
+    assert.equal(names.length, 30);
     assert.ok(names.includes('now_playing'));
     assert.ok(names.includes('poll_create'));
     await fastify.close();

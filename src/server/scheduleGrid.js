@@ -1,8 +1,13 @@
 // Weekly schedule grid for the listener "Spored" view (issue #2 section A).
-// Builds a 7-day template straight from station.json's schedule -- the same
-// data the scheduler itself runs on, so the page can never show a lineup the
-// station isn't actually following. No invented entries: an empty day is an
-// empty day, and the client renders that honestly.
+// Builds the next seven REAL calendar days from station.json's schedule --
+// the same data the scheduler itself runs on, so the page can never show a
+// lineup the station isn't actually following. No invented entries: an empty
+// day is an empty day, and the client renders that honestly. Since Paket C1
+// (Val 22), a date in schedule.dates replaces that date's weekday template
+// (an empty override is a deliberate dark day) -- each rendered day resolves
+// through effectiveDayLineup, the one precedence rule every scheduler
+// day-walk shares, so the page and the playout engine can never disagree
+// about what airs on an override date.
 //
 // Marks are template-relative (where the weekly lineup says "on air" /
 // "next" at this instant) -- the REAL on-air truth is /api/now-playing's,
@@ -13,6 +18,8 @@ import { config } from '../config/index.js';
 import { isValidTimeZone, toLocalISOString } from '../lib/time.js';
 import {
   loadDowntime,
+  loadDateOverrides,
+  effectiveDayLineup,
   mostRecentOccurrence,
   nextOccurrence,
   nextOccurrences,
@@ -85,18 +92,30 @@ export function buildWeeklyGrid(schedule, now = new Date()) {
 
   const days = [];
   const dayCursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Paket C1 (Val 22): one read, one truth -- the walkers above resolve the
+  // same overrides through their own loadDateOverrides() default parameter
+  // (no signature change needed there). Each rendered day is the EFFECTIVE
+  // lineup for its calendar date: an override replaces the weekday template
+  // entirely, an empty override is a deliberate dark day, and every other
+  // date falls back to its weekday's template exactly as before.
+  const dates = loadDateOverrides();
   for (let i = 0; i < 7; i++) {
     const weekday = weekdayKey(dayCursor);
-    const shows = [...(schedule[weekday] ?? [])]
+    const date = dateKey(dayCursor);
+    const shows = [...effectiveDayLineup(schedule, dates, date)]
       .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
       .map((show) => {
         const entry = showEntry(show);
-        const key = `${dateKey(dayCursor)}@${entry.startTime.replace(':', '-')}`;
+        const key = `${date}@${entry.startTime.replace(':', '-')}`;
         if (key === onAirKey) entry.mark = 'on-air';
         else if (key === nextKey) entry.mark = 'next';
         return entry;
       });
-    days.push({ weekday, date: dateKey(dayCursor), shows });
+    // Additive per-day flag (unknown fields are ignored by existing
+    // clients): true ONLY on dates that actually carry an override --
+    // including deliberate dark days, so the listener page can say "poseben
+    // program" on a day whose lineup is not the weekday template.
+    days.push(dates[date] !== undefined ? { weekday, date, dateOverride: true, shows } : { weekday, date, shows });
     dayCursor.setDate(dayCursor.getDate() + 1);
   }
 

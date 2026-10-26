@@ -31,7 +31,13 @@ const djName = process.argv[3]; // director/playlist.js's annotate: "dj" field -
 // exactly when a track actually starts, so it's the accurate source for
 // both now_playing_track.json (src/server/nowPlaying.js) and the web
 // history API (src/server/historyApi.js).
-function recordNowPlaying(track) {
+// Exported since Paket C2 (Val 22): the aired-entry construction is a
+// contract (the replay stamp below), and test/replayOccurrences.test.mjs
+// drives it directly with a scratch state file instead of standing up the
+// whole per-segment CLI (radio.liq's on_track hook) around it. Importing
+// this module from a test is safe: main() no-ops honestly without a
+// file-path argv, which radio.liq always passes on the real station.
+export function recordNowPlaying(track) {
   const state = readNowPlayingState();
   const entry = {
     ratingKey: track.ratingKey,
@@ -42,6 +48,13 @@ function recordNowPlaying(track) {
     durationMs: track.durationMs,
     showId: state?.id ?? null,
     playedAt: toLocalISOString(),
+    // Paket C2 (Val 22): a materialized replay's occurrence state carries
+    // replayOf (updateNowPlaying.loadOccurrence passes it through from the
+    // copied context.json) -- stamp the entry so as-run/analytics can tell a
+    // repeat from a first air. `undefined` when absent: JSON.stringify drops
+    // the key, so a normal entry stays byte-identical to pre-C2. The track
+    // genuinely aired either way -- Plex play counts keep counting.
+    replay: state?.replayOf ? true : undefined,
   };
   // Atomic tmp-<pid>+rename, same discipline as updateNowPlaying.writeState:
   // the web routes read this file on every /api/now-playing poll, and a torn

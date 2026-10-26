@@ -3,7 +3,7 @@
 // application/json content-type check by the time any handler here runs.
 import fs from 'node:fs';
 import { config } from '../config/index.js';
-import { loadSchedule } from '../scheduler/scheduleUtil.js';
+import { loadSchedule, loadDateOverrides } from '../scheduler/scheduleUtil.js';
 import { checkScheduleChanged } from '../scheduler/scheduleWatch.js';
 import { parseShowBrief } from '../producer/showBrief.js';
 import {
@@ -31,9 +31,16 @@ function listShowIds() {
 
 // First scheduled occurrence's durationMinutes, or null if this show isn't
 // on the schedule yet -- a show can exist in the library before it's placed
-// on any weekday.
+// on any weekday. Paket C1 (Val 22): date-override lists are real schedule
+// rows too, so a show that only ever airs on an override date (a holiday
+// special) still reports its duration -- cosmetic completeness for the
+// shows list; nothing here decides what airs.
 function firstScheduledDuration(id, schedule) {
   for (const occurrences of Object.values(schedule)) {
+    const match = occurrences.find((o) => o.id === id);
+    if (match) return match.durationMinutes;
+  }
+  for (const occurrences of Object.values(loadDateOverrides())) {
     const match = occurrences.find((o) => o.id === id);
     if (match) return match.durationMinutes;
   }

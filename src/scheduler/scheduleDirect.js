@@ -10,6 +10,7 @@ import { createLogger } from '../lib/logger.js';
 import * as scheduleUtil from './scheduleUtil.js';
 import { directShow } from '../director/index.js';
 import { runSerialized } from '../lib/concurrency.js';
+import { materializeReplayOccurrence } from './replayMaterializer.js';
 
 const log = createLogger('station');
 
@@ -106,6 +107,19 @@ export async function checkAndTriggerDirect() {
 
     if (fs.existsSync(path.join(showOccurrenceDir, 'playlist.m3u'))) continue; // already directed this occurrence
 
+    // Paket C2 (Val 22): a replay occurrence has no script.md BY DESIGN
+    // (the scripts job skips it) -- at direct-lead time its slot is
+    // MATERIALIZED from the source episode (a plain copy, see
+    // replayMaterializer.js) instead of directed. The playlist.m3u check
+    // right above doubles as the already-materialized marker, so a repeat
+    // tick after a successful copy is a free no-op; a missing source
+    // episode degrades honestly inside the materializer (no-op + log,
+    // filler covers the slot) -- never a fresh-production fallback.
+    if (show.type === 'replay') {
+      materializeReplayOccurrence(show, weekday, date, timeKey);
+      continue;
+    }
+
     if (!fs.existsSync(path.join(showDateDir, 'script.md'))) {
       log(`Show "${show.id}" (${weekday} ${date} ${timeKey}) has no script.md yet -- skipping direct until the scripts job catches up.`);
       continue;
@@ -145,19 +159,28 @@ function findIncompleteOccurrences(schedule, now) {
   ]);
 
   const results = [];
+  // Paket C1 (Val 22): overrides matter here too -- loaded once, resolved
+  // per date inside the walk.
+  const dates = scheduleUtil.loadDateOverrides();
   for (const weekday of fs.readdirSync(runningDir)) {
     const weekdayDir = path.join(runningDir, weekday);
     if (!fs.statSync(weekdayDir).isDirectory()) continue;
 
     for (const showId of fs.readdirSync(weekdayDir)) {
-      const show = (schedule[weekday] ?? []).find((s) => s.id === showId);
-      if (!show) continue; // no longer in the schedule -- not ours to rebuild
-
       const showDir = path.join(weekdayDir, showId);
       for (const date of fs.readdirSync(showDir)) {
         if (!relevantDates.has(date)) continue;
         const dateDir = path.join(showDir, date);
         if (!fs.statSync(dateDir).isDirectory()) continue;
+
+        // Paket C1: per-DATE effective lineup -- an override date's
+        // half-built occurrences belong to entries the weekday lookup
+        // can't see, and "no longer in the schedule" would orphan them
+        // from this startup rebuild sweep forever.
+        const show = scheduleUtil.effectiveDayLineup(schedule, dates, date).find(
+          (s) => s.id === showId
+        );
+        if (!show) continue; // not on that date's effective lineup -- not ours to rebuild
 
         for (const timeKey of fs.readdirSync(dateDir)) {
           if (!TIME_KEY_RE.test(timeKey)) continue; // skip dj-audio/ and the date-level script/context/transcript files
@@ -182,6 +205,17 @@ export async function rebuildIncompleteOccurrences() {
 
   log(`Startup: found ${incomplete.length} show occurrence(s) left in a half-built state (no playlist.m3u) -- queuing for rebuild.`);
   for (const { show, weekday, date, timeKey, showOccurrenceDir } of incomplete) {
+    // Paket C2 (Val 22): a half-built REPLAY dir (a timeKey dir without
+    // playlist.m3u) is a failed MATERIALIZATION, not a failed direction --
+    // the source episode is still on disk and a re-materialize is a cheap
+    // two-file copy, so this routes to replayMaterializer instead of
+    // directOccurrence (which would try to produce a fresh episode a replay
+    // must never produce). `show` comes from the date's effective lineup,
+    // so the replay type is visible here.
+    if (show.type === 'replay') {
+      materializeReplayOccurrence(show, weekday, date, timeKey);
+      continue;
+    }
     await directOccurrence(show, weekday, date, timeKey, showOccurrenceDir);
   }
 }
