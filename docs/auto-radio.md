@@ -1115,6 +1115,7 @@ formatno uro, ne meja skladb.
 | `enabled` | `false` | brez bloka = izklopljeno, job se sploh ne registrira |
 | `tickIntervalMinutes` | `0.1` | kadence tika (frakcijske vrednosti zakonite) |
 | `weatherMinutes` | `[15, 45]` | minute znamenj vremena; `[]` = vreme izklopljeno |
+| `weatherDaypart` | *(ni v config.example.json)* | okno vremenskih postelj `{from,to}` (HH:MM, od vključno / do izključno, brez polnočnega ovijanja — clockwheel konvencija, skupen parser `parseWheelTime`); brez okna = ves dan; nextshow napovedi niso okenske (Val 25) |
 | `produceLeadMinutes` | `4` | koliko minut pred sprožitvijo se klip producira |
 | `nextShowLeadMinutes` | `5` | koliko minut pred začetkom oddaje gre napoved; `0` = izklopljeno |
 | `clipRetentionHours` | `2` | pometanje odmrlih klipov; `0` = večno |
@@ -1126,6 +1127,18 @@ formatno uro, ne meja skladb.
   pravila dobesedno). `beds/` NI m3u plast — datoteka, odvržena vanj, se
   sama od sebe ne predvaja; operaterjeve postelje se potiskajo ročno
   (`node src/liquidsoap/bedQueue.js push <datoteka>`).
+- **Dodatek (Val 25) — nočno okno + ročni sprož.** Noč profesionalne
+  postaje je avtomatizirano, vremensko tiho področje (raziskava §2.1);
+  `weatherDaypart` okno to izraža z eno vrstico (`{"from":"06:00",
+  "to":"23:00"}` ali do `"24:00"`), prazno/manjkajoče/šmetano pa
+  pomeni ves dan (obstoječe namestitve se ne spremenijo). Ročni sprož —
+  `node src/scheduler/formatClock.js trigger weather|nextshow [showId]`
+  ali MCP `beds_trigger` — proizvede SVEŽ klip ob trenutku klica in ga
+  takoj potisne; upošteva LE `imaging.beds.enabled` (urnik in okno sta
+  oblika samodejne ure, ročni klic je preglasitev), ne piše ključa v
+  knjigo (knjiga razdružuje samodejne slote), zavrnitve pa so napake, ne
+  izidi (CLI izstop ≠ 0, MCP isError). Imena `weather_manual_*` /
+  `nextshow_manual_*` pometanje pobriše kot vsa generirana.
 - **Dnevna varnostna kopija** pokriva `history/beds-fired.jsonl` (razred
   `push/sent.jsonl`); sami klipi so izpeljani (vreme vir + urnik) in se NE
   kopirajo. V tem valu je backup dobil tudi `imaging/promos/` (vrzel iz
@@ -1136,10 +1149,15 @@ formatno uro, ne meja skladb.
   referenčnem `liquidsoap/radio.liq` (isto opozorilo kot promosi,
   DEPLOYMENT_GUIDE.md).
 - `radio.liq` SE NI SPREMENIL niti za en znak — celoten Paket D je Node
-  nad obstoječim dukerjem. Testi: `test/formatClock.test.mjs` (40;
+  nad obstoječim dukerjem. Testi: `test/formatClock.test.mjs` (64;
   vrata, nastavitvene odločitve, slotna aritmetika, sprožitve z enojnim
   poskusom, produkcija z izmero/padci, sočasnost, pometanje, knjiga,
-  predloge + prepis lastnika).
+  predloge + prepis lastnika; Val 25 dodaja blok K okna `weatherDaypart`
+  (F2 padci, meje minute znamenja, zanka 05:58→06:15, nextshow neokenska,
+  združljivost brez okna), blok L ročnega sproža `triggerBed` (vrata,
+  vrste, svež fetch, preglasitev urnika in okna, `showId`, »jutri«,
+  zavrnitve potiska, izmera, brez ključa v knjigi) in blok M CLI odpreme
+  (spawn: izstop 0/1/1)).
 
 ### Nadgradnja iz SUB/WAVE (4-c): Finding model + šest novih preverjanj
 

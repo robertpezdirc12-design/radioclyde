@@ -71,10 +71,10 @@ function noTmpLeftovers() {
 }
 
 describe('catalog shape', () => {
-  test('30 tools: 17 read + 13 write, unique names, object schemas', () => {
-    assert.equal(TOOLS.length, 30);
-    assert.equal(TOOLS.filter((t) => t.write).length, 13);
-    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 30);
+  test('31 tools: 17 read + 14 write, unique names, object schemas', () => {
+    assert.equal(TOOLS.length, 31);
+    assert.equal(TOOLS.filter((t) => t.write).length, 14);
+    assert.equal(new Set(TOOLS.map((t) => t.name)).size, 31);
     for (const t of TOOLS) {
       assert.equal(typeof t.name, 'string');
       assert.equal(typeof t.description, 'string');
@@ -1104,5 +1104,125 @@ describe('allowWriteTools kill-switch (protocol-level, real TOOLS)', () => {
     );
     assert.equal(setDate.result.isError, true);
     assert.match(setDate.result.content[0].text, /allowWriteTools/);
+  });
+});
+
+// --- beds_trigger (Val 25): the manual format-clock bed through the real MCP layer -------
+
+describe('beds_trigger (manual format-clock bed)', () => {
+  const WEATHER = { temperature_2m: 12.3, weather_code: 61, wind_speed_10m: 8.4 };
+
+  // The triggerBed seam set, injected through ctx exactly like skip_track's
+  // sendCommand: no Edge call, no ebur128 pass, no ffmpeg, no telnet.
+  function bedFakes({ lufs = -16 } = {}) {
+    const synthCalls = [];
+    const pushCalls = [];
+    const synthesize = async (text, outPath) => {
+      synthCalls.push(text);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(outPath, Buffer.from('fake manual bed bytes'));
+    };
+    const analyze = async () => ({ lufs, peak: -1.5 });
+    const run = async (file, args) => {
+      fs.writeFileSync(args[args.length - 1], Buffer.from('gained fake manual bed'));
+    };
+    const push = async (clipPath) => {
+      pushCalls.push(clipPath);
+      return { ok: true, requestId: '7', localPath: clipPath, leadIn: true };
+    };
+    return { synthesize, analyze, run, push, synthCalls, pushCalls };
+  }
+  const fetchWeather = async () => WEATHER;
+
+  function withBedsEnabled(fn) {
+    const previous = config.imaging;
+    config.imaging = { checkIntervalMinutes: 30, beds: { enabled: true } };
+    return fn().finally(() => {
+      config.imaging = previous;
+    });
+  }
+
+  test('layer off -> honest ToolFailure naming the OPT-IN gate', async () => {
+    const previous = config.imaging;
+    config.imaging = { checkIntervalMinutes: 30 };
+    try {
+      await assert.rejects(tool('beds_trigger').handler({ kind: 'weather' }, {}), /imaging\.beds\.enabled is not true/);
+    } finally {
+      config.imaging = previous;
+    }
+  });
+
+  test('junk kind -> ToolFailure naming the two kinds (loose-client tolerance)', async () => {
+    await assert.rejects(tool('beds_trigger').handler({ kind: 'vreme' }, {}), /kind mora biti "weather" ali "nextshow"/);
+    await assert.rejects(tool('beds_trigger').handler({}, {}), /kind mora biti "weather" ali "nextshow"/);
+  });
+
+  test('weather happy path: fresh fetch at trigger time, deterministic manual name, push, audit trail', async () => {
+    fs.rmSync(config.paths.bedsDir, { recursive: true, force: true });
+    await withBedsEnabled(async () => {
+      const fakes = bedFakes();
+      const now = new Date(2026, 2, 10, 14, 23);
+      const res = await tool('beds_trigger').handler({ kind: 'weather' }, { ...fakes, fetchWeather, now });
+      assert.equal(res.kind, 'weather');
+      assert.match(path.basename(res.clip), /^weather_manual_2026-03-10_14-23\.mp3$/);
+      assert.match(fakes.synthCalls[0], /12 stopinj/);
+      assert.deepEqual(fakes.pushCalls, [res.clip]);
+      assert.ok(fs.existsSync(res.clip), 'the clip landed at the deterministic manual name');
+      const mcpLog = fs.readFileSync(path.join(DATA_DIR, 'logs', 'mcp.log'), 'utf8');
+      assert.ok(mcpLog.includes('beds_trigger: weather -> manual-weather@'), 'the audit line landed in logs/mcp.log');
+    });
+  });
+
+  test('nextshow via the ctx schedule: announces the upcoming show with brief name + host; showId picks a specific one', async () => {
+    fs.rmSync(config.paths.bedsDir, { recursive: true, force: true });
+    await withBedsEnabled(async () => {
+      fs.mkdirSync(config.paths.showDescriptionsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(config.paths.showDescriptionsDir, 'vecerni.md'),
+        '# Vecerni\n\n**Personas:** petra\n\nProsti tekst.\n'
+      );
+      fs.writeFileSync(path.join(config.paths.showDescriptionsDir, 'pozno.md'), '# Pozno\n\nProsti tekst.\n');
+      const schedule = {};
+      for (const d of ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']) {
+        schedule[d] = [
+          { id: 'vecerni', startTime: '14:20', durationMinutes: 30, description: 'show-descriptions/vecerni.md' },
+          { id: 'pozno', startTime: '16:00', durationMinutes: 30, description: 'show-descriptions/pozno.md' },
+        ];
+      }
+      const fakes = bedFakes();
+      const now = new Date(2026, 2, 10, 14, 0);
+      const res = await tool('beds_trigger').handler({ kind: 'nextshow' }, { ...fakes, now, schedule });
+      assert.equal(res.key, 'manual-nextshow@2026-03-10@14-20@vecerni');
+      assert.match(fakes.synthCalls[0], /Vecerni/);
+      assert.match(fakes.synthCalls[0], /Petra/);
+      const targeted = await tool('beds_trigger').handler({ kind: 'nextshow', showId: 'pozno' }, { ...fakes, now, schedule });
+      assert.equal(targeted.key, 'manual-nextshow@2026-03-10@16-00@pozno');
+      assert.ok(fs.existsSync(targeted.clip));
+    });
+  });
+
+  test('weather source without numbers -> honest ToolFailure, nothing pushed (P4 #29)', async () => {
+    fs.rmSync(config.paths.bedsDir, { recursive: true, force: true });
+    await withBedsEnabled(async () => {
+      const fakes = bedFakes();
+      const noTemp = async () => ({ weather_code: 61 });
+      await assert.rejects(
+        tool('beds_trigger').handler({ kind: 'weather' }, { ...fakes, fetchWeather: noTemp }),
+        /clip production failed/
+      );
+      assert.deepEqual(fakes.pushCalls, []);
+    });
+  });
+
+  test('push refused by Liquidsoap -> the verbatim refusal surfaces as a ToolFailure', async () => {
+    fs.rmSync(config.paths.bedsDir, { recursive: true, force: true });
+    await withBedsEnabled(async () => {
+      const fakes = bedFakes();
+      fakes.push = async () => ({ ok: false, error: 'Liquidsoap ni sprejel postelje: "ERROR: Unknown command"' });
+      await assert.rejects(
+        tool('beds_trigger').handler({ kind: 'weather' }, { ...fakes, fetchWeather }),
+        /Liquidsoap refused the bed .*Unknown command/
+      );
+    });
   });
 });

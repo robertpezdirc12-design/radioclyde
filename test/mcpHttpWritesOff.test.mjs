@@ -1,6 +1,6 @@
 // Remote MCP with the write kill-switch on: mcp.allowWriteTools: false must
 // hold over the HTTP transport exactly as it does over stdio -- tools/list
-// hides the 13 write tools (30 - 13 = 17 listed) and a direct tools/call of a
+// hides the 14 write tools (31 - 14 = 17 listed) and a direct tools/call of a
 // write tool is refused with the core's isError naming the kill-switch
 // (protocol.js:91-102). The refusal is a 200 with a JSON-RPC result (an
 // honest business answer, not a protocol/HTTP error). Full-plugin mount,
@@ -38,14 +38,16 @@ function post(fastify, payload) {
 }
 
 describe('remote MCP with allowWriteTools: false', () => {
-  test('tools/list -> the 17 read tools only (30 - 13 write tools hidden)', async () => {
+  test('tools/list -> the 17 read tools only (31 - 14 write tools hidden)', async () => {
     const fastify = await app();
     const res = await post(fastify, JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }));
     assert.equal(res.statusCode, 200);
     const body = res.json();
     assert.equal(body.result.tools.length, 17);
     assert.ok(
-      body.result.tools.every((t) => !['poll_create', 'skip_track', 'update_station_meta', 'schedule_set_date'].includes(t.name))
+      body.result.tools.every(
+        (t) => !['poll_create', 'skip_track', 'update_station_meta', 'schedule_set_date', 'beds_trigger'].includes(t.name)
+      )
     );
     await fastify.close();
   });

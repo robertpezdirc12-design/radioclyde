@@ -125,6 +125,14 @@ ebur128 izmera zapečena v bajte — §4-ina disciplina). Klip za vreme nosi
 dan v tisti obliki, ki velja ob ČASU SPROŽITVE (`slovenianDayLabel` proti
 `fireTime` — »jutri« ob 23:57 za oddajo po polnoči).
 
+**Nočno okno (Val 25):** `imaging.beds.weatherDaypart` (`{ "from":
+"06:00", "to": "23:00" }`) omeji vremenske postelje na okno — minuta
+znamenja odloči, od vključno / do izključno, brez polnočnega ovijanja —
+ista konvencija kot `clockwheel` dayparts (parser `parseWheelTime` je
+skupen). Brez okna (privzeto) vreme teče ves dan; nextshow napovedi
+niso okenske (meja oddaje je relevantna ob vsaki uri, brez nočnih oddaj pa
+dogodka sploh ni).
+
 Datoteke: `dataDir/beds/weather_<datum>_<HH-MM>.mp3` in
 `nextshow_<id>_<datum>_<HH-MM>.mp3` (deterministično ime = varovalka pred
 ponovnim delom), `dataDir/history/beds-fired.jsonl` (knjiga sprožitev,
@@ -136,6 +144,16 @@ odvržena vanj, ne gre na eter sama od sebe; operaterjeve postelje se
 potiskajo ročno (`node src/liquidsoap/bedQueue.js push <datoteka>`).
 Odmrli klipi gredo po `clipRetentionHours` (privzeto 2 h; 0 = večno).
 
+**Ročni sprož (Val 25):** `node src/scheduler/formatClock.js trigger
+weather|nextshow [showId]` ali MCP orodje `beds_trigger` proizvede SVEŽ klip
+(ob trenutku klica) in ga TAKOJ potisne — roke operaterja nad urno
+predlogo. Upošteva LE glavna vrata `imaging.beds.enabled`: `weatherMinutes`
+in okno so oblika SAMODEJNE ure, ročni klic pa je ravno preglasitev (vreme
+ob 03:00 med nočno oddajo v živo je smisel, ne hrošč). Brez ključa v knjigi
+sprožitev — knjiga preprečuje dvojne izstrele SAMODEJNIH slotov, ročni
+klic pa je svoj lastni enkratni namerni izstrel; imena `weather_manual_*` /
+`nextshow_manual_*` ostanejo v imenskem prostoru pometanja.
+
 | Stanje | Vedenje |
 |---|---|
 | `imaging.beds.enabled` ni `true` | job se sploh ne registrira (OPT-IN: plast, ki GOVORI na etru, se ne prikaže nepovabljena) |
@@ -143,7 +161,9 @@ Odmrli klipi gredo po `clipRetentionHours` (privzeto 2 h; 0 = večno).
 | Edge TTS pade | klip ne pristane → enako kot zgoraj; tik, ki ga najde že na disku, ne dela nič |
 | ebur128/ffmpeg padeta | klip pristane NEIZMERJEN (»station unaffected« — vrhnji limiter lovi vrhove) |
 | Liquidsoap zavrne potisk (mrtv telnet / namestniška predloga brez `beds`) | zavrnitev se izpiše dobesedno, ključ se zapiše (enojni poskus), program nedotaknjen |
-| opravila prek noči (downtime) | postelje tečejo TOČNO KO URNA PREDLOGA — celonočni ID overlay (`{0m0s}`) tudi ne utihne ob downtimeu; kdaj ne jesti vremena, je lastnikova odločitev prek `weatherMinutes` |
+| opravila prek noči (downtime) | postelje tečejo TOČNO KO URNA PREDLOGA — celonočni ID overlay (`{0m0s}`) tudi ne utihne ob downtimeu; kdaj ne jesti vremena, je lastnikova odločitev prek `weatherMinutes` ali (Val 25) okna `weatherDaypart` |
+| ura zunaj `weatherDaypart` okna | vremenski slot preprosto NI dogodek — ne sproži se ne producira; nextshow napovedi tečejo naprej |
+| ročni sprož (`trigger` CLI / MCP `beds_trigger`) | sveža produkcija + takojšnji potisk; zavrnitve so iskrene napake (vrata izklopljena / ni oddaje / vir brez števil / telnet mrtv) |
 
 NAMIG ZA NAMESTITEV (isti razred kot promosov): namestniška predloga
 `radio.liq` nima vrste `beds` — prižiganje `imaging.beds.enabled` tam

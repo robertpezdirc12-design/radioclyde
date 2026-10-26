@@ -13,18 +13,23 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 
-import { setupTestConfig } from './fixtures.mjs';
+import { setupTestConfig, repoRoot } from './fixtures.mjs';
 
 setupTestConfig('format-clock', {
   imaging: { checkIntervalMinutes: 30 }, // deliberately NO beds block (the gating case)
 });
 
 const { config } = await import('../src/config/index.js');
+const REPO = repoRoot();
 const {
   formatClockTick,
   bedSettings,
   weatherSlot,
+  weatherDaypartSetting,
+  weatherSlotActive,
+  triggerBed,
   nextShowEvents,
   loadFiredKeys,
   recordFiredKey,
@@ -644,7 +649,12 @@ describe('J. templates', () => {
   });
 
   test('owner override: config.autoRadio.templates.bedNextShow replaces the pool wholesale', () => {
-    const previous = config.autoRadio?.templates;
+    // Val 25 fix (latent, caught by the L-block tests running after this
+    // one): the old restore saved config.autoRadio?.templates but wrote it
+    // back into config.autoRadio -- leaving autoRadio undefined for every
+    // test that ran later (stationName silently fell to the 'Radio Markec'
+    // default). Save the whole object, restore the whole object.
+    const previous = config.autoRadio;
     config.autoRadio = { ...(config.autoRadio ?? {}), templates: { bedNextShow: { noHost: ['PRIHAJA {show} OB {nextTime}!'] } } };
     try {
       const text = renderSlot('bedNextShow', { values: { show: 'X', nextTime: '14:20' }, seed: 'any' });
@@ -652,5 +662,318 @@ describe('J. templates', () => {
     } finally {
       config.autoRadio = previous;
     }
+  });
+});
+
+// --- K. weatherDaypart (Val 25): the night-quiet window ---------------------------------
+
+describe('K. weatherDaypart', () => {
+  test('setting: absent/null/junk -> null; valid -> parsed; "24:00" sentinel; from>=to -> null; strict zero-padding', () => {
+    assert.equal(weatherDaypartSetting(undefined), null);
+    assert.equal(weatherDaypartSetting({}), null);
+    assert.equal(weatherDaypartSetting({ weatherDaypart: null }), null);
+    assert.equal(weatherDaypartSetting({ weatherDaypart: '06:00' }), null);
+    assert.equal(weatherDaypartSetting({ weatherDaypart: ['06:00', '23:00'] }), null);
+    assert.equal(weatherDaypartSetting({ weatherDaypart: { from: '06:00' } }), null);
+    assert.equal(weatherDaypartSetting({ weatherDaypart: { from: '6:00', to: '23:00' } }), null); // "6:00" is a typo, not a window
+    assert.equal(weatherDaypartSetting({ weatherDaypart: { from: '23:00', to: '06:00' } }), null); // no midnight wrap (clockwheel v1 convention)
+    assert.equal(weatherDaypartSetting({ weatherDaypart: { from: '06:00', to: '06:00' } }), null); // to <= from
+    assert.deepEqual(weatherDaypartSetting({ weatherDaypart: { from: '06:00', to: '23:00' } }), { fromMin: 360, toMin: 1380 });
+    assert.deepEqual(weatherDaypartSetting({ weatherDaypart: { from: '20:00', to: '24:00' } }), { fromMin: 1200, toMin: 1440 });
+  });
+
+  test('bedSettings exposes the parsed window; absent block -> null (existing installs unchanged)', () => {
+    enable({});
+    assert.equal(bedSettings().weatherDaypart, null);
+    enable({ weatherDaypart: { from: '06:00', to: '23:00' } });
+    assert.deepEqual(bedSettings().weatherDaypart, { fromMin: 360, toMin: 1380 });
+  });
+
+  test('weatherSlotActive: no window -> always true; minute-of-day [from, to) on the slot', () => {
+    const dp = { fromMin: 360, toMin: 1380 };
+    assert.equal(weatherSlotActive(at(3, 0), null), true);
+    assert.equal(weatherSlotActive(at(6, 0), dp), true); // exactly at "from" -> active
+    assert.equal(weatherSlotActive(at(5, 59), dp), false);
+    assert.equal(weatherSlotActive(at(22, 59), dp), true);
+    assert.equal(weatherSlotActive(at(23, 0), dp), false); // exactly at "to" -> inactive
+  });
+
+  test('night window 06:00-24:00: a 03:11 tick sees NO weather events (no fire, no produce, no fetch)', async () => {
+    enable({ weatherDaypart: { from: '06:00', to: '24:00' } });
+    reset();
+    const fetchCalls = [];
+    const fetchWeather = async () => {
+      fetchCalls.push(1);
+      return WEATHER_FULL;
+    };
+    const r = await formatClockTick({ now: at(3, 11), schedule: mkSchedule([]), ...makeFakes(), fetchWeather });
+    assert.deepEqual(r.fired, []);
+    assert.equal(r.produced, 0);
+    assert.equal(fetchCalls.length, 0);
+    assert.ok(!fs.existsSync(config.paths.bedsFiredLedgerFile));
+  });
+
+  test('no weatherDaypart key -> the 03:11 tick produces the 03:15 clip exactly as before (compatibility)', async () => {
+    enable({});
+    reset();
+    const r = await formatClockTick({ now: at(3, 11), schedule: mkSchedule([]), ...makeFakes(), fetchWeather: weatherOf(WEATHER_FULL) });
+    assert.equal(r.produced, 1);
+    assert.ok(fs.existsSync(bedClip('weather_2026-03-10_03-15.mp3')));
+  });
+
+  test('the 05:58 roll lands on 06:15 and the window reads it as morning: produce at 06:11, fire at 06:15', async () => {
+    enable({ weatherDaypart: { from: '06:00', to: '24:00' } });
+    reset();
+    const fakes = makeFakes();
+    const fetchCalls = [];
+    const fetchWeather = async () => {
+      fetchCalls.push(1);
+      return WEATHER_FULL;
+    };
+    const schedule = mkSchedule([]);
+    // 05:58: both marks resolve forward (06:15 / 06:45) but are > produceLead away -> nothing yet
+    let r = await formatClockTick({ now: at(5, 58), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 0);
+    assert.equal(fetchCalls.length, 0);
+    // 06:11: the 06:15 slot is inside the produce lead and INSIDE the window -> produced
+    r = await formatClockTick({ now: at(6, 11), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 1);
+    assert.ok(fs.existsSync(bedClip('weather_2026-03-10_06-15.mp3')));
+    // 06:15:02: fires
+    r = await formatClockTick({ now: at(6, 15, 2), schedule, ...fakes, fetchWeather });
+    assert.deepEqual(r.fired.map((f) => f.ok), [true]);
+    assert.equal(fakes.pushCalls[0], bedClip('weather_2026-03-10_06-15.mp3'));
+  });
+
+  test('to is exclusive at minute granularity: to "22:30" keeps the 22:15 mark, silences 22:45', async () => {
+    enable({ weatherDaypart: { from: '06:00', to: '22:30' } });
+    reset();
+    const fakes = makeFakes();
+    const fetchWeather = weatherOf(WEATHER_FULL);
+    const schedule = mkSchedule([]);
+    // 22:11: the 22:15 slot is inside the lead and inside the window -> produced
+    let r = await formatClockTick({ now: at(22, 11), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 1);
+    assert.ok(fs.existsSync(bedClip('weather_2026-03-10_22-15.mp3')));
+    // 22:41: the 22:45 slot is inside the lead but OUTSIDE the window -> nothing
+    r = await formatClockTick({ now: at(22, 41), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 0);
+    assert.ok(!fs.existsSync(bedClip('weather_2026-03-10_22-45.mp3')));
+    // the same moment with to "23:00": 22:45 is active -> produced
+    enable({ weatherDaypart: { from: '06:00', to: '23:00' } });
+    r = await formatClockTick({ now: at(22, 41), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 1);
+    assert.ok(fs.existsSync(bedClip('weather_2026-03-10_22-45.mp3')));
+  });
+
+  test('boundaries: a slot exactly at "from" is active, a slot exactly at "to" is not', async () => {
+    enable({ weatherMinutes: [0], weatherDaypart: { from: '14:00', to: '16:00' } });
+    reset();
+    const fakes = makeFakes();
+    const fetchWeather = weatherOf(WEATHER_FULL);
+    const schedule = mkSchedule([]);
+    let r = await formatClockTick({ now: at(13, 56), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 1); // the 14:00 slot: mark 0, exactly at "from" -> active
+    r = await formatClockTick({ now: at(14, 0, 2), schedule, ...fakes, fetchWeather });
+    assert.deepEqual(r.fired.map((f) => f.ok), [true]);
+    // 15:56: mark 0 rolls to 16:00 -- exactly at "to" -> filtered, nothing produced
+    r = await formatClockTick({ now: at(15, 56), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 0);
+  });
+
+  test('nextshow events are NOT dayparted: a 01:00 show still gets its 00:55 announcement under a day window', async () => {
+    enable({ weatherDaypart: { from: '06:00', to: '24:00' } });
+    reset();
+    const fakes = makeFakes();
+    const fetchWeather = weatherOf(WEATHER_FULL);
+    const schedule = mkSchedule([{ id: 'nocna', startTime: '01:00', durationMinutes: 30 }]);
+    writeBrief('show-descriptions/nocna.md', 'Nocna', 'Voditelj: Miha');
+    let r = await formatClockTick({ now: at(0, 51), schedule, ...fakes, fetchWeather });
+    assert.equal(r.produced, 1); // nextshow fire 00:55, produce lead 4 -> 00:51 (weather events all filtered)
+    r = await formatClockTick({ now: at(0, 55, 10), schedule, ...fakes, fetchWeather });
+    assert.deepEqual(r.fired.map((f) => f.ok), [true]);
+    assert.equal(fakes.pushCalls[0], bedClip('nextshow_nocna_2026-03-10_01-00.mp3'));
+  });
+});
+
+// --- L. manual trigger (Val 25: triggerBed -- the operator's hands) ----------------------
+
+describe('L. manual trigger', () => {
+  test('layer off -> throws (the OPT-IN gate is the one gate a manual call must honor)', async () => {
+    config.imaging = { checkIntervalMinutes: 30 };
+    await assert.rejects(triggerBed({ kind: 'weather', ...makeFakes() }), /imaging\.beds\.enabled is not true/);
+  });
+
+  test('unknown kind -> honest throw naming the two kinds', async () => {
+    enable({});
+    await assert.rejects(triggerBed({ kind: 'vreme', ...makeFakes() }), /unknown kind "vreme" \(expected "weather" or "nextshow"\)/);
+  });
+
+  test('weather happy path: fresh fetch at trigger time, deterministic name, push, NO ledger key', async () => {
+    enable({});
+    reset();
+    const fakes = makeFakes();
+    const fetchCalls = [];
+    const fetchWeather = async () => {
+      fetchCalls.push(1);
+      return WEATHER_FULL;
+    };
+    const now = at(14, 23);
+    const result = await triggerBed({ kind: 'weather', now, ...fakes, fetchWeather });
+    assert.deepEqual(result, {
+      kind: 'weather',
+      key: 'manual-weather@2026-03-10@14-23',
+      clip: bedClip('weather_manual_2026-03-10_14-23.mp3'),
+    });
+    assert.equal(fetchCalls.length, 1);
+    assert.ok(fs.existsSync(result.clip), 'the produced clip lands at the deterministic manual name');
+    assert.match(fakes.synthCalls[0].text, /12 stopinj/); // Math.round(12.3)
+    assert.deepEqual(fakes.pushCalls, [result.clip]);
+    assert.ok(!fs.existsSync(config.paths.bedsFiredLedgerFile), 'manual fires write no ledger key (the ledger dedupes AUTOMATIC slots)');
+  });
+
+  test('manual weather deliberately overrides weatherMinutes: [] AND the daypart window', async () => {
+    enable({ weatherMinutes: [], weatherDaypart: { from: '06:00', to: '07:00' } });
+    reset();
+    const result = await triggerBed({ kind: 'weather', now: at(3, 30), ...makeFakes(), fetchWeather: weatherOf(WEATHER_FULL) });
+    assert.equal(result.kind, 'weather');
+    assert.ok(fs.existsSync(result.clip));
+  });
+
+  test('weather: no temperature -> honest throw, nothing pushed (P4 #29: no fabricated numbers)', async () => {
+    enable({});
+    reset();
+    const fakes = makeFakes();
+    await assert.rejects(
+      triggerBed({ kind: 'weather', now: at(14, 23), ...fakes, fetchWeather: weatherOf({ weather_code: 61 }) }),
+      /clip production failed/
+    );
+    assert.deepEqual(fakes.pushCalls, []);
+  });
+
+  test('nextshow: announces the next upcoming occurrence with brief name + host + start time + danes', async () => {
+    enable({});
+    reset();
+    writeBrief('show-descriptions/vecerni.md', 'Vecerni', '**Personas:** petra');
+    const schedule = mkSchedule([
+      { id: 'vecerni', startTime: '14:20', durationMinutes: 30, description: 'show-descriptions/vecerni.md' },
+    ]);
+    const fakes = makeFakes();
+    const result = await triggerBed({ kind: 'nextshow', now: at(14, 0), schedule, ...fakes });
+    assert.deepEqual(result, {
+      kind: 'nextshow',
+      key: 'manual-nextshow@2026-03-10@14-20@vecerni',
+      clip: bedClip('nextshow_manual_vecerni_2026-03-10_14-00.mp3'),
+    });
+    assert.match(fakes.synthCalls[0].text, /Vecerni/);
+    assert.match(fakes.synthCalls[0].text, /Petra/);
+    assert.match(fakes.synthCalls[0].text, /14:20/);
+    assert.match(fakes.synthCalls[0].text, /danes/);
+    assert.match(fakes.synthCalls[0].text, /Test Station/);
+    assert.deepEqual(fakes.pushCalls, [result.clip]);
+  });
+
+  test('nextshow with showId: targets THAT show\'s next occurrence; unknown showId -> honest throw', async () => {
+    enable({});
+    reset();
+    writeBrief('show-descriptions/vecerni.md', 'Vecerni', '**Personas:** petra');
+    writeBrief('show-descriptions/pozno.md', 'Pozno', '');
+    const schedule = mkSchedule([
+      { id: 'vecerni', startTime: '14:20', durationMinutes: 30, description: 'show-descriptions/vecerni.md' },
+      { id: 'pozno', startTime: '16:00', durationMinutes: 30, description: 'show-descriptions/pozno.md' },
+    ]);
+    const fakes = makeFakes();
+    const result = await triggerBed({ kind: 'nextshow', showId: 'pozno', now: at(14, 0), schedule, ...fakes });
+    assert.equal(result.key, 'manual-nextshow@2026-03-10@16-00@pozno');
+    assert.match(fakes.synthCalls[0].text, /16:00/);
+    await assert.rejects(
+      triggerBed({ kind: 'nextshow', showId: 'neobstojeca', now: at(14, 0), schedule, ...fakes }),
+      /no upcoming occurrence of show "neobstojeca" within 24 h/
+    );
+  });
+
+  test('nextshow with an empty lineup -> honest throw (no upcoming show within 24 h)', async () => {
+    enable({});
+    reset();
+    await assert.rejects(
+      triggerBed({ kind: 'nextshow', now: at(14, 0), schedule: mkSchedule([]), ...makeFakes() }),
+      /no upcoming show within 24 h/
+    );
+  });
+
+  test('day word anchored to the TRIGGER moment: a 22:00 trigger for tomorrow\'s 08:00 show says "jutri"', async () => {
+    enable({});
+    reset();
+    writeBrief('show-descriptions/jutro.md', 'Jutro', '**Personas:** ana');
+    const schedule = mkSchedule([
+      { id: 'jutro', startTime: '08:00', durationMinutes: 30, description: 'show-descriptions/jutro.md' },
+    ]);
+    const fakes = makeFakes();
+    await triggerBed({ kind: 'nextshow', now: at(22, 0), schedule, ...fakes });
+    assert.match(fakes.synthCalls[0].text, /jutri/);
+  });
+
+  test('push refused by Liquidsoap -> the verbatim refusal surfaces through the throw', async () => {
+    enable({});
+    reset();
+    const fakes = makeFakes({ failPushFor: 'weather_manual', pushResult: 'refuse' });
+    await assert.rejects(
+      triggerBed({ kind: 'weather', now: at(14, 23), ...fakes, fetchWeather: weatherOf(WEATHER_FULL) }),
+      /Liquidsoap refused the bed .*"ERROR: Unknown command"/
+    );
+  });
+
+  test('push THROWS (dead telnet) -> the error surfaces through the manual path', async () => {
+    enable({});
+    reset();
+    const fakes = makeFakes({ failPushFor: 'weather_manual', pushResult: 'throw' });
+    await assert.rejects(
+      triggerBed({ kind: 'weather', now: at(14, 23), ...fakes, fetchWeather: weatherOf(WEATHER_FULL) }),
+      /bed push failed .* ECONNREFUSED/
+    );
+  });
+
+  test('the loudness bake applies on the manual path too: off-target LUFS -> one ffmpeg volume pass', async () => {
+    enable({});
+    reset();
+    const fakes = makeFakes({ lufs: -30 });
+    const result = await triggerBed({ kind: 'weather', now: at(14, 23), ...fakes, fetchWeather: weatherOf(WEATHER_FULL) });
+    assert.equal(fakes.runCalls.length, 1);
+    assert.ok(fakes.runCalls[0].args.some((a) => String(a).startsWith('volume=')));
+    assert.ok(fs.existsSync(result.clip));
+  });
+});
+
+// --- M. CLI dispatch (Val 25: the spawned-child pattern from mcpConfigGuard) -------------
+
+// The fixture config.json on disk deliberately has NO beds block (the file
+// header's gating case), so both CLI paths below exercise their layer-off
+// branches -- no network, no Edge, no telnet, deterministic at any hour.
+function runCli(args) {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [path.join(REPO, 'src/scheduler/formatClock.js'), ...args],
+      { cwd: REPO },
+      (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr })
+    );
+  });
+}
+
+describe('M. CLI dispatch', () => {
+  test('no args -> one tick, layer off -> exit 0 + the honest skip line', async () => {
+    const { code, stdout } = await runCli([]);
+    assert.equal(code, 0);
+    assert.match(stdout, /Format clock skipped: imaging\.beds\.enabled is not true\./);
+  });
+
+  test('trigger weather with the layer off -> exit 1 (a named trigger never looks successful)', async () => {
+    const { code } = await runCli(['trigger', 'weather']);
+    assert.equal(code, 1);
+  });
+
+  test('trigger junk kind -> exit 1 with the honest unknown-kind message in the log path', async () => {
+    const { code } = await runCli(['trigger', 'vreme']);
+    assert.equal(code, 1);
   });
 });

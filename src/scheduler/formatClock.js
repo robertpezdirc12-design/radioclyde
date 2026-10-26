@@ -50,6 +50,22 @@
 //     (one attempt per slot -- retrying every 6 s against a dead telnet would
 //     be spam, and Liquidsoap down means bigger problems than a missed bed).
 //
+// Dayparting (Val 25): weather rubrics can be windowed with
+// config.imaging.beds.weatherDaypart {from,to} (the filler wheel's daypart
+// semantics verbatim: strict zero-padded HH:MM + the "24:00" sentinel, from
+// inclusive / to exclusive, no midnight wrap) so the night stays quiet --
+// the shipped default is NO window (absent or junk -> every mark fires,
+// existing installs keep their behavior). nextshow events are deliberately
+// never windowed: a show boundary matters at any hour, and a night without
+// shows generates no events to gate in the first place.
+//
+// Manual beds (Val 25): triggerBed() below is the operator's hands -- one
+// FRESH clip produced and pushed NOW (weather: conditions at trigger time;
+// nextshow: the next upcoming occurrence, or a specific show's). It honors
+// ONLY the master OPT-IN gate: the schedule knobs (weatherMinutes,
+// weatherDaypart) shape the AUTOMATIC clock, and an explicit manual action
+// is exactly the override those knobs exist to be overridden by.
+//
 // Like every imaging-family module: 0 new dependencies, atomic tmp+rename
 // everywhere (tmp names NEVER end in an audio extension), and the operator's
 // hand-placed files are untouchable -- see the load-bearing comment at
@@ -61,6 +77,10 @@ import { promisify } from 'node:util';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { loadSchedule, upcomingOccurrences, absoluteStart, dateKey } from './scheduleUtil.js';
+// parseWheelTime: the ONE source of truth for the HH:MM daypart-window
+// convention (clockwheel.js dayparts parse with the identical function -- a
+// station must never grow two subtly-different time-window grammars).
+import { parseWheelTime } from './clockwheel.js';
 import { resolveShowInfo } from '../server/showName.js';
 // slovenianDayLabel: 'danes'/'jutri'/'v <dan>' RELATIVE TO THE FIRE MOMENT --
 // the clip is produced minutes before it fires, so the day word must be
@@ -120,6 +140,7 @@ export function bedSettings() {
   const retentionHours = beds.clipRetentionHours;
   return {
     weatherMinutes: weatherMinutesSetting(beds),
+    weatherDaypart: weatherDaypartSetting(beds),
     produceLeadMs:
       Number.isFinite(produceLeadMinutes) && produceLeadMinutes > 0 ? produceLeadMinutes * 60_000 : 4 * 60_000,
     // 0 = keep forever (archive retention's documented semantics); junk =
@@ -142,6 +163,30 @@ function weatherMinutesSetting(beds) {
   const raw = beds.weatherMinutes;
   if (raw === undefined || !Array.isArray(raw)) return [15, 45];
   return [...new Set(raw.filter((m) => Number.isInteger(m) && m >= 0 && m < 60))].sort((a, b) => a - b);
+}
+
+// Daypart window for the weather rubric (Val 25) -- the module header has
+// the full contract. Absent/junk -> null (always active, the shipped
+// default); valid -> { fromMin, toMin }. Exported because the tests pin the
+// F2 semantics directly, same as weatherMinutesSetting via bedSettings().
+export function weatherDaypartSetting(beds) {
+  const raw = beds?.weatherDaypart;
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const fromMin = parseWheelTime(raw.from);
+  const toMin = parseWheelTime(raw.to);
+  if (fromMin == null || toMin == null || toMin <= fromMin) return null;
+  return { fromMin, toMin };
+}
+
+// The slot's MINUTE OF DAY decides (from inclusive, to exclusive -- the
+// wheel's exact comparison, clockwheel.js:132-134): a :45 mark with
+// to "22:30" is already outside while to "23:00" keeps it. Judged on the
+// RESOLVED slot, so the next-hour roll at 05:58 lands on 06:15 and reads as
+// morning, and DST cannot bend a minute-of-day comparison.
+export function weatherSlotActive(slot, daypart) {
+  if (!daypart) return true;
+  const minuteOfDay = slot.getHours() * 60 + slot.getMinutes();
+  return minuteOfDay >= daypart.fromMin && minuteOfDay < daypart.toMin;
 }
 
 function nextShowLeadMinutes() {
@@ -402,6 +447,97 @@ export function pruneStaleBedClips({ now = new Date(), retentionMs = 2 * 3600_00
 }
 
 // ---------------------------------------------------------------------------
+// manual beds (Val 25): the operator's hands
+// ---------------------------------------------------------------------------
+
+// A manual "next show" looks at most a day ahead: upcomingOccurrences walks
+// today + tomorrow, and a mid-afternoon ask about tomorrow's breakfast show
+// must answer (the day word says "jutri" honestly).
+const MANUAL_NEXTSHOW_HORIZON_MINUTES = 24 * 60;
+
+// Manual, on-demand bed: produce FRESH and push NOW (the exact action the
+// automatic clock performs across minutes, compressed into one call).
+// kind 'weather' reports conditions fetched AT TRIGGER TIME; kind 'nextshow'
+// announces the next upcoming occurrence, or the next occurrence of a
+// specific showId. Unlike the tick this function THROWS on refusal -- the
+// tick is autonomous and must degrade softly, while a manual call's
+// refusals are the caller's problem to see (the MCP tool maps them to
+// isError, the CLI to a non-zero exit). No ledger key is written: the
+// ledger deduplicates AUTOMATIC slots, and a manual trigger IS its own
+// single deliberate fire. Manual clip names stay inside the
+// GENERATED_BED_RE namespace (weather_manual_... / nextshow_manual_...) so
+// the retention sweep owns them like every other generated clip -- and two
+// triggers inside the same minute share one deterministic name (the
+// overwrite carries the retrigger's FRESH bytes; a queued-but-unplayed bed
+// is a sub-second window the operator re-triggered inside on purpose).
+export async function triggerBed({
+  kind = 'weather',
+  showId = null,
+  now = new Date(),
+  schedule = undefined,
+  synthesize,
+  analyze,
+  run,
+  fetchWeather,
+  push,
+} = {}) {
+  if (config.imaging?.beds?.enabled !== true) {
+    throw new Error('imaging.beds.enabled is not true -- the bed layer is off (OPT-IN)');
+  }
+  const { date, hm } = slotStamp(new Date(now));
+  let event;
+  if (kind === 'weather') {
+    event = {
+      kind: 'weather',
+      key: `manual-weather@${date}@${hm}`,
+      fireTime: new Date(now).getTime(),
+      clipPath: path.join(config.paths.bedsDir, `weather_manual_${date}_${hm}.mp3`),
+    };
+  } else if (kind === 'nextshow') {
+    const upcoming = upcomingOccurrences(schedule ?? loadSchedule(), now, MANUAL_NEXTSHOW_HORIZON_MINUTES);
+    const occ = showId != null ? upcoming.find((o) => o.show.id === showId) : upcoming[0];
+    if (!occ) {
+      throw new Error(
+        showId != null
+          ? `no upcoming occurrence of show "${showId}" within ${MANUAL_NEXTSHOW_HORIZON_MINUTES / 60} h`
+          : `no upcoming show within ${MANUAL_NEXTSHOW_HORIZON_MINUTES / 60} h`
+      );
+    }
+    event = {
+      kind: 'nextshow',
+      key: `manual-nextshow@${occ.date}@${occ.timeKey}@${occ.show.id}`,
+      fireTime: new Date(now).getTime(),
+      clipPath: path.join(config.paths.bedsDir, `nextshow_manual_${occ.show.id}_${date}_${hm}.mp3`),
+      occurrence: occ,
+    };
+  } else {
+    throw new Error(`unknown kind "${kind}" (expected "weather" or "nextshow")`);
+  }
+  const landed = await produceBedClip(event, {
+    synthesize: synthesize ?? synthesizeWithEdge,
+    analyze: analyze ?? analyzeTrack,
+    run: run ?? execFileAsync,
+    fetchWeather: fetchWeather ?? fetchCurrentWeather,
+  });
+  if (!landed) {
+    throw new Error(
+      `clip production failed for ${event.key} (weather source or Edge TTS unreachable) -- nothing was pushed`
+    );
+  }
+  let outcome;
+  try {
+    outcome = await (push ?? pushBedFile)(event.clipPath);
+  } catch (err) {
+    throw new Error(`bed push failed for ${event.key}: ${err?.message ?? err}`);
+  }
+  if (outcome?.ok !== true) {
+    throw new Error(`Liquidsoap refused the bed for ${event.key}: ${outcome?.error ?? outcome}`);
+  }
+  log(`format_clock: manual bed fired for ${event.key} -> ${event.clipPath}`);
+  return { kind, key: event.key, clip: event.clipPath };
+}
+
+// ---------------------------------------------------------------------------
 // the tick
 // ---------------------------------------------------------------------------
 
@@ -447,8 +583,14 @@ export async function formatClockTick({
     // Fires FIRST, produces after: a fire is one telnet push (milliseconds)
     // while a produce is seconds of Edge+ffmpeg -- a due slot must never
     // wait behind an unrelated clip's production.
+    // Val 25: weather events outside the daypart window (if any) are simply
+    // not events -- an inactive hour neither fires NOR produces, and the
+    // filter runs on the RESOLVED slot so the 05:58 roll to 06:15 reads as
+    // morning. nextshow events are never dayparted (module header).
     const events = [
-      ...beds.weatherMinutes.map((mark) => weatherEvent(mark, now)),
+      ...beds.weatherMinutes
+        .map((mark) => weatherEvent(mark, now))
+        .filter((event) => weatherSlotActive(new Date(event.fireTime), beds.weatherDaypart)),
       ...nextShowEvents(schedule ?? loadSchedule(), now, nextShowLeadMinutes()),
     ];
 
@@ -515,7 +657,12 @@ export async function formatClockTick({
 // CLI for box-side verification (the promoProducer precedent): one honest
 // tick, numbers on stdout, non-zero exit only on a thrown tick (gating and
 // degradation are outcomes, not errors).
-//   node src/scheduler/formatClock.js
+//   node src/scheduler/formatClock.js                        -- one tick
+//   node src/scheduler/formatClock.js trigger weather        -- one manual weather bed (Val 25)
+//   node src/scheduler/formatClock.js trigger nextshow [showId]
+// The manual path exits non-zero on every honest refusal (layer off, no
+// show, production failure, refused push) -- a trigger the operator asked
+// for by name must never look like it succeeded silently.
 async function main() {
   const result = await formatClockTick();
   if (result.skipped === true) {
@@ -535,8 +682,16 @@ async function main() {
   }
 }
 
+async function mainTrigger(kind, showId) {
+  const result = await triggerBed({ kind, showId });
+  console.log(`Manual bed fired: ${result.key} -> ${result.clip}`);
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((err) => {
+  const [, , cmd, kindArg, showIdArg] = process.argv;
+  const invocation =
+    cmd === 'trigger' ? mainTrigger(kindArg ?? 'weather', showIdArg ?? null) : main();
+  invocation.catch((err) => {
     log(`ERROR: ${err.stack || err.message}`);
     process.exitCode = 1;
   });

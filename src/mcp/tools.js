@@ -1,4 +1,4 @@
-// The MCP tool catalog for Radio Markec (30 tools: 17 read, 13 write) --
+// The MCP tool catalog for Radio Markec (31 tools: 17 read, 14 write) --
 // the surface an AI client (Claude Desktop & friends) drives through
 // src/mcp/server.js over stdio JSON-RPC. See docs/mcp-server.md (Slovenian)
 // for the operator-facing contract.
@@ -97,6 +97,7 @@ function loadBackend() {
         deadAirLedgerMod,
         onAirApiMod,
         requestQueueMod,
+        formatClockMod,
       ] = await Promise.all([
         import('../config/index.js'),
         import('../lib/logger.js'),
@@ -132,6 +133,13 @@ function loadBackend() {
         // is inert and keeps ONE source of truth for the skip command shape.
         import('../server/studioOnAirApi.js'),
         import('../liquidsoap/requestQueue.js'),
+        // Val 25 -- beds_trigger's backend. formatClock.js is import-inert
+        // (only const/logger initialization; the scheduler process runs it
+        // 24/7), and its deps (templates/weather/bedQueue/autocue/showName/
+        // edgeTts) are equally inert at import -- the same audit class every
+        // module above passed. tools/list never loads this (the static
+        // catalog), only a beds_trigger call does.
+        import('../scheduler/formatClock.js'),
       ]);
       return {
         config: configMod.config,
@@ -190,6 +198,7 @@ function loadBackend() {
         sendCommand: (await import('../liquidsoap/telnetClient.js')).sendCommand,
         forceNextOccurrence: (await import('../scheduler/updateNowPlaying.js')).forceNextOccurrence,
         queueRequest: requestQueueMod.queueRequest,
+        triggerBed: formatClockMod.triggerBed,
       };
     })();
   }
@@ -1129,6 +1138,55 @@ const scheduleSetDateTool = {
   },
 };
 
+const bedsTriggerTool = {
+  name: 'beds_trigger',
+  description:
+    'Fire one format-clock bed ON DEMAND (the manual trigger the automatic clock cannot express): produce a FRESH clip right now and push it onto the air as a spoken bed over the ducked music. kind "weather" reports current conditions (Open-Meteo, fetched at trigger time, °C/km/h); kind "nextshow" announces the next upcoming show, or a specific showId\'s next occurrence within 24 h. Honors only the master gate imaging.beds.enabled -- weatherMinutes and the weatherDaypart window shape the automatic clock, a manual trigger is exactly the override for special moments (live events, breaks). Timing is the caller\'s responsibility: a manual trigger seconds before a scheduled mark airs both. Refuses honestly when the layer is off, no show matches, the weather source lacks numbers, or Liquidsoap refuses the push.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['weather', 'nextshow'] },
+      showId: {
+        type: 'string',
+        maxLength: 100,
+        description: 'Announce this show\'s next occurrence instead of the next upcoming show.',
+      },
+    },
+    required: ['kind'],
+    additionalProperties: false,
+  },
+  write: true,
+  handler: async (args, ctx) => {
+    const be = await loadBackend();
+    // Inline validation beside the schema (request_moderate's belt-and-
+    // suspenders precedent: loose clients must not reach the backend with
+    // junk kinds).
+    const kind = args?.kind;
+    if (kind !== 'weather' && kind !== 'nextshow') {
+      throw new ToolFailure('kind mora biti "weather" ali "nextshow".');
+    }
+    const rawShowId = args?.showId;
+    const showId = typeof rawShowId === 'string' && rawShowId.trim() ? rawShowId.trim() : null;
+    // The ctx seam set is triggerBed's own ({ now, schedule, synthesize,
+    // analyze, run, fetchWeather, push }): tests inject fakes, production
+    // passes nothing and triggerBed resolves the real implementations
+    // (formatClock.js -- no HTTP route exists for this surface; the MCP tool
+    // and the formatClock CLI are its only two callers).
+    const seams = {};
+    for (const key of ['now', 'schedule', 'synthesize', 'analyze', 'run', 'fetchWeather', 'push']) {
+      if (ctx?.[key] !== undefined) seams[key] = ctx[key];
+    }
+    let result;
+    try {
+      result = await be.triggerBed({ kind, showId, ...seams });
+    } catch (err) {
+      throw new ToolFailure(err.message);
+    }
+    be.audit(`beds_trigger: ${kind}${showId ? ` (${showId})` : ''} -> ${result.key}`);
+    return result;
+  },
+};
+
 const updateStationMetaTool = {
   name: 'update_station_meta',
   description:
@@ -1230,6 +1288,7 @@ export const TOOLS = [
   scheduleRemoveOccurrenceTool,
   scheduleSetDateTool,
   updateStationMetaTool,
+  bedsTriggerTool,
 ];
 
 export function toolByName(name) {

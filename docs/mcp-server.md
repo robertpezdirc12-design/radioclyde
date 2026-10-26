@@ -26,7 +26,7 @@ vsako orodje je bodisi čisto branje obstoječih datotek bodisi klic obstoječe
 funkcije, ki jo že poganjajo HTTP poti (npr. `POST /studio/api/on-air/skip`).
 Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 
-## Orodja (30: 17 bralnih, 13 pisalnih)
+## Orodja (31: 17 bralnih, 14 pisalnih)
 
 | Orodje | B/P | Ena vrstica |
 |---|---|---|
@@ -60,6 +60,7 @@ Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 | `schedule_remove_occurrence` | P | Odstrani termin iz urnika in zapre nastalo luknjo. |
 | `schedule_set_date` | P | Celodnevni override enega koledarskega datuma (prazniki, enkratni dogodki): `schedule.dates[date]` povsem nadomesti tedensko predlogo tega dne; prazen seznam pomeni namerno temno dan; `clear` odstrani prekrivko. Vnosi so enaki `schedule_add_occurrence` (vključno z replay vnosi). |
 | `update_station_meta` | P | Ime postaje, izvzete ključnice/izvajalce (neverPlay) in okno mirovanja. |
+| `beds_trigger` | P | Ročno sproži eno posteljo formatne ure TAKOJ ZDAJ (Val 25): sveža produkcija + takojšnji potisk čez utišano glasbo. `weather` poroča trenutne razmere (Open-Meteo ob trenutku klica); `nextshow` napove naslednjo oddajo (ali naslednji termin določenega `showId`). Upošteva le glavna vrata `imaging.beds.enabled` — urna predloga in nočno okno vremena se zavestno preglasita, kadar jih lastnik (ali AI odjemalec) sproži ročno. |
 
 B = branje, P = pisanje (spremeni skupno stanje).
 

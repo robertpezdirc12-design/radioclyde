@@ -75,14 +75,14 @@ describe('catalog survives a missing config (static import surface)', () => {
     }
   });
 
-  test('tools/list answers all 30 tools with no config.json on disk at all', async () => {
+  test('tools/list answers all 31 tools with no config.json on disk at all', async () => {
     // tools.js was imported above while config.json existed, but the catalog
     // itself never touched it: prove it by listing with the file gone.
     fs.rmSync(CONFIG_PATH, { force: true });
     try {
       const server = createMcpServer({ tools: TOOLS });
       const res = JSON.parse(await server.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })));
-      assert.equal(res.result.tools.length, 30);
+      assert.equal(res.result.tools.length, 31);
     } finally {
       fs.writeFileSync(CONFIG_PATH, ORIGINAL_CONFIG);
     }
@@ -147,7 +147,7 @@ describe('server.js with a broken config.json (the F2 lesson at the MCP layer)',
       assert.equal(init.result.protocolVersion, '2025-06-18');
 
       const list = JSON.parse(lines[1]);
-      assert.equal(list.result.tools.length, 30, 'the static catalog lists even without config');
+      assert.equal(list.result.tools.length, 31, 'the static catalog lists even without config');
 
       const call = JSON.parse(lines[2]);
       assert.equal(call.id, 3);

@@ -168,7 +168,12 @@ phases hand off through.
   and the next-show handoff `nextShowLeadMinutes` before the switch — via
   `src/scheduler/formatClock.js` (OPT-IN `config.imaging.beds`, produced
   minutes ahead, pushed at the exact minute, no `radio.liq` change —
-  [imaging-layer.md §5](docs/imaging-layer.md)).
+  [imaging-layer.md §5](docs/imaging-layer.md)). Since Val 25 the weather
+  rubric can be dayparted (`imaging.beds.weatherDaypart` — a quiet night by
+  one config line, clockwheel's window semantics) and the whole format clock
+  is manually triggerable on demand: CLI `node src/scheduler/formatClock.js
+  trigger weather|nextshow [showId]` or the MCP `beds_trigger` tool (fresh
+  production + immediate push, honoring only the master OPT-IN gate).
 - **DJ transition effects (P3 #11), live-verified on the real engine**: sweep
   / washout / dissolve seams between music tracks, borrowed from SUB/WAVE's
   production mixer and gated behind `%ifversion >= 2.4.6` — on the current
@@ -538,12 +543,12 @@ prose for humans. The selection section supports:
   `embed.html` stays self-contained and unthemed.
 - **MCP server (stdio + remote HTTP)**: `npm run mcp` starts a standalone
   JSON-RPC process (`src/mcp/server.js`) that lets an AI client such as
-  Claude Desktop inspect and control the station — 30 tools (now-playing,
+  Claude Desktop inspect and control the station — 31 tools (now-playing,
   history, schedule editing, station meta, polls, request moderation, skip /
-  force-next show, ...) wired straight to the stores the routes use, with
-  `mcp.enabled` and `mcp.allowWriteTools` kill-switches in `config.json` and
-  zero new dependencies. For clients that can't launch a local process, the
-  same 30 tools are also reachable over HTTP at `POST /studio/api/mcp`
+  force-next show, manual format-clock beds, ...) wired straight to the stores
+  the routes use, with `mcp.enabled` and `mcp.allowWriteTools` kill-switches in
+  `config.json` and zero new dependencies. For clients that can't launch a
+  local process, the same 31 tools are also reachable over HTTP at `POST /studio/api/mcp`
   (studio Basic credentials — same auth and same power as the studio's own
   write routes; off by default, opt in with `mcp.remote.enabled` plus a
   station restart) — [guide (sl)](docs/mcp-server.md).
