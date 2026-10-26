@@ -153,7 +153,12 @@ phases hand off through.
   breathes back during speech pauses instead of staying ducked for the whole
   clip. No `sidechaincompress` exists in any Liquidsoap 2.x (it's an ffmpeg
   filter name, verified upstream); everything here runs on verified 2.2.4
-  stdlib.
+  stdlib. Since Paket D1 (Val 23) the station also AUTO-PRODUCES beds on a
+  format clock — weather at the `weatherMinutes` marks (:15/:45 by default)
+  and the next-show handoff `nextShowLeadMinutes` before the switch — via
+  `src/scheduler/formatClock.js` (OPT-IN `config.imaging.beds`, produced
+  minutes ahead, pushed at the exact minute, no `radio.liq` change —
+  [imaging-layer.md §5](docs/imaging-layer.md)).
 - **DJ transition effects (P3 #11), live-verified on the real engine**: sweep
   / washout / dissolve seams between music tracks, borrowed from SUB/WAVE's
   production mixer and gated behind `%ifversion >= 2.4.6` — on the current

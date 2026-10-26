@@ -260,6 +260,8 @@ literali v radio.liq. Razvrščeni po vrednost/strošek v štiri pakete.
 
 ### Paket D — formatna ura (največji skok; ločen val, odločitev vred)
 
+> **DOSTAVLJENO v valu 23** (`scheduler/formatClock.js`, OPT-IN `config.imaging.beds`, 40 testov — docs/auto-radio.md »Paket D (Val 23)« in docs/imaging-layer.md §5). Promo slot iz spodnjega besedila je pokril že B2 (Val 21), zato D1 prinaša vreme ob `:15`/`:45` in napoved naslednje oddaje kot postelji.
+
 **D1: Urni predlogi prek obstoječih postelj.** Fiksna mesta v uri — vreme ob `:15`/`:45`
 KOT POSTELJA (`beds.push` mehanizem ŽE obstaja s sidechain duckerjem — govorna
 rubrika čez utišano glasbo, natanko "napoved čez dan"), napoved naslednje oddaje N
@@ -277,7 +279,7 @@ nov scheduler job + produkcijo klipov na minutni takt.
 - **Val 21 = Paket B** (napovedi — najvišja čista uporabniška vrednost: B1 govorna
   napoved naslednje oddaje je tisto, kar isalec te raziskave išče pod "napovedi").
 - **Val 22 = Paket C** (datumi + replay).
-- **Val 23 = Paket D** (formatna ura — najbolj "profesionalen" zvok, največji obseg).
+- **Val 23 = Paket D** (formatna ura — najbolj "profesionalen" zvok, največji obseg) — dostavljen.
 - **Zavrnjeno s podanim razlogom**: (a) Websocket/SSE push now-playinga — AzuraCast
   potrebuje Centrifugo zaradi 1000+ sočasnih poslušalcev; naš polling za eno-družinsko
   postajo ni ozko grlo in bi pomenil novo mini-storitev; (b) skupnostni katalog — že

@@ -26,6 +26,7 @@ import { backupStation } from './backupStation.js';
 import { restartChatterbox } from './restartChatterbox.js';
 import { writeImagingPlaylists } from './imagingPlaylists.js';
 import { producePromoClips } from './promoProducer.js';
+import { formatClockTick } from './formatClock.js';
 import { runAutocueScan } from './autocueScan.js';
 import { pushDispatchTick } from './pushDispatch.js';
 import { sampleNow } from '../analytics/listenerSamples.js';
@@ -238,6 +239,19 @@ export function startScheduler() {
   // wrapper).
   if (config.imaging?.promos?.enabled === true) {
     every(cadence(config.imaging?.promos?.checkIntervalMinutes ?? 30), 'promo_producer', producePromoClips);
+  }
+  // Format clock (Paket D1): the hourly template spoken as BEDS over the
+  // music -- weather at the weatherMinutes marks, the next-show handoff
+  // nextShowLeadMinutes before the switch (scheduler/formatClock.js, pushed
+  // through the existing beds telnet queue + sidechain ducker; NO radio.liq
+  // change). OPT-IN for the same reason as promos: a layer that SPEAKS on
+  // air must never appear unannounced on an existing install. The default
+  // cadence is FRACTIONAL on purpose (0.1 = 6 s, the nowPlayingCheck
+  // precedent -- cadence() passes fractional values through): the fire
+  // window is 45 s, so the tick must land inside it reliably, and the
+  // no-tick-work path is two file reads (ledger + dir listing).
+  if (config.imaging?.beds?.enabled === true) {
+    every(cadence(config.imaging?.beds?.tickIntervalMinutes, 0.1), 'format_clock', formatClockTick);
   }
   // R128 loudness alignment (lib/autocue.js + radio.liq's amplify()): one
   // pass over the library per tick, budgeted to maxAnalyzePerRun analyses so

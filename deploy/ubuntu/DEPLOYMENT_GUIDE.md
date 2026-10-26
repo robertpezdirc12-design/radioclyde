@@ -205,14 +205,14 @@ Razporejevalnik enkrat na `backup.intervalMinutes` (privzeto 1440 = dnevno) zapi
 | `station.json`, `show-descriptions/`, `prompts.json` | ročno avtorstvo (urnik, osebnost, briefi) — edini izvod; datumski prenosi (`schedule.dates`) in replay vnosi živijo v isti datoteki, zato jih dnevna kopija pokriva brez dodatnega dela |
 | `requests.jsonl`, `polls.json` | poslušalčevi podatki (želje, posvetila, ankete) — nastanejo sami od poslušalcev, iz etra se ne da rekonstruirati |
 | `push/` (vapid.json, subscriptions.json, sent.jsonl) | poverilnice obvestil: izguba `vapid.json` razveljavi VSE obstoječe naročnine brskalnikov |
-| `history/*.jsonl` (played, aired, listener-samples, filler-rotation, deadair) | dokaz o etru: analitika, »najbolj poslušano«, rotacija fillerja, epizode mrtvega etra |
-| `show-logos/`, `imaging/id/`, `imaging/stingers/`, `imaging/emergency/` | operaterski medij: logotipi oddaj in produkirani posnetki nimajo drugega izvoda |
+| `history/*.jsonl` (played, aired, listener-samples, filler-rotation, deadair, beds-fired) | dokaz o etru: analitika, »najbolj poslušano«, rotacija fillerja, epizode mrtvega etra, knjiga sproženih postelj formatne ure (izguba = kvečjemu ponovna sprožitev slotov, ki so še znotraj 45-sekundnega okna) |
+| `show-logos/`, `imaging/id/`, `imaging/stingers/`, `imaging/emergency/`, `imaging/promos/` | operaterski medij: logotipi oddaj in produkirani posnetki nimajo drugega izvoda (`imaging/promos/` se je pridružil v valu 23 — vrzel iz Val 21: operaterjevi promo klipi so nastali po pokritostnem pregledu iz Val 18; generirani `promo_*.mp3` se vozijo zraven, kar je nekaj sto KB regenerabilnih bajtov) |
 | `track_ratingkeys.json`, `autocue_index.json` | dragi izpeljani predpomnilniki: obnovljiva, a po ponovnem skenu traja ure/dneve |
 | `config.json` (iz korena repozitorija) | edini izvod poverilnic postaje (studio, icecast, plex, lastfm); kopija v arhivu dobi mode `0600` |
 
 ### Kaj je zavestno izven
 
-Tranzientno in izpeljano stanje se NE kopira, ker ga tikovi sami znova zapišejo: `.station_hash`, `now_playing*`, `filler.m3u`, `imaging/*.m3u`, `running/`, `cache/`, `logs/`, `archive/`, `podcasts/`, `piper/`, `asrun/`, `lyrics-cache.json`, `lastfm-session.json`.
+Tranzientno in izpeljano stanje se NE kopira, ker ga tikovi sami znova zapišejo: `.station_hash`, `now_playing*`, `filler.m3u`, `imaging/*.m3u`, `running/`, `cache/`, `logs/`, `archive/`, `podcasts/`, `piper/`, `asrun/`, `lyrics-cache.json`, `lastfm-session.json`, `beds/` (klipi formatne ure — deterministično regenerabilni iz živega vremenskega vira in urnika).
 
 Odgovornost OPERATERJA (po namenu izven te naloge):
 
@@ -294,7 +294,7 @@ sudo diff <(sort /tmp/gen1.m3u) <(sort /opt/radioclyde/data/filler.m3u) | grep -
 
 Znano omejitev: če je knjižnica manjša od `poolSize` (ali manjša od ene urne rotacije), se skladbe neizogibno vrnejo prek najstarejše rotacije — takrat dodajte glasbo ali povečajte knjižnico; arhitektura ne more rotirati, česar ni.
 
-**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`. Isto velja za promo plast (Paket B2): namestniška predloga `radio.liq` nima `promo_source`, zato prižiganje `imaging.promos.enabled` tu pomeni produkcijo klipev, ki nikoli ne gredo na eter — plast živi samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md`, razdelek o promosih).
+**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`. Isto velja za promo plast (Paket B2): namestniška predloga `radio.liq` nima `promo_source`, zato prižiganje `imaging.promos.enabled` tu pomeni produkcijo klipev, ki nikoli ne gredo na eter — plast živi samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md`, razdelek o promosih). ENAKO velja za postelje formatne ure (Paket D1): namestniška predloga nima vrste `request.queue(id="beds")`, zato `imaging.beds.enabled` tu pomeni produkcijo klipev in poštene zavrnitve potiska (`beds.push` ne obstaja) v dnevniku — vrsta za eter obstaja samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md` §5).
 
 ## .gitignore
 

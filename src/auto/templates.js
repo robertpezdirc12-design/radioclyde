@@ -371,6 +371,44 @@ export const DEFAULT_TEMPLATES = {
     '{dayWord} ob {time} vas na {station} čaka {show}, za mikrofonom pa {host} -- ostanite z nami!',
     'Napovedujemo: {show} z voditeljem {host}, {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
   ],
+
+  // Paket D1 (docs/programming-research.md §5): formatna ura -- the beds the
+  // format clock speaks OVER the music (scheduler/formatClock.js, Edge TTS,
+  // pushed via beds.push with the sidechain ducker). Two pools, each split by
+  // the data actually available, exactly like weatherNow's temp/condition
+  // split: bedWeather drops the wind clause when the API returned no wind,
+  // bedNextShow drops the "z voditeljem" clause when the brief has no host
+  // (substitute() would blank the value but keep the sentence shape).
+  // {nextDayWord} is slovenianDayLabel RELATIVE TO THE FIRE MOMENT (the clip
+  // is produced minutes before it fires, so a word relative to produce time
+  // could rot across midnight); the promo pools above deliberately use the
+  // absolute weekday form instead, because THOSE clips live in a pool for
+  // hours. renderSlot's two branches below resolve these pools, so both are
+  // owner-overridable via config.autoRadio.templates with no code changes.
+  bedWeather: {
+    withWind: [
+      'Vreme na {station}: zunaj je {condition}, {temp} stopinj Celzija, veter piha s hitrostjo {wind} kilometrov na uro.',
+      'Vremenski pregled {station}: {condition}, {temp} stopinj Celzija, veter {wind} kilometrov na uro.',
+      '{station} poroča: zunaj je {condition}, {temp} stopinj, piha {wind} kilometrov na uro.',
+    ],
+    noWind: [
+      'Vreme na {station}: zunaj je {condition}, {temp} stopinj Celzija.',
+      'Vremenski pregled {station}: {condition}, {temp} stopinj.',
+      '{station} poroča: zunaj je {condition}, {temp} stopinj Celzija.',
+    ],
+  },
+  bedNextShow: {
+    withHost: [
+      '{nextDayWord} ob {nextTime} vas na {station} čaka {show} z voditeljem {host} -- ostanite z nami!',
+      'Ob {nextTime} na {station} začenja {show}, za mikrofonom pa {host} -- {nextDayWord} ne zamudite!',
+      'Napovedujemo: {show} z voditeljem {host}, {nextDayWord} ob {nextTime}, tukaj na {station}.',
+    ],
+    noHost: [
+      '{nextDayWord} ob {nextTime} vas na {station} čaka {show} -- ostanite z nami!',
+      'Ob {nextTime} na {station} začenja {show} -- ne zamudite!',
+      'Napovedujemo: {show}, {nextDayWord} ob {nextTime}, tukaj na {station}.',
+    ],
+  },
 };
 
 // WMO weather interpretation codes (Open-Meteo), in Slovenian -- mirrors the
@@ -473,6 +511,15 @@ export function renderSlot(slot, { values, seed, block }) {
     pool = values.nextHost ? templates.live.nextShow.withHost : templates.live.nextShow.noHost;
   } else if (slot.startsWith('live:')) {
     pool = templates.live[slot.slice('live:'.length)];
+  } else if (slot === 'bedWeather') {
+    // Paket D1: wind-aware split (weatherNow's data-availability pattern):
+    // no wind from the API -> the pool without the wind clause, never a
+    // rendered "veter piha s hitrostjo  kilometrov" hole (substitute() blanks
+    // the value but keeps the sentence shape).
+    pool = values.wind != null && values.wind !== '' ? templates.bedWeather.withWind : templates.bedWeather.noWind;
+  } else if (slot === 'bedNextShow') {
+    // Paket D1: host-aware split, same rule as live:nextShow above.
+    pool = values.host ? templates.bedNextShow.withHost : templates.bedNextShow.noHost;
   } else if (slot === 'weatherNow') {
     const pools = templates.weatherNow;
     pool = values.temp != null ? (values.condition ? pools.withTemp : pools.tempOnly) : pools.generic;

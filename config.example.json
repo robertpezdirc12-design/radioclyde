@@ -204,6 +204,14 @@
       "checkIntervalMinutes": 30,
       "horizonHours": 18,
       "maxClips": 8
+    },
+    "beds": {
+      "enabled": false,
+      "tickIntervalMinutes": 0.1,
+      "weatherMinutes": [15, 45],
+      "produceLeadMinutes": 4,
+      "nextShowLeadMinutes": 5,
+      "clipRetentionHours": 2
     }
   },
   "autocue": {

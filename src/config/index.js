@@ -95,6 +95,19 @@ config.paths = {
   // the three siblings above.
   imagingPromosDir: path.join(config.dataDir, 'imaging', 'promos'),
   imagingPromosPath: path.join(config.dataDir, 'imaging', 'promos.m3u'),
+  // Format clock (Paket D1, scheduler/formatClock.js): auto-produced BED
+  // clips live in dataDir/beds/ -- deliberately NOT under imaging/ (that
+  // tree's subdirectories are the four m3u LAYERS imagingPlaylists.js
+  // scans; beds are not a layer, they ride the telnet queue, so a file here
+  // never airs by merely existing). The flat name sits next to the
+  // beds-leadin.wav bedQueue.js already generates at the dataDir root.
+  // Deterministic weather_<date>_<HH-MM>.mp3 / nextshow_<id>_<date>_<HH-MM>.mp3
+  // names are both the re-work guard and the stale-sweep key; the
+  // beds-fired.jsonl ledger is the push/dispatch.js sent.jsonl pattern
+  // (one line per fired slot key, count-pruned) and is covered by the daily
+  // backup like every other idempotence ledger.
+  bedsDir: path.join(config.dataDir, 'beds'),
+  bedsFiredLedgerFile: path.join(config.dataDir, 'history', 'beds-fired.jsonl'),
   // R128 loudness alignment (lib/autocue.js + scheduler/autocueScan.js +
   // radio.liq's amplify(override="liq_amplify")): measured per-track LUFS
   // side index. Path-keyed, mtimeMs+size-checked, rewritten atomically by

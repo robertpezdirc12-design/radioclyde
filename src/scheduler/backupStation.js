@@ -7,19 +7,25 @@
 //  - listener-generated state: requests.jsonl (wishes/dedications),
 //    polls.json, push/ (VAPID private key included -- losing it invalidates
 //    every browser subscription, see docs/auto-radio.md)
-//  - operator media: show-logos/, imaging clip dirs (id/stingers/emergency)
+//  - operator media: show-logos/, imaging clip dirs
+//    (id/stingers/emergency/promos -- promos joined in Val 23: the layer
+//    postdates the Val 18 coverage audit, and operator-placed promo clips
+//    are hand-made media; the job's GENERATED promo_*.mp3 clips ride along,
+//    a few hundred KB of regenerable bytes nobody needs to split out)
 //  - expensive derived caches: track_ratingkeys.json, autocue_index.json
 //    (rebuildable, but at hours/days of rescanning)
 //  - ether evidence: history/*.jsonl (played, aired, listener-samples,
-//    filler-rotation, deadair)
+//    filler-rotation, deadair, beds-fired)
 //  - config.json from the repo root: the ONLY copy of the station's
 //    credentials (studio/icecast/plex/lastfm passwords) -- its copy gets
 //    0600, see below.
 // Transient/derived state (.station_hash, now_playing*, filler.m3u,
 // imaging/*.m3u, running/, cache/, logs/, archive/, podcasts/, piper/,
-// pre-generated/, voice-clips/, asrun/) is intentionally NOT copied -- ticks
-// regenerate it. Operator media outside the dataDir conventions (music,
-// jingles) is the operator's responsibility -- see DEPLOYMENT_GUIDE.md.
+// pre-generated/, voice-clips/, asrun/, beds/ -- format-clock clips are
+// deterministically regenerable from the live weather feed and the
+// schedule) is intentionally NOT copied -- ticks regenerate it. Operator
+// media outside the dataDir conventions (music, jingles) is the operator's
+// responsibility -- see DEPLOYMENT_GUIDE.md.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -206,6 +212,14 @@ export async function backupStation() {
     ['imaging/id', config.paths.imagingIdDir, dest(path.join('imaging', 'id')), true],
     ['imaging/stingers', config.paths.imagingStingerDir, dest(path.join('imaging', 'stingers')), true],
     ['imaging/emergency', config.paths.imagingEmergencyDir, dest(path.join('imaging', 'emergency')), true],
+    // Val 23 rider (the Val 21 deferred finding): promos joined its three
+    // sibling layers -- operator clips there are hand-made media, and the
+    // generated promo_*.mp3 riding along is harmless (see header).
+    ['imaging/promos', config.paths.imagingPromosDir, dest(path.join('imaging', 'promos')), true],
+    // Format-clock idempotence ledger (push/sent.jsonl's exact class): losing
+    // it only re-fires slots still inside their 45 s windows after a restore
+    // -- but a backup that says "ALL ledgered state" must mean it.
+    ['history/beds-fired.jsonl', config.paths.bedsFiredLedgerFile, dest(path.join('history', 'beds-fired.jsonl')), false],
   ];
   for (const [label, src, destPath, recursive] of sources) {
     const outcome = copySource(label, src, destPath, recursive, errors);
@@ -243,7 +257,7 @@ export async function backupStation() {
 async function main() {
   const result = await backupStation();
   // `skipped === true` is the no-config-block flag; on a real run `skipped`
-  // is the NUMBER of NOTE-skipped sources (13 on a fresh install), which is
+  // is the NUMBER of NOTE-skipped sources (15 on a fresh install), which is
   // truthy -- hence the strict identity check, not truthiness.
   if (result.skipped === true) {
     console.log('Backup skipped: no config.backup.dir configured.');

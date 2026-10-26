@@ -1,6 +1,6 @@
 # Imaging sloj: ID ob polni uri, stingeri, promosi, emergency podlaga, postelje
 
-*Datum: 2026-10-24 · Radio Markec main, Liquidsoap 2.2.4-1+dev · del P1/seznama izposojenih vzorcev (docs/ready-made-scripts-analysis.md, točke #1, #3, #9) · promosi dodani v valu 21 (Paket B2, docs/programming-research.md §5)*
+*Datum: 2026-10-24 · Radio Markec main, Liquidsoap 2.2.4-1+dev · del P1/seznama izposojenih vzorcev (docs/ready-made-scripts-analysis.md, točke #1, #3, #9) · promosi dodani v valu 21 (Paket B2, docs/programming-research.md §5) · samodejne postelje (formatna ura) v valu 23 (Paket D1)*
 
 Imaging sloj doda štiri radijske sloje, ki jih je programu do zdaj manjkalo: **ID postaje ob polni uri**, **periodne stingerje**, **promose** (urniške napovedi prihodnjih oddaj) in **emergency podlago**. Vse štiri izvaja `liquidsoap/radio.liq`, Node pa vzdržuje njihove plejliste z isto pogodbo, ki jo že uporablja `now_playing.m3u`/`filler.m3u` (Node piše, Liquidsoap opazuje z `reload_mode="watch"`). Klipi so kratki proizvedeni posnetki (TTS/ffmpeg), ki jih operater polni v štiri direktorije pod `dataDir/imaging/` — z eno izjemo: promo klipe SAMODEJNO producira `scheduler/promoProducer.js` iz dejanskega urnika (Paket B2, razdelek 4 spodaj); operaterjevi klipi so tam prav tako doma. Peti, mehanizemsko drugačen sloj — **postelje** (P3 #12, od 2026-10-24 z duckerjem iz P3 #13) — ne živi v teh direktorijah: klip prileti po telnetu (`beds.push`), glasba pa utihne pod njim; razdelek pod tabelo.
 
@@ -25,7 +25,7 @@ Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se z
 
 **Dead-air stražar (P2 #9, popolnitev te lestvice, 2026-10-24):** emergency podlaga lovi samo vire, ki so *nedosegljivi* (prazna m3u) — ne vira, ki igra digitalno tišino (pokvarjen/tih encode ostane "available"). To zapre `blank.strip()` (uradni cookbook recept (5), semantika verificirana iz tega builda `noblank.ml`): po 20 s neprekinjene tišine postane program nedosegljiv, emergency zasede, ob zvoku program vrne. Dva opazovalca `blank.detect` (isti akumulator, pasivna) pišeta vsak prehod v `dataDir/history/deadair.jsonl` (`src/deadair/recordEvent.js`), Diagnostics pa parira epizode (`src/deadair/ledger.js`): `program_*` = "stražar je deloval", `air_*` = "odpovedal je tudi nujni vir". Parametri so literali v radio.liq (json.parse tip nedotaknjen); reverzibilno = izbriši tri vrstice + štiri handlerje. Live verifikacija: `liquidsoap --check` + nameravno tih WAV v now_playing.m3u.
 
-**Postelje (P3 #12 → #13, 2026-10-24) — napoved čEZ glasbo, ne na njeni meji:** četrti sloj mehanizemsko ne spada v m3u pogodbo zgoraj — njegov vir je `request.queue(id="beds")`, ki ga Node polni po telnetu (`src/liquidsoap/bedQueue.js`: `push <klip>` / `queue` / `skip`). Prva različica (#12) je mešala prek vgrajenega `smooth_add`: ko vrsta drži klip, program utihne na 0.2 za CELO trajanje klipa — tudi med pavzami v govoru. Od P3 #13 meša **sidechain ducker** po vzorcu buildovega `normalize()` (vse preverjeno v tar 2.2.4): `rms.smooth` meri dejansko glasnost klipa (glajen RMS, τ=50 ms), `source.on_frame` vodi ovojnico na vsak frame, `amplify({getter})` z držo ref spusti program na 0.2 samo MED govorom (napad τ≈20 ms) in ga spusti nazaj med pavzami ter po koncu klipa (spust τ≈0,5 s); histereza (odpri 0.02 / zapri 0.008) preprečuje črpanje na medbesednih presledkih; `source.is_ready` prepreči zamrznjen zadnji RMS ob izpraznjeni vrsti. Klip gre v mešanico na 0.8, vsota ~1.0 (kot pri #12). Zakaj ne dobesedno `sidechaincompress`: to je FFmpeg FILTER, ne LS operator — v nobenem LS 2.x ga ni (verified tar 2.2.4 + upstream v2.3.0/v2.4.0/main), FFmpeg pot bi zahtevala `ffmpeg-avfilter` build + muxer dvotirni graf. Notranji takojšnji vstop SREDI skladbe je zdaj naravna posledica `add()` (bistvo postelje, nasprotje stingerjem na mejah). Postavljen NAD ID overlay in zahtevke (napoved prekaša vse glasbeno), POD programskim dead-air opazovalcem (opazovalci vidijo mešanico — klip čez tiho verigo je slišan radio, ne mrli zrak). Klip za posteljo je navaden producirani WAV/MP3 (npr. vremenska rubrika iz `dataDir/pre-generated/` ali produciran govor); potiska ga operater, samodejna produkcija → postelja je ločena prihodnja odločitev. Polna obrazložitev: docs/ready-made-scripts-analysis.md §2.6 (STATUS P3 #13).
+**Postelje (P3 #12 → #13, 2026-10-24) — napoved čEZ glasbo, ne na njeni meji:** četrti sloj mehanizemsko ne spada v m3u pogodbo zgoraj — njegov vir je `request.queue(id="beds")`, ki ga Node polni po telnetu (`src/liquidsoap/bedQueue.js`: `push <klip>` / `queue` / `skip`). Prva različica (#12) je mešala prek vgrajenega `smooth_add`: ko vrsta drži klip, program utihne na 0.2 za CELO trajanje klipa — tudi med pavzami v govoru. Od P3 #13 meša **sidechain ducker** po vzorcu buildovega `normalize()` (vse preverjeno v tar 2.2.4): `rms.smooth` meri dejansko glasnost klipa (glajen RMS, τ=50 ms), `source.on_frame` vodi ovojnico na vsak frame, `amplify({getter})` z držo ref spusti program na 0.2 samo MED govorom (napad τ≈20 ms) in ga spusti nazaj med pavzami ter po koncu klipa (spust τ≈0,5 s); histereza (odpri 0.02 / zapri 0.008) preprečuje črpanje na medbesednih presledkih; `source.is_ready` prepreči zamrznjen zadnji RMS ob izpraznjeni vrsti. Klip gre v mešanico na 0.8, vsota ~1.0 (kot pri #12). Zakaj ne dobesedno `sidechaincompress`: to je FFmpeg FILTER, ne LS operator — v nobenem LS 2.x ga ni (verified tar 2.2.4 + upstream v2.3.0/v2.4.0/main), FFmpeg pot bi zahtevala `ffmpeg-avfilter` build + muxer dvotirni graf. Notranji takojšnji vstop SREDI skladbe je zdaj naravna posledica `add()` (bistvo postelje, nasprotje stingerjem na mejah). Postavljen NAD ID overlay in zahtevke (napoved prekaša vse glasbeno), POD programskim dead-air opazovalcem (opazovalci vidijo mešanico — klip čez tiho verigo je slišan radio, ne mrli zrak). Klip za posteljo je navaden producirani WAV/MP3 (vremenska rubrika, produciran govor); od valu 23 (Paket D1, razdelek 5 spodaj) postaja te klipe tudi SAMODEJNO producira in potiska `scheduler/formatClock.js` — »ločena prihodnja odločitev« je postala sprejeta odločitev. Polna obrazložitev: docs/ready-made-scripts-analysis.md §2.6 (STATUS P3 #13).
 
 | Sloj | Vir | Kdaj zazveni | Vedenje brez kliipov |
 |---|---|---|---|
@@ -33,7 +33,7 @@ Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se z
 | Stingeri | `imaging/stingers.m3u` | na prvi meji skladb po preteku intervala (30 min) | sloj ne obstaja |
 | Promosi | `imaging/promos.m3u` | na prvi meji skladb po preteku intervala (20 min) | sloj ne obstaja |
 | Emergency | `imaging/emergency.m3u` | šele, ko sta show IN filler nedosegljiva | mksafe-ova tišina (kot prej) |
-| Postelje | `beds.push` prek telnet (ni m3u) | TAKOJ, sredi skladbe — glasba utihne na 20 %, samo med govorom | prazna vrsta = sloj ne obstaja |
+| Postelje | `beds.push` prek telnet (ni m3u); od Val 23 jih proizvaja tudi formatClock (razdelek 5) | TAKOJ, sredi skladbe — glasba utihne na 20 %, samo med govorom | prazna vrsta = sloj ne obstaja |
 
 ## 2. Verificirane semantike operatorjev (primarni viri)
 
@@ -58,6 +58,7 @@ Node stran (src/config/index.js izvaja vse iz `dataDir`):
 | `dataDir/imaging/id.m3u` | piše `scheduler/imagingPlaylists.js` |
 | `dataDir/imaging/stingers.m3u` | ″ |
 | `dataDir/imaging/promos.m3u` | ″ (osveži ga takoj po vsakem valu tudi `promoProducer.js`) |
+| `dataDir/beds/` | klipi samodejnih postelj (formatClock.js) — NI m3u plast, datoteka tu ne gre na eter sama od sebe |
 | `dataDir/imaging/emergency.m3u` | ″ |
 
 Vsak vnos nosi eksplicitno `annotate:liq_fade_in="0"` (trd rez — imaging klipi so govorna družina, točno kot DJ govor pri director/playlist.js). Direktorij se skenira ravno (brez rekurzije), samo pripon `.mp3 .flac .m4a .ogg .opus .wav` (neobčutljivo na velikost črk); izpis je sortiran, da se `watch` reload sproži le, ko se je *nabor* klipov res spremenil. Manjkajoč direktorij → **prazen .m3u** (iskrena degradacija, nič izmišljenih vnosov); povzetek z števci se vrne klicatelju in testirajo testi, ne log parsanja.
@@ -103,7 +104,54 @@ Promo `delay(1200., …)` je NAMENOMA različen od stingerskega `1800.`: enaka i
 
 Predloga `radio.liq` iz `deploy/ubuntu/install.sh` **nima** `promo_source` (nima ga niti stingerskega bloka v tej obliki referenčne datoteke — imaging sloji živijo samo v referenčnem `liquidsoap/radio.liq`, enaka znana omejitev kot `Opus/FLAC mounti`, glej DEPLOYMENT_GUIDE.md). Prižiganje `imaging.promos.enabled` na namestitvi, ki poganja namestniško predlogo, BI produkcijo poganjalo, klipe pa ne bi šli nikamor na eter — dokumentirano in zavestno nepreneseno.
 
-## 5. Proizvodnja klipov ID/stingerjev/emergency (enkratna, izven repozitorija)
+## 5. Formatna ura (Paket D1, Val 23): postelje, ki jih postaja proizvaja sama
+
+Peti sloj po pomenu (vreme ob `:15`/`:45`, napoved naslednje oddaje N minut
+pred preklopom), a mehanizemsko NI imaging m3u plast: klip pride na eter kot
+**postelja** čez telnet (`beds.push`), glasba pa se pod njo utiša z že
+opisanim sidechain duckerjem. `radio.liq` SE NI SPREMENIL niti za en znak —
+celoten Paket D je `scheduler/formatClock.js` nad obstoječo strojno opremo.
+
+Delovni tok: tik (privzeto 6 s) izračuna `fireTime` vsakega dogodka →
+dogodek znotraj `[fireTime, fireTime + 45 s)` **sproži** potisk obstoječega
+klipa (enojni poskus, ključ v `history/beds-fired.jsonl` po vzoru
+`push/sent.jsonl` preprečuje dvojne izstrele prek restartov) → dogodek
+znotraj `produceLeadMinutes` pred svojo minuto se **producira** (vreme:
+`fetchCurrentWeather()` z dejanskega Open-Meteo vira, °C/km/h, brez
+temperature ni poročila — P4 #29; napoved: H1 naslov + voditelj iz briefa
+kot `/api/schedule`; besedilo iz predlog `bedWeather`/`bedNextShow`
+(`config.autoRadio.templates`, lastnik jih lahko prepiše); Edge TTS; ena
+ebur128 izmera zapečena v bajte — §4-ina disciplina). Klip za vreme nosi
+dan v tisti obliki, ki velja ob ČASU SPROŽITVE (`slovenianDayLabel` proti
+`fireTime` — »jutri« ob 23:57 za oddajo po polnoči).
+
+Datoteke: `dataDir/beds/weather_<datum>_<HH-MM>.mp3` in
+`nextshow_<id>_<datum>_<HH-MM>.mp3` (deterministično ime = varovalka pred
+ponovnim delom), `dataDir/history/beds-fired.jsonl` (knjiga sprožitev,
+pokrita z dnevno varnostno kopijo). Pometanje pobriše SAMO generirana imena
+(`weather_*`/`nextshow_*` z datumom in uro — nosilec varovanke iz §4-inega
+promo vzorca dobesedno: operaterjeva datoteka katerega koli drugega imena
+je za job nedotakljiva, za vedno). `beds/` NI m3u plast — datoteka,
+odvržena vanj, ne gre na eter sama od sebe; operaterjeve postelje se
+potiskajo ročno (`node src/liquidsoap/bedQueue.js push <datoteka>`).
+Odmrli klipi gredo po `clipRetentionHours` (privzeto 2 h; 0 = večno).
+
+| Stanje | Vedenje |
+|---|---|
+| `imaging.beds.enabled` ni `true` | job se sploh ne registrira (OPT-IN: plast, ki GOVORI na etru, se ne prikaže nepovabljena) |
+| Open-Meteo padel / ni temperature | klipa ni → slot sproži nič (sloj odsoten, program nedotaknjen), naslednji znamen poskusi znova |
+| Edge TTS pade | klip ne pristane → enako kot zgoraj; tik, ki ga najde že na disku, ne dela nič |
+| ebur128/ffmpeg padeta | klip pristane NEIZMERJEN (»station unaffected« — vrhnji limiter lovi vrhove) |
+| Liquidsoap zavrne potisk (mrtv telnet / namestniška predloga brez `beds`) | zavrnitev se izpiše dobesedno, ključ se zapiše (enojni poskus), program nedotaknjen |
+| opravila prek noči (downtime) | postelje tečejo TOČNO KO URNA PREDLOGA — celonočni ID overlay (`{0m0s}`) tudi ne utihne ob downtimeu; kdaj ne jesti vremena, je lastnikova odločitev prek `weatherMinutes` |
+
+NAMIG ZA NAMESTITEV (isti razred kot promosov): namestniška predloga
+`radio.liq` nima vrste `beds` — prižiganje `imaging.beds.enabled` tam
+pomeni poštene zavrnitve potiska v dnevniku. Celoten časovni model,
+nastavitvena tabela in ograja o svežosti: `docs/auto-radio.md`, razdelek
+»Paket D (Val 23)«.
+
+## 6. Proizvodnja klipov ID/stingerjev/emergency (enkratna, izven repozitorija)
 
 Klipi treh ročnih slojev so stvar produkcije, ne runtime — deterministično, brez LLM (promosi so izjema, glej razdelek 4):
 
@@ -115,7 +163,7 @@ Klipi treh ročnih slojev so stvar produkcije, ne runtime — deterministično, 
 
 Dodajanje klipov: copy v ustrezni direktorij; naslednji imaging tick (največ 30 min, ali ročno `node src/scheduler/imagingPlaylists.js`) prepiše .m3u in `watch` reload jih takoj upošteva — brez restarta Liquidsoapa.
 
-## 6. Verifikacija
+## 7. Verifikacija
 
 - **Testi** (99/99, `npm test` — zgodovinski posnetek imaging vala;
   suite je od takrat zrasla, število ni več aktualno, tekoče preveri
@@ -124,7 +172,8 @@ Dodajanje klipov: copy v ustrezni direktorij; naslednji imaging tick (največ 30
 - **Na produkcijski mašini** pred restartom: `liquidsoap --check liquidsoap/radio.liq` (parse-only) in posluš prve polne ure: ID točno ob :00, stinger na prvi meji po ~30 min, emergency slišati le, če programu nameravano odvzameš oba vira (test ročno: preimenuj začasno now_playing.m3u in filler.m3u).
 
 - **Promosi**: `test/promoProducer.test.mjs` — vrata (odsoten blok = `skipped: true`, brez datotek), izris besedila iz pravega briefa (naslov H1, ura, fraza dneva tedna, postaja; brez voditelja BREZ »z voditeljem«), okno (horizont/maxClips), deterministični preskok (drugi val: 0 produkcij, samo reuse), čiščenje odmrlih (generirani pobrisan, operaterjev NEDOTAKNJEN — nosilec varovanke), glasnostni filter (`volume=4dB` argv, ničelna amplify brez ffmpeg, padla analiza — klip kljub temu pristane »unmeasured«), odpoved Edge (errors[], ostali klipi živijo), pisanje `promos.m3u` z žigom `source_tag="promo"` na koncu vala. `test/imagingPlaylists.test.mjs` krije četrti sloj (.m3u izpis, prazen direktorij, žig), `test/sourceTag.test.mjs` zaprt nabor oznak (sedem, z `promo`), `test/radioLiqImaging.test.mjs` strukturni pini `promo_source`/`delay(1200.)`/ožičenje + protizdrs (promosi NE `mode="normal"`, stinger ostane 1800., install.sh BREZ promo_source). Na boxu: `liquidsoap --check liquidsoap/radio.liq`, prižgi `imaging.promos.enabled`, počakaj tick (ali `node src/scheduler/promoProducer.js`) in posluš promos na prvi meji skladb po 20 min.
+- **Formatna ura**: `test/formatClock.test.mjs` (40 testov) — vrata, nastavitvene odločitve (vključno `[]` = vreme izklopljeno, `0` = napoved izklopljena), slotna aritmetika (meje 45-sekundskega okna, prek polnoči), sprožitve z enojnim poskusom (zavrnitev/izjema/pogrešan klip vse zapišejo ključ), produkcija z izmero/padci ebur128-ffmpeg, pometanje (generirana imena s/pol srednjega člena — ujeto prav tu: promosova oblika vzorca nikoli ne bi ujela vremenskih imen), knjiga sprožitev (raztrgane vrstice, rezanje), sočasnost tika, predloge + lastnikov prepis. Na boxu: prižgi `imaging.beds.enabled`, postavi `weatherMinutes` na minuto ~2 min pred zdaj, počakaj produkcijo v `dataDir/beds/` in sprožitev v dnevniku (ali takoj `node src/scheduler/formatClock.js`).
 
-## 7. Viri
+## 8. Viri
 
 savonet/liquidsoap v2.2.5: `src/core/operators/delay.ml`, `src/libs/predicate.liq`, `src/libs/source.liq` (mksafe), cookbook »Mixing and switching« / »Periodic playlists«; SUB/WAVE radio.liq (dead-air stražar, minimalna oblika); docs/ready-made-scripts-analysis.md v2 (točke #1, #3, #9 in matrika); AzuraCast nit #6252 (radijski standard prehodov — omenjen kot kontekst za prihodnji autocue korak, ki je ločen projekt P1 #2); tar 2.2.4 `src/libs/audio.liq` (normalize vzorec: rms.smooth + on_frame + amplify getter), `src/core/operators/{rms_smooth,amplify}.ml`, `src/core/builtins/builtins_source.ml` (is_ready) — P3 #13 ducker.

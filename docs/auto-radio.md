@@ -1067,6 +1067,74 @@ razdelka Paket B1 zgoraj (urejevalnik urnika v zadnjih minutah pred etrom
 premaga vsako predprodukcijo); replay živi eno retencijo dni dlje, princip
 je isti — vsebina je bila resnična ob času, ko je nastala.
 
+### Paket D (Val 23): formatna ura — postelje, ki jih postaja proizvaja sama
+
+Profesionalna postaja ne izbira samo glasbe — vsaka ura ima PREDLOGO:
+vreme ob `:15`/`:45`, napoved naslednje oddaje N minut pred preklopom.
+Radio Markec je ves ta mehanizem že imel (vrsta `beds` + sidechain ducker
+v `radio.liq`, `beds.push` prek telneta), manjkala je le "samodejna
+produkcija → postelja", ki jo docs/imaging-layer.md imenuje za ločeno
+prihodnjo odločitev. Paket D (raziskava 19 §5) je ta odločitev sprejel:
+nov job `scheduler/formatClock.js` ob pravih minutah **producira klip**
+(Open-Meteo trenutne razmere / kratki iz urnika, predloge `bedWeather` /
+`bedNextShow`, Edge TTS, ebur128 izmera zapečena v bajte — promosova
+disciplino dobesedno) in ga ob **točno določeni minuti** potisne v vrsto
+postelj. Glasba se utiša na 20 % samo med govorom, poslušalec pa sliši
+formatno uro, ne meja skladb.
+
+- **Časovni model** (push/dispatch vzorec, prestavljen iz minut v sekunde):
+  tik vsake `tickIntervalMinutes` (privzeto 0,1 = 6 s, frakcijske kadenice
+  so zakonite — `nowPlayingCheckIntervalMinutes` že teče 0,1) izračuna
+  `fireTime` vsakega dogodka. Dogodek se sproži na prvem tiku znotraj
+  `[fireTime, fireTime + 45 s)`; ključ v `history/beds-fired.jsonl`
+  (datum@čas@kaj, JSONL po vzoru `push/sent.jsonl`) poskrbi, da restart
+  sredi okna ne pove istega dvakrat, prostor, ki se je okno zaprlo, pa
+  se iskreno preskoči — vremensko poročilo ob `:16` bi lagalo o uri.
+- **Produkcija TEČE PRED minuto** (`produceLeadMinutes`, privzeto 4):
+  sprožitev je potisk lokalne datoteke (milisekunde), nikoli omrežni klic
+  ob etru. Deterministično ime (`weather_<datum>_<HH-MM>.mp3`,
+  `nextshow_<id>_<datum>_<HH-MM>.mp3` v `dataDir/beds/`) JE varovalka pred
+  ponovnim delom — obstoječa datoteka pomeni preskok.
+- **Dan v napovedi naslednje oddaje je vezan na ČAS SPROŽITVE**, ne na čas
+  produkcije (`slovenianDayLabel` proti `fireTime`): postelja, ki sproži
+  ob 23:57 za oddajo ob 00:02, pravi »jutri« — to sliši poslušalec.
+- **Ograja o svežosti (ista življenjska doba kot B1):** urnik, spremenjen
+  v zadnjih minutah pred sprožitvijo, pusti napoved odveč; produkcija teče
+  minute pred etrom, natanko kot vsa predprodukcija postaje.
+- **Nastavitve** (`config.imaging.beds`, OPT-IN — plast, ki GOVORI na etru,
+  se na obstoječi namestitvi nikoli ne prikaže nepovabljena):
+
+| Ključ | Privzeto | Pomen |
+|---|---|---|
+| `enabled` | `false` | brez bloka = izklopljeno, job se sploh ne registrira |
+| `tickIntervalMinutes` | `0.1` | kadence tika (frakcijske vrednosti zakonite) |
+| `weatherMinutes` | `[15, 45]` | minute znamenj vremena; `[]` = vreme izklopljeno |
+| `produceLeadMinutes` | `4` | koliko minut pred sprožitvijo se klip producira |
+| `nextShowLeadMinutes` | `5` | koliko minut pred začetkom oddaje gre napoved; `0` = izklopljeno |
+| `clipRetentionHours` | `2` | pometanje odmrlih klipov; `0` = večno |
+| `persona` | *(ni v config.example.json)* | ime osebe (`autoRadio.voice.personas`) — izpuščeno namenoma, globalni Edge glas je zdrava privzetost (promosova kaskada) |
+
+- **Pometanje pobriše SAMO generirana imena** (`weather_*`/`nextshow_*` z
+  datumom in uro): operaterjeva datoteka v `beds/` kateregakoli drugega
+  imena je za job nedotakljiva za vedno (nosilec varovanke, promosova
+  pravila dobesedno). `beds/` NI m3u plast — datoteka, odvržena vanj, se
+  sama od sebe ne predvaja; operaterjeve postelje se potiskajo ročno
+  (`node src/liquidsoap/bedQueue.js push <datoteka>`).
+- **Dnevna varnostna kopija** pokriva `history/beds-fired.jsonl` (razred
+  `push/sent.jsonl`); sami klipi so izpeljani (vreme vir + urnik) in se NE
+  kopirajo. V tem valu je backup dobil tudi `imaging/promos/` (vrzel iz
+  Val 21: operaterjevi promo klipi so bili izven kopije).
+- **Namestitve z namestniško predlogo** (`install.sh`) nimajo vrste
+  `beds` v `radio.liq` — prižiganje `imaging.beds.enabled` tam pomeni
+  poštene zavrnitve potiska v dnevniku (in nič na etru); plast živi v
+  referenčnem `liquidsoap/radio.liq` (isto opozorilo kot promosi,
+  DEPLOYMENT_GUIDE.md).
+- `radio.liq` SE NI SPREMENIL niti za en znak — celoten Paket D je Node
+  nad obstoječim dukerjem. Testi: `test/formatClock.test.mjs` (40;
+  vrata, nastavitvene odločitve, slotna aritmetika, sprožitve z enojnim
+  poskusom, produkcija z izmero/padci, sočasnost, pometanje, knjiga,
+  predloge + prepis lastnika).
+
 ### Nadgradnja iz SUB/WAVE (4-c): Finding model + šest novih preverjanj
 
 SUB/WAVE-ov doktorjev poroča najdbe (Finding): `{label, status, detail,
