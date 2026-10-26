@@ -76,7 +76,9 @@ phases hand off through.
   real play history (`history/played.jsonl`), a popularity mix (~70% well
   known / 30% deep cuts) split at the library's popularity median, decade
   spread, and time-of-day mood blocks (morning/daytime/evening/night, with
-  cross-midnight windows) — every decision deterministic and reproducible.
+  cross-midnight windows and optional per-block `preferredGenres` soft
+  steering — the station brief's identity always wins) — every decision
+  deterministic and reproducible.
 - **Auto mode: Slovenian rubriques from live data**: today's weather from
   **ARSO** (official Slovenian Environment Agency), sport headlines from
   **RTV Slovenija**, and "na današnji dan" births/deaths from **Wikidata**
@@ -98,6 +100,12 @@ phases hand off through.
   and the exact command to fix it.
 - **Live segments resolved fresh**: time/weather call-ins are generated at
   air time from real data, not baked into yesterday's recording.
+- **The station announces what's next (Paket B1/A3)**: every directed show
+  ends with a spoken handoff to the next show ("Kaj sledi po tej oddaji?
+  jutri ob 01:18 vas čaka …"), resolved fresh at direction time so a late
+  schedule edit lands in the announcement, and the listener page hero
+  carries a matching "Naprej: <oddaja> — <dan> <ura>" line — both degrade
+  honestly (plain goodbye / hidden line) when no next show exists.
 - **Filler that never sleeps**: off-air gaps are filled by a generated
   filler playlist (music source-routed, so it works with Plex or local
   folders alike), with a rotation ledger that remembers what filler already
@@ -115,9 +123,10 @@ phases hand off through.
   updates TuneIn's metadata via the AIR API, and curated show tracks post
   to a Discord webhook — both configured in `config.json`'s `broadcast`
   block, both failure-safe (a dead webhook can never affect playout).
-- **Listeners everywhere**: Icecast stream, web now-playing page, JSON API,
-  authenticated stream proxy, studio admin UI, native Android TV/Google TV
-  and Android mobile apps.
+- **Listeners everywhere**: Icecast stream (announcing itself to players
+  with `name`/`description`/`genre` icy metadata, Paket B3), web
+  now-playing page, JSON API, authenticated stream proxy, studio admin UI,
+  native Android TV/Google TV and Android mobile apps.
 - **Playlist files for hardware players**: `GET /listen.m3u` and
   `/listen.pls` hand Sonos, VLC, car head units and old internet radios the
   stream URL (owner-declared `broadcast.publicStreamUrl` wins, otherwise
@@ -141,7 +150,8 @@ phases hand off through.
   URLs when you decide the stream should be public — [decision guide](docs/p1-listener-experience.md).
 - **Imaging layer**: station ID overlay at the top of the hour (official
   Liquidsoap overlay recipe), timed stingers (`delay()`-gated, track-boundary
-  only) and an emergency bed below the program sources — all three degrade
+  only), schedule-driven auto-produced promos (Paket B2) and an emergency
+  bed below the program sources — all four degrade
   gracefully: an empty/missing clip directory simply drops that layer off
   air, never the program — [design & asset production](docs/imaging-layer.md).
 - **Beds ("postelje", P3 #12/#13)**: announcements OVER the music — the
@@ -220,9 +230,10 @@ phases hand off through.
   rotation, repeat"), N tracks per step, optional dayparts (first matching
   window wins). Pools are config-defined filters (artists, genres, keywords)
   over the library; tracks claimed by a pool never leak back into the general
-  rotation. Borrowed from AzuraCast's Playlist Groups design — see
-  [analysis §4.5](docs/ready-made-scripts-analysis.md) for the one-word
-  `radio.liq` mode flip that puts the wheel on air.
+  rotation. Borrowed from AzuraCast's Playlist Groups design — the shipped
+  `radio.liq` already plays the wheel exactly as Node writes it
+  (`mode="normal"`, Paket A1); see
+  [analysis §4.5](docs/ready-made-scripts-analysis.md).
 - **Segment taxonomy + min-inventory metric**: every show segment carries a
   content type from a small closed set (show_intro/outro, listener_mailbag,
   news_analysis, deep_dive, ...) — explicitly via an optional `segment:`
@@ -527,12 +538,12 @@ prose for humans. The selection section supports:
   `embed.html` stays self-contained and unthemed.
 - **MCP server (stdio + remote HTTP)**: `npm run mcp` starts a standalone
   JSON-RPC process (`src/mcp/server.js`) that lets an AI client such as
-  Claude Desktop inspect and control the station — 29 tools (now-playing,
+  Claude Desktop inspect and control the station — 30 tools (now-playing,
   history, schedule editing, station meta, polls, request moderation, skip /
   force-next show, ...) wired straight to the stores the routes use, with
   `mcp.enabled` and `mcp.allowWriteTools` kill-switches in `config.json` and
   zero new dependencies. For clients that can't launch a local process, the
-  same 29 tools are also reachable over HTTP at `POST /studio/api/mcp`
+  same 30 tools are also reachable over HTTP at `POST /studio/api/mcp`
   (studio Basic credentials — same auth and same power as the studio's own
   write routes; off by default, opt in with `mcp.remote.enabled` plus a
   station restart) — [guide (sl)](docs/mcp-server.md).

@@ -1058,6 +1058,12 @@ ne zgenerira in ne javi kot napaka. Veljavnostno okno ponovitve je
 `cleanup.retentionDays` (privzeto 7 dni) — po tem dnevu čiščenje pobriše
 vir in ponovitev čaka usodo vsakega manjkajočega vira.
 
+Operaterski reševalnik (isti CLI vzorec kot `promoProducer`/`formatClock`):
+`node src/scheduler/replayMaterializer.js <teden-dan> <id-oddaje> <datum> <čas>`
+ročno materializira replay vnos — npr. ko je direct tick zamudil — z izhodno
+kodo 0 tudi ob pošteni nič-opi (le dejansko zlomljena namestitev postavi
+izhodno kodo 1).
+
 **Ograja o svežini (ista življenjska doba kot B1, le dlje):** živi segmenti
 (vreme, čas, napoved naslednje oddaje) so bili sintetizirani ob ETERSKEM
 času VIRA in so zvarjeni v govorne datoteke — ponovitev torej izgovori
@@ -1073,8 +1079,8 @@ Profesionalna postaja ne izbira samo glasbe — vsaka ura ima PREDLOGO:
 vreme ob `:15`/`:45`, napoved naslednje oddaje N minut pred preklopom.
 Radio Markec je ves ta mehanizem že imel (vrsta `beds` + sidechain ducker
 v `radio.liq`, `beds.push` prek telneta), manjkala je le "samodejna
-produkcija → postelja", ki jo docs/imaging-layer.md imenuje za ločeno
-prihodnjo odločitev. Paket D (raziskava 19 §5) je ta odločitev sprejel:
+produkcija → postelja", ki jo je docs/imaging-layer.md nekoč imenoval za
+ločeno prihodnjo odločitev. Paket D (raziskava 19 §5) je ta odločitev sprejel:
 nov job `scheduler/formatClock.js` ob pravih minutah **producira klip**
 (Open-Meteo trenutne razmere / kratki iz urnika, predloge `bedWeather` /
 `bedNextShow`, Edge TTS, ebur128 izmera zapečena v bajte — promosova

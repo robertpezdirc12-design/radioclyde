@@ -14,9 +14,10 @@ docs mostly in Slovenian.
   speech, pre-recorded/SAPI/espeak voice), stage-by-stage against the AI
   path, and how to switch it on.
 - [imaging-layer.md](imaging-layer.md) — the Liquidsoap imaging layers:
-  top-of-hour station IDs, periodic stingers, emergency bed, dead-air guard
-  and telnet-pushed talk-over beds, with every operator's semantics verified
-  against the Liquidsoap sources.
+  top-of-hour station IDs, periodic stingers, auto-produced promos, emergency
+  bed, dead-air guard and telnet-pushed talk-over beds (the Val 23 format
+  clock auto-produces the weather/next-show beds on top), with every
+  operator's semantics verified against the Liquidsoap sources.
 - [liquidsoap-upgrade.md](liquidsoap-upgrade.md) — the runtime upgrade
   runbook 2.2.4-1+dev → 2.4.6 (P3 #11): why exactly that version, what the
   `%ifversion` gates change on the box, and the post-upgrade verification.

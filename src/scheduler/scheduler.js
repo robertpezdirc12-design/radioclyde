@@ -34,7 +34,7 @@ import { sampleNow } from '../analytics/listenerSamples.js';
 const log = createLogger('station');
 
 // Cadence guard for every() registration below. The ?. + ?? chains already
-// saved the missing-key case, but 10 of 14 jobs still passed garbage
+// saved the missing-key case, but 10 of the then-14 jobs still passed garbage
 // straight through: an explicit 0/negative -> setInterval(0) = a 1ms tick
 // storm, and a string like 'abc' -> 'abc' * 60000 = NaN -> setInterval(NaN)
 // ALSO clamps to 1ms. The four Math.max(1, ...) sites didn't help either --

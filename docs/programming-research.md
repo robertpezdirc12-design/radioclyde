@@ -173,8 +173,9 @@ ID-jem" pri nas ni izrazljivo, ker razporedba ne pozna pojma kvadranta.
   (`radio.liq:143-158`); celo BOLJŠE od preproste predvajalne vrste, ker se zmeša
   NAD program.
 - Stingerje (`delay(1800.)`, na mejah skladb) in **postelje** s sidechain duckerjem
-  (`beds.push` po telnetu) — a potisk postelje je izključno ROČNO operatersko dejanje
-  (docs/imaging-layer.md:27).
+  (`beds.push` po telnetu) — potisk postelje je bil ob raziskavi izključno ROČNO
+  operatersko dejanje; od valu 23 (Paket D1) ga poganja `formatClock.js` sam
+  (docs/imaging-layer.md:28).
 - DJ napoved **naslednje skladbe** (AI: `moves.js` generateIntroLine "Napiši kratko
   predstavitev prihajajoče skladbe"; auto: templates.js intro predloge) in tease —
   a tease SAMO v samodejnem načinu (scriptBuilder.js; AI boundaryWalk tease nima).
@@ -236,6 +237,8 @@ literali v radio.liq. Razvrščeni po vrednost/strošek v štiri pakete.
 
 ### Paket A — hitre zmage (en manjši val)
 
+> **DOSTAVLJENO v valu 20** (A1 slišno kolo — `radio.liq` `mode="normal"`; A2 °C/km/h; A3 hero "Naprej:" vrstica; A4 `preferredGenres` aktiviran — docs/auto-radio.md, razdelek o pravilih).
+
 | # | Predlog | Kje | Ocena |
 |---|---|---|---|
 | A1 | **Slišno kolo kvadrantov**: `radio.liq:109` `mode="randomize"` → `"normal"` (dokumentirana enobesedna sprememba, stalno opozorilo v clockwheel.js). Veljaven pomislek: brez kolesa se enak vrstni red ponovi v zanki do naslednje regeneracije — a bazen 200 skladb ≈ 13 h glasbe, regeneracija pa vsakih 6 h, zato se zanka pred spremembo redko dokonča; raznolikost prihaja iz regeneracije (Node premeša vsakič). V dokumentaciji povedati obe vedenji. | 1 beseda + testi/dokumenti | zelo nizek strošek, takojšen slišni učinek |
@@ -245,6 +248,8 @@ literali v radio.liq. Razvrščeni po vrednost/strošek v štiri pakete.
 
 ### Paket B — napovedi (jedro tega vprašanja; en val)
 
+> **DOSTAVLJENO v valu 21** (B1 zaključna govorna napoved naslednje oddaje; B2 promo plast; B3 icy identiteta toka — docs/auto-radio.md "Paket B1" in docs/imaging-layer.md §4).
+
 | # | Predlog | zasnova |
 |---|---|---|
 | B1 | **Zaključna napoved naslednje oddaje**: producentu/režiserju ob zaključni potezi podamo kontekst `nextOccurrence` za dan oddaje (scheduleUtil ga že računa za updateNowPlaying). AI: razširitev poziva zaključka ("napovej, kaj sledi po tej oddaji: ime, ura, voditelj — enostavno, brez oglaševalskega tona"); auto: predloga "Ob HH:MM pa sledi <oddaja> (voditelj: X). Ostani z nami!" **Poštena degradacija**: brez naslednje oddaje → čisti poslovilni govor kot danes. **Honest caveat za dokumentacijo**: produkcija teče pred eterom (prewarm) — kasnejša sprememba urnika pusti napoved odveč; to je enaka življenjska doba kot vsa predprodukcija (DJ govor ne ve niti za skip). |
@@ -252,6 +257,8 @@ literali v radio.liq. Razvrščeni po vrednost/strošek v štiri pakete.
 | B3 | **Oprema metapodatkov toka**: `output.icecast` dobi `name`/`description`/`genre` (danes popolnoma odsotni, `radio.liq:649-653`); opcijsko posodobitev mount-description z "Sedaj: X" ob vsaki menjavi (preveriti podporo Icecasta pri implementaciji; če ni čista, samo statični imeni). Icy "Naslednje: Y" je lep plus, ne pogoj. |
 
 ### Paket C — urnik (en val)
+
+> **DOSTAVLJENO v valu 22** (C1 `schedule.dates` celodnevni override + nameren temen dan; C2 replay materializacija — docs/auto-radio.md "Paket C").
 
 | # | Predlog | zasnova |
 |---|---|---|
@@ -267,18 +274,19 @@ KOT POSTELJA (`beds.push` mehanizem ŽE obstaja s sidechain duckerjem — govorn
 rubrika čez utišano glasbo, natanko "napoved čez dan"), napoved naslednje oddaje N
 minut pred preklopom KOT POSTELJA, promo slot. Nodeova stran: urni job, ki ob pravih
 minutah producira klip (vreme že ima vir: ARSO v feeds.js) in potisne v posteljo.
-To je natanko "samodejna produkcija → postelja", ki jo docs/imaging-layer.md:27
-imenuje za "ločeno prihodnjo odločitev" — **ta raziskava jo predlaga kot odločitev**.
+To je natanko "samodejna produkcija → postelja", ki jo docs/imaging-layer.md:28
+imenuje za "ločeno prihodnjo odločitev" — **raziskava jo je predlagala, Val 23
+pa dostavil**.
 Velikost: srednje velik val; tveganje nizko (postelje so že v produkciji), a zahteva
 nov scheduler job + produkcijo klipov na minutni takt.
 
 ### Prioritete (priporočilo orkestratorja)
 
 - **Val 20 = Paket A** (vse štiri hitre zmage skupaj — vsaka je sama majhna, skupaj
-  zaokrožena zgodba "postaja zdaj sliši kvadrante in pravilno napoveduje").
+  zaokrožena zgodba "postaja zdaj sliši kvadrante in pravilno napoveduje") — dostavljen.
 - **Val 21 = Paket B** (napovedi — najvišja čista uporabniška vrednost: B1 govorna
-  napoved naslednje oddaje je tisto, kar isalec te raziskave išče pod "napovedi").
-- **Val 22 = Paket C** (datumi + replay).
+  napoved naslednje oddaje je tisto, kar iskalec te raziskave išče pod "napovedi") — dostavljen.
+- **Val 22 = Paket C** (datumi + replay) — dostavljen.
 - **Val 23 = Paket D** (formatna ura — najbolj "profesionalen" zvok, največji obseg) — dostavljen.
 - **Zavrnjeno s podanim razlogom**: (a) Websocket/SSE push now-playinga — AzuraCast
   potrebuje Centrifugo zaradi 1000+ sočasnih poslušalcev; naš polling za eno-družinsko
@@ -293,11 +301,14 @@ nov scheduler job + produkcijo klipov na minutni takt.
 
 Radio Markecov **mehanski** sloj (urnik-swapy, atomska vztrajnost, rotacijska
 pravila, imaging plasti, celovod produkcije) je v celoti primerljiv z najboljšimi
-odprtokodnimi sistemi — kje drugod celo vodi. Tanka je **programska** plast nad njim:
-kvadranti dneva so neslišni, napovedi se končajo pri skladbi, promosi ne obstajajo,
-prazniki ne morejo obstati. Štirje paketi zgoraj so razporejeni tako, da vsak val
-zaprto po eno vrzel — A (kvadranti) in B (napovedi) pokrijeta točno tisto, kar ta
-raziskava primerja, C in D pa dolgoročno približata zvok profesionalne postaje.
+odprtokodnimi sistemi — kje drugod celo vodi. Ob raziskavi (2026-10-26) je bila
+tanka **programska** plast nad njim: kvadranti dneva so bili neslišni, napovedi so
+se končale pri skladbi, promosi niso obstajali, prazniki niso mogli obstati.
+Paketi A–D (Valovi 20–23) so te štiri vrzeli zaprli — kolo kvadrantov je slišno,
+oddaje se govorno napovejo (zaključna napoved, promo plast, postelje formatne ure),
+prazniki in enkratni dogodki živijo v `schedule.dates`, replay pa znova zaigra
+izvirno epizodo. Ta raziskava je od takrat zgodovina kot opis stanja; kot seznam
+zamisli je izčrpana.
 
 *Raziskava 19-a (preslikava naših zmožnosti) je zapisana v worklogu; ta dokument je
 nosilec primerjave in predlogov za nadaljnje vale.*

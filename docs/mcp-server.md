@@ -55,8 +55,8 @@ Odločitev ostaja zapisana tukaj, ker je bila odkrita v pregledu.
 | `poll_close` | P | Zapre aktivno anketo in zamrzne števec v zgodovino. |
 | `skip_track` | P | Preskoči skladbo, ki se dejansko predvaja na izhodu. |
 | `force_next_show` | P | Naloži naslednjo usmerjeno oddajo in takoj prekine trenutni file. |
-| `schedule_add_occurrence` | P | Doda oddajo v dnevni urnik; dan se preuredi brez lukenj (oglas oddaje mora obstajati). |
-| `schedule_update_occurrence` | P | Premakne/prevelja/predi obstoječi termin (zamenjava na mestu ali preureditev dneva). |
+| `schedule_add_occurrence` | P | Doda oddajo v dnevni urnik; dan se preuredi brez lukenj (oglas oddaje mora obstajati). Vnos je lahko tudi replay (`type: "replay"`, `sourceDate`, neobvezni `sourceTimeKey`). |
+| `schedule_update_occurrence` | P | Premakne/prevelja/predi obstoječi termin (zamenjava na mestu ali preureditev dneva). Termin je lahko tudi replay (`type: "replay"`, `sourceDate`, neobvezni `sourceTimeKey`). |
 | `schedule_remove_occurrence` | P | Odstrani termin iz urnika in zapre nastalo luknjo. |
 | `schedule_set_date` | P | Celodnevni override enega koledarskega datuma (prazniki, enkratni dogodki): `schedule.dates[date]` povsem nadomesti tedensko predlogo tega dne; prazen seznam pomeni namerno temno dan; `clear` odstrani prekrivko. Vnosi so enaki `schedule_add_occurrence` (vključno z replay vnosi). |
 | `update_station_meta` | P | Ime postaje, izvzete ključnice/izvajalce (neverPlay) in okno mirovanja. |

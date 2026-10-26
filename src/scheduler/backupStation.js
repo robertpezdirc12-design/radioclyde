@@ -66,7 +66,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //  - any OTHER copy failure (EACCES, EISDIR from a source that is a
 //    directory where a file is expected, ...) is recorded into `errors` and
 //    the loop CONTINUES -- one unreadable source must not silently abort the
-//    remaining seventeen. Returns 'copied' | 'skipped' | 'error'.
+//    remaining nineteen. Returns 'copied' | 'skipped' | 'error'.
 function copySource(label, src, dest, recursive, errors) {
   if (!fs.existsSync(src)) {
     log(`NOTE: backup source ${label} does not exist yet -- skipping it this tick.`);
@@ -192,7 +192,7 @@ export async function backupStation() {
   const dest = (name) => path.join(destDir, name);
   // history ledgers copy PER-FILE (not the whole history/ dir) so a torn
   // .tmp-* leftover from some interrupted atomic rewrite can never match a
-  // source path -- the backup takes exactly the five ledgers and nothing
+  // source path -- the backup takes exactly the six ledgers and nothing
   // else from that directory.
   const sources = [
     ['station.json', config.paths.stationFile, dest('station.json'), false],
@@ -257,7 +257,7 @@ export async function backupStation() {
 async function main() {
   const result = await backupStation();
   // `skipped === true` is the no-config-block flag; on a real run `skipped`
-  // is the NUMBER of NOTE-skipped sources (15 on a fresh install), which is
+  // is the NUMBER of NOTE-skipped sources (18 on a fresh install), which is
   // truthy -- hence the strict identity check, not truthiness.
   if (result.skipped === true) {
     console.log('Backup skipped: no config.backup.dir configured.');
