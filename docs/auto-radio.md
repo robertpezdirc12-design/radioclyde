@@ -14,6 +14,14 @@ stevilskih glasov.
 > ključi (`lmStudio`, `chatterbox`, `autoRadio.enabled`) so mrtvi — postaja
 > jih ignorira, `npm run doctor` pove, da jih lahko izbrišeš, in
 > `test/noAiModels.test.mjs` pazi, da se plast ne vrne.
+>
+> `test/goldenChain.test.mjs` (Val 29) je dinamični dvojnik tistega
+> stražarja: en sam test poganja CELO verigo skozi prave vstopne točke —
+> knjižnica → autocue merjenje → filler playlista → `generateScript` →
+> `directShow` → doctorjevo preverjanje #19 "prehodi" — in trdi, da končni
+> `playlist.m3u` res nosi izmerjene žige (fade-in po glavi, crossfade po
+> repu, washout/dissolve/sweep). Stražar iz valu 28 pini STATIČNO, da AI
+> datoteke ne obstajajo; zlata veriga pini DINAMIČNO, da cev teče.
 
 ## Kaj je bilo nekoč AI — in kaj je zdaj
 

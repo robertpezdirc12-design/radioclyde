@@ -952,9 +952,9 @@ const scheduleAddOccurrenceTool = {
     // writer's Number.isFinite && > 0 check (stationWriter.js:73);
     // description is optional because the studio UI sends it only on
     // cross-day moves (public/studio/js/schedule.js:429) -- it IS read on
-    // the src side though (generateScript.js:168 resolves entry.description
-    // as the brief path; showName.js:27 keys a show's display name off it);
-    // the writer simply does not require it.
+    // the src side though (generateScript.js's loadShowEntry resolves
+    // entry.description as the brief path; showName.js:27 keys a show's
+    // display name off it); the writer simply does not require it.
     let day;
     try {
       day = await be.addOccurrence(weekday, args?.occurrence ?? {});
