@@ -46,6 +46,67 @@ describe('radio.liq imaging layer structure', () => {
     assert.doesNotMatch(liq, /predicate\.activates/);
   });
 
+  // --- Val 31, B3: the hour ID must not stomp DJ speech (2.4.6 gate) ---------
+
+  test('no short-clip pool starves: id/stingers/promos all loop=true (Val 31)', () => {
+    // With loop=false each pool played its entries once and nothing refilled
+    // it in steady state (imagingPlaylists.js rewrites the m3u only when the
+    // clip SET changes), so every layer went silent after N clips -- measured
+    // live on both official binaries (2026-10-27). loop=true is endless; the
+    // gates keep the cadence on both builds: the ID at one clip per window
+    // opening (2.2.4: the {0m0s} window closes before any clip ends and the
+    // switch re-checks its predicate at track end; 2.4.6: the id_fired latch),
+    // stingers/promos at one clip per delay() interval (measured on 2.2.4:
+    // stingers at 0 s/36 s/72 s, one each, no chaining; same on 2.4.6).
+    assert.match(liq, /id_source = playlist\(id="imaging_id", reload_mode="watch", mode="randomize", loop=true,/);
+    assert.match(liq, /stinger_source = playlist\(id="imaging_stingers", reload_mode="watch", mode="randomize", loop=true,/);
+    assert.match(liq, /promo_source = playlist\(id="imaging_promos", reload_mode="watch", mode="randomize", loop=true,/);
+    assert.doesNotMatch(liq, /id_source = playlist\([^)]*loop=false/);
+    assert.doesNotMatch(liq, /stinger_source = playlist\([^)]*loop=false/);
+    assert.doesNotMatch(liq, /promo_source = playlist\([^)]*loop=false/);
+    // NOT part of this fix, on purpose: show_source's loop=false is the
+    // episode contract (plays once, then the filler takes over), and the
+    // emergency bed was already loop=true.
+    assert.match(liq, /show_source = playlist\(id="show_source", reload_mode="watch", mode="normal", loop=false,/);
+    assert.match(liq, /emergency_source = playlist\(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,/);
+  });
+
+  test('B3 speech gate on 2.4.6: 90 s window, fail-closed ref, one-shot latch', () => {
+    // The gate block lives inside %ifversion >= 2.4.6; on 2.2.4 the
+    // preprocessor strips it before parsing.
+    assert.match(liq, /%ifversion >= 2\.4\.6\nid_window = \{0m0s-1m30s\}/);
+    // Fail-closed default: before any program metadata has passed (boot),
+    // "unknown" reads as speech -- the ID defers, never talks over it.
+    assert.match(liq, /id_speech_active = ref\(true\)/);
+    assert.match(liq, /id_fired = ref\(false\)/);
+    // The gate keys on the source_tag contract (djTransitions' own notion of
+    // speech), via the synchronous method form 2.4.6 requires.
+    assert.match(liq, /id_speech_active := \(m\["source_tag"\] == "speech"\)/);
+    assert.match(liq, /radio\.on_metadata\(synchronous=true, id_speech_watch\)/);
+    assert.match(liq, /id_source\.on_metadata\(synchronous=true, id_fired_watch\)/);
+    // The latch: set only by id-tagged clips, reset by the predicate while
+    // the window is closed -- exactly one ID clip per hour-window even with
+    // a window wider than one clip and an endless pool.
+    assert.match(liq, /if m\["source_tag"\] == "id" then\n    id_fired := true\n  end/);
+    assert.match(liq, /if not id_window\(\) then\n    id_fired := false\n  end/);
+    assert.match(liq, /id_window\(\) and not id_speech_active\(\) and not id_fired\(\)/);
+    assert.match(liq, /radio = add\(\[radio, switch\(\[\(id_ready, id_source\)\]\)\]\)/);
+    // Position: the speech watch registers on the program chain BELOW the
+    // overlay (it must see program tracks, not the overlay's own output).
+    const watchAt = liq.indexOf('radio.on_metadata(synchronous=true, id_speech_watch)');
+    const overlayAt = liq.indexOf('radio = add([radio, switch([(id_ready, id_source)])])');
+    assert.ok(watchAt !== -1 && overlayAt !== -1, 'gate wiring present');
+    assert.ok(watchAt < overlayAt, 'speech watch sees the program chain below the overlay');
+  });
+
+  test('B3: the 2.2.4 %else branch keeps the cookbook overlay verbatim', () => {
+    // The old line survives byte-identical inside %else -- every
+    // position-sensitive test (deadAir/bedQueue/djTransitions/requestQueue)
+    // anchors on it, and the 2.2.4 preprocessor strips the gated branch
+    // before parsing, so that build's behavior is unchanged by Val 31.
+    assert.match(liq, /%else\s*radio = add\(\[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)\s*%endif/);
+  });
+
   test('stingers go through delay() and a track_sensitive fallback', () => {
     assert.match(liq, /stinger_timed = delay\(1800\., stinger_source\)/);
     assert.match(liq, /fallback\(track_sensitive=true, \[stinger_timed, radio\]\)/);

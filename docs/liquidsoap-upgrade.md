@@ -40,6 +40,7 @@ preverjene v primarnem viru (tar `savonet/liquidsoap` v2.4.6, `CHANGES.md`,
 | ducker `on_frame` | funkcija | metoda `radio.on_frame(duck_update)` |
 | `blank.detect` (2 sloja) | pozicijski handler + `on_noise=` | metodi `on_blank`/`on_noise` (2.4.6 je staro obliko odstranil, `migrating.md`) |
 | cross prehodov | odsoten (trdi rezi) | `cross(duration=dj_transition_buffer, persist_override=true, dj_transition, radio)` |
+| urni ID overlay | `switch([({0m0s}, id_source)])` — cookbookov trenutek | govorna vrata: okno `{0m0s-1m30s}` + `id_fired` zaklepka, ID ne more čez DJ govor (Val 31 B3; bazen `loop=true` na obeh buildih) |
 
 Na 2.2.4 se torej NIČ ne spremeni (vrata so zaprta, novo koda se ne parsuje);
 pre-#11 stanje je bajtno-identično. Na 2.4.6 se odprejo vrata in:
@@ -150,6 +151,38 @@ icecasta (v peskovniku ga ni — pričakovano); `d` v dnevnikih učinkov je
 (14-sekundni preskusni WAV-i puščajo 5 s repov po 9 s prekrivanjih; prava
 glasba s 8–12 s žigi pusti minute); `playlist.parser` opozorila ob praznih
 imaging m3u so znana benigna šumovja (enako na boxu).
+
+## Val 31 (2026-10-27 zvečer): urni ID ne more čez DJ govor (B3)
+
+Zadnja odložena točka vala 28 je zdaj v skripti — vrata so odprta samo na
+2.4.6 (na 2.2.4 `%else` veja ohranja cookbookov `{0m0s}` overlay
+bajtno-identično). Vsa semantika je bila NAJPREJ izmerjena na uradni 2.4.6
+binarki z minute-cikličnimi sondami (`{0s-30s}` okna, enako ožičenje):
+nedosegljivi switch anketa svoj funkcijski predikat ~desetkrat na sekundo
+(preklop vrat v ~100 ms od šiva); izbrani klip se vedno predvaja do konca
+tudi, če se okna/zaklepka zapreta sredi; ob meji posnetka stikalo PONOVNO
+pregleda predikat (pripravljen-a-ne-predvajan zahtevek ne zazveni), zato
+enkratna zaklepka `id_fired` drži NATANČNO EN klip na okno; startup
+privzetek je fail-closed (neznan program ≙ govor, izmerjena boot-dirka pri
+`ref(false)`). Ob istem preizkusu je padla še skrita napaka STRADANJA:
+`loop=false` bazen po N klipih utihne za vedno (prepis m3u se ob
+byte-identični vsebini preskoči) — vsi trije kratek-klip bazeni
+(id/stingerji/promosi) so zdaj `loop=true`, kadenca pa je izmerjena na obeh
+binarkah (ID: en na okno; stingerji: po en na interval, 0 s/36 s/72 s, brez
+veriženja).
+
+Nato ŽIVA preverba na PRAVEM radio.liq čez pravo mejo ure (23:00:00, tri
+sočasne noge, izdelani programi s/source_tag govornimi in glasbenimi WAV-i,
+ujet MP3 analiziran po prisotnosti 880 Hz):
+
+| Noga | Binarka | Program čez :00:00 | Dejstvo (dnevnik + zvok) |
+|---|---|---|---|
+| a | 2.4.6 | govor 22:59:45→23:00:55 | **BREZ ID 23:00:00–55**; strel 23:00:55, točno na šivu govor→glasba (čez intro), EN klip; fantomska priprava ob 23:01:01 ne zazveni |
+| b | 2.2.4 | isto | **ID točno ob 23:00:00 sredi govora** — staro vedenje, bajtno-identično (`%else`) |
+| c | 2.4.6 | glasba | **ID točno ob 23:00:00 čez glasbo** — nespremenjena pot |
+
+Iskrena meja (napisana v docs/auto-radio.md): govor, ki teče čez 90. sekundo
+ure, to uro ID preskoči — poteptan DJ je hujši od izpuščenega žingla.
 
 ## Koraki na boxu
 

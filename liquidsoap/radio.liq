@@ -153,8 +153,13 @@ filler_source = fade.in(duration=0., filler_source)
 # interval elapsed. Interval is a literal here on purpose (like {0m0s}
 # below): radio.liq's json.parse type stays untouched, so an older
 # config.json without an imaging block still boots. Edit 1800. (seconds) to
-# retune.
-stinger_source = playlist(id="imaging_stingers", reload_mode="watch", mode="randomize", loop=false,
+# retune. loop=true (Val 31, same starvation fix as id_source): with
+# loop=false the pool played each entry once and nothing refilled it in
+# steady state, so the layer went silent after N intervals (measured on
+# both official binaries, 2026-10-27). delay() itself gates the cadence,
+# so loop=true still airs exactly ONE stinger per interval -- measured on
+# 2.2.4: stingers at 0 s/36 s/72 s, one each, no chaining.
+stinger_source = playlist(id="imaging_stingers", reload_mode="watch", mode="randomize", loop=true,
   config.dataDir ^ "/imaging/stingers.m3u")
 stinger_timed = delay(1800., stinger_source)
 
@@ -170,7 +175,9 @@ stinger_timed = delay(1800., stinger_source)
 # json.parse-untouched reason as the 1800. above. mode="randomize" is
 # CORRECT here (short-clip pool family -- random picking is the right
 # behavior for stingers/IDs/promos; only the music wheel is "normal").
-promo_source = playlist(id="imaging_promos", reload_mode="watch", mode="randomize", loop=false,
+# loop=true: the same Val 31 starvation fix as stingers/id above -- delay()
+# gates one promo per interval, the pool never runs dry.
+promo_source = playlist(id="imaging_promos", reload_mode="watch", mode="randomize", loop=true,
   config.dataDir ^ "/imaging/promos.m3u")
 promo_timed = delay(1200., promo_source)
 
@@ -179,16 +186,27 @@ promo_timed = delay(1200., promo_source)
 # switch has no default branch: before :00 it's unavailable and contributes
 # nothing; at :00 it becomes available and starts the clip immediately (it
 # has no current track to be track-sensitive about), mixing the ID OVER the
-# program. Keep id clips SHORT (2-5 s) -- they can ride over a show's intro
-# speech if a show starts exactly on the hour; that overlap is how real
-# stations sound. predicate.activates was evaluated and REJECTED for this:
-# its false->true edge is only observable when something samples the
-# predicate (predicate.liq, LS 2.2.5: ans = (not last()) and cur), so with
-# boundary-only re-selection a track boundary can fall outside the 0m-5m
-# window and the ID would silently skip whole hours. mode="randomize" +
-# loop=false: one clip per hour from the pool, pool refilled by the next
-# imaging rescan's rewrite (watch reload).
-id_source = playlist(id="imaging_id", reload_mode="watch", mode="randomize", loop=false,
+# program. Keep id clips SHORT (2-5 s). predicate.activates was evaluated
+# and REJECTED for this: its false->true edge is only observable when
+# something samples the predicate (predicate.liq, LS 2.2.5: ans = (not
+# last()) and cur), so with boundary-only re-selection a track boundary can
+# fall outside the 0m-5m window and the ID would silently skip whole hours.
+#
+# loop=true (Val 31): the pool must never run dry. With loop=false the
+# playlist plays each entry once and exhausts, and nothing refills it in
+# steady state -- scheduler/imagingPlaylists.js rewrites id.m3u ONLY when
+# the clip SET changes (byte-identical skip), so the old "pool refilled by
+# the next imaging rescan's rewrite" claim was wrong: after N clips
+# the layer went silent for good. Measured live on BOTH official binaries
+# (2026-10-27): a 2-clip pool fires two windows, the third is silent.
+# loop=true keeps the pool endless; the one-clip-per-gate-opening cadence
+# holds on BOTH builds -- on 2.2.4 the {0m0s} window closes ~1 s in, well
+# before any clip ends, and the switch re-checks its predicate at the
+# child's track end (the next request is prepared but never airs; measured:
+# one 6 s clip per minute-window, three windows running); on 2.4.6 the
+# speech gate below fires a one-shot latch instead. mode="randomize"
+# reshuffles on every loop, so each hour draws afresh from the pool.
+id_source = playlist(id="imaging_id", reload_mode="watch", mode="randomize", loop=true,
   config.dataDir ^ "/imaging/id.m3u")
 
 # Emergency bed: the last playlist below show+filler, above mksafe's blank --
@@ -500,8 +518,70 @@ radio = source.on_metadata(radio, scrobble_on_metadata)
 radio = fallback(track_sensitive=true, [stinger_timed, radio])
 # Promo sibling of the stinger fallback above (Paket B2).
 radio = fallback(track_sensitive=true, [promo_timed, radio])
-# Hour ID overlay (see comment above).
+# Hour ID overlay (see the long comment at id_source above). Val 31, B3:
+# the ID must no longer stomp the DJ. On 2.2.4 the gate stays the
+# cookbook's bare {0m0s} instant -- byte-identical to the pre-Val-31
+# wiring. On 2.4.6 the window widens to the first 90 s of the hour and a
+# speech gate holds the clip back while a source_tag="speech" track is on
+# air; the ID then fires over the intro of whatever follows the speech
+# (the classic ID-over-the-ramp), or at :00:00 when music is already
+# playing, exactly as before. Semantics, all measured on the official
+# 2.4.6 binary (2026-10-27, minute-cycled probes of this exact wiring):
+#   * an unselected switch polls its function predicate continuously
+#     (dozens of times per second), so a metadata flip opens the gate
+#     within ~100 ms of the speech->music seam;
+#   * a selected clip always plays to completion even when the window (or
+#     the gate) closes mid-clip -- speech starting at :00:03 does not
+#     truncate an ID already on air (the old behavior had no gate at all);
+#   * at the child's track end the switch re-checks the predicate: with a
+#     window wider than one clip the pool would otherwise chain a second
+#     clip (measured: two back-to-back with a bare 8 s window), so id_fired
+#     is a one-shot latch. It is set by the ID clip's own metadata, which
+#     fires at request-PREPARE time -- possibly for a clip that then never
+#     airs -- which is fine: the latch only ever needs to be MORE
+#     conservative. It is reset by the predicate itself whenever the
+#     window is closed (the unselected switch is polled continuously, so
+#     the reset always lands long before the next :00). Exactly one ID
+#     clip per hour-window, measured against a looping pool.
+# id_speech_active starts TRUE (fail-closed): for the first frames after
+# boot no program metadata has passed yet, and "unknown" must read as
+# speech, not as a license to talk over it -- worst case the first
+# top-of-hour after a restart defers the ID by ~1 s (measured boot race:
+# a ref(false) default let the ID out 1.2 s before the first speech
+# metadata arrived).
+# Honest limit, documented: speech that runs past the 90th second of the
+# hour skips that hour's ID entirely (a stomped DJ is worse than a skipped
+# jingle; measured: a window fully covered by speech stays silent). This
+# watch sees the chain BELOW the overlay -- stingers, promos, requests and
+# the show's own music and speech tracks -- and the ID clips themselves
+# never pass through it (the overlay's add() output is not fed back).
+# Stingers, promos and beds keep today's ride-over behavior: their
+# source_tags are "stinger"/"promo" and beds carry none -- this gate is
+# exactly B3's scope, DJ speech.
+%ifversion >= 2.4.6
+id_window = {0m0s-1m30s}
+id_speech_active = ref(true)
+id_fired = ref(false)
+def id_speech_watch(m) =
+  id_speech_active := (m["source_tag"] == "speech")
+end
+radio.on_metadata(synchronous=true, id_speech_watch)
+def id_fired_watch(m) =
+  if m["source_tag"] == "id" then
+    id_fired := true
+  end
+end
+id_source.on_metadata(synchronous=true, id_fired_watch)
+def id_ready() =
+  if not id_window() then
+    id_fired := false
+  end
+  id_window() and not id_speech_active() and not id_fired()
+end
+radio = add([radio, switch([(id_ready, id_source)])])
+%else
 radio = add([radio, switch([({0m0s}, id_source)])])
+%endif
 
 # --- Postelje: sidechain ducker (P3 #13, docs/ready-made-scripts-analysis.md
 # §2.6 row 13) ----------------------------------------------------------------

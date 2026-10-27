@@ -1316,6 +1316,13 @@ izhajajo iz IZMEROV (avtocuejev indeks glave/repa vsakega sleda).
   je strogo prihodnje; klip oddaje, ki je medtem začela, ob naslednjem tiku
   (≤ 30 min) zapusti bazen. Iskrena meja: v tem oknu lahko zastareli promo
   še enkrat odleti (randomize brez spomina) — dokumentirano in sprejeto.
+- **Bazen ID-jev ne strada več** (Val 31): `loop=false` na `id_source` je
+  bazen izčrpal po N klipih in NIČ ga več ni napolnilo (prepis m3u se ob
+  byte-identični vsebini preskoči — stara trditev »prepis nafila bazen« je
+  bila napačna, izmerjeno na obeh uradnih binarkah). Zdaj je `loop=true`;
+  kadenca ostane EN klip na odprtje vrat na obeh buildih (2.2.4: okno se
+  zapre pred koncem klipa + ponovni pregled predikata ob meji; 2.4.6:
+  zaklepka spodaj).
 
 ### Kaj se prižge ob nadgradnji na Liquidsoap 2.4.6 (D1)
 
@@ -1331,12 +1338,25 @@ izhajajo iz IZMEROV (avtocuejev indeks glave/repa vsakega sleda).
   `stampTransitionFlags.js` CLI ostaja za ročne popravke.
   Doktorjevo preverjanje **prehodi** (#19) meri pokritost teh žigov v
   filler.m3u — po nadgradnji mora biti plast pripravljena, ne presenečena.
+- **Urna ID plošča ne more čez DJ govor** (Val 31, B3 — odkloženo): okno se
+  razširi na prvih 90 s ure in govorna vrata (source_tag="speech") držijo
+  klip nazaj, dokler DJ govori; ID nato zazveni čez intro pesmi, ki sledi
+  govoru (klasični »ID čez rampo«), ali točno ob :00:00, če že teče glasba —
+  kot prej. Izbrani klip se vedno predvaja do konca tudi, če se vrata zaprejo
+  sredi (govor, ki začne ob :00:03, ne odreže ID-ja, ki je že na etru).
+  Enkratna zaklepka (`id_fired`) zagotavljuje NATANČNO EN klip na okno tudi
+  s širokim oknom in neskončnim bazenom. Iskrena meja: govor, ki teče čez
+  90. sekundo ure, ta uro ID preskoči (poteptan DJ je hujši od izpuščenega
+  žingla). Vrata so izključno DJ govor — stingerji, promosi in postelje
+  ohranjajo današnje vedenje prek glasbe. Vsa semantika izmerjena na
+  uradni 2.4.6 binarki (minute-ciklične sonde istega ožičenja); startup
+  privzetek je fail-closed (neznan program ≙ govor → ID čaka ~1 s).
 
 ### Zavestno odloženo (iskreno)
 
-- **Urnina ID plošča čez govor** (B3): `radio.liq` nalaga ID ob :00:00 čez
-  VSE (tudi čez DJ govor). Popravek bi potreboval track_sensitive mejo, ki
-  je na 2.2.4 ni — odloženo do nadgradnje.
+- **Urnina ID plošča čez govor** (B3): DOSTAVLJENO v valu 31 (razdelek
+  zgoraj) — vrata so odprta zgolj na 2.4.6, na 2.2.4 ostaja cookbookov
+  `{0m0s}` overlay (bajtno-identično).
 - **Hit-the-post** (govor čez intro pesmi): zahteva detekcijo začetka
   vokala — ostaja na seznamu idej.
 - **BPM/stem prehodi**: dokumentirano zavrnjeno (proti arhitekturi brez AI).
