@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Orchestration scripts for a self-hosted AI DJ internet radio station (Liquidsoap + Icecast + LM Studio + Chatterbox).",
+  "description": "Orchestration scripts for a self-hosted script-driven internet radio station (Liquidsoap + Icecast + Plex + Edge TTS) -- samo skripte, brez AI modelov.",
   "engines": {
     "node": ">=24"
   },
@@ -13,9 +13,6 @@
     "direct-show": "node src/cli/directShow.js",
     "prewarm-show-audio": "node src/cli/prewarmShowAudio.js",
     "preview-track-queue": "node src/cli/previewTrackQueue.js",
-    "preview-track-query-ai": "node src/cli/previewTrackQueryAi.js",
-    "preview-tracks": "node src/cli/previewTrackQueryAi.js",
-    "preview-show-prep": "node src/cli/previewShowPrep.js",
     "preview-auto-show": "node src/cli/previewAutoShow.js",
     "themed-shows": "node src/cli/themedShows.js",
     "podcast-export": "node src/cli/podcastExport.js",

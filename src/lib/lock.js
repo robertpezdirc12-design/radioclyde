@@ -4,11 +4,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Chatterbox is single-GPU/single-threaded -- concurrent requests either
-// queue up badly (slower than running sequentially) or time out outright
-// (confirmed: 6 of 8 parallel requests timed out in testing). Each on_track
-// firing spawns a separate OS process, so an in-process mutex can't
-// coordinate across them -- this uses a lock *file* instead.
+// Single-writer coordination for the station's read-modify-write state
+// files (prompts.json, track_ratingkeys.json) across OS processes: the
+// scheduler, the web server and CLI tools each run as separate processes,
+// so an in-process mutex can't coordinate between them -- this uses a
+// lock *file* instead. (History: the machinery was born to serialize the
+// old single-GPU Chatterbox TTS, where concurrent requests either queued
+// up badly or timed out outright -- 6 of 8 parallel requests timed out in
+// testing; the lock outlived the AI layer it was built for.)
 export async function withLock(lockPath, fn, { retryMs = 500, timeoutMs = 120000, staleMs = 180000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -19,8 +22,8 @@ export async function withLock(lockPath, fn, { retryMs = 500, timeoutMs = 120000
       if (err.code !== 'EEXIST') throw err;
       try {
         // A lock file left behind by a crashed process would otherwise
-        // block Chatterbox generation forever -- clear it if it's older
-        // than any realistic single TTS call.
+        // block the next writer forever -- clear it if it's older than any
+        // realistic single write.
         if (Date.now() - fs.statSync(lockPath).mtimeMs > staleMs) {
           fs.unlinkSync(lockPath);
           continue;

@@ -11,12 +11,15 @@
 //     mix career and birth dates, and inventing grammar around that would
 //     risk wrong sentences on air.
 //   sl.wikipedia REST summary (fallback):
-//     the page extract for the artist's name, taken WHOLE (never re-parsed
-//     sentence surgery -- see docs/show-generation-research.md §3.1), with
-//     only whitespace normalization. This is exactly the live-verified
-//     "Freddie Mercury, * 5. september 1946 ..." shape the research doc
-//     quotes -- and it works for any artist with a Slovenian page, not just
-//     one.
+//     the page extract's FIRST sentence, and only when it fits a spoken
+//     aside (<= 24 words, the all-pools sentence ceiling) -- CUTTING ONLY,
+//     never restructuring (docs/show-generation-research.md §3.1's no-surgery
+//     discipline stands: no clause rewriting, no grammar invention). A first
+//     sentence that runs past the budget drops the segment whole rather than
+//     trimming mid-grammar -- a mangled sentence on air is worse than no
+//     trivia (the P4 #29 instinct). Sentence boundaries respect Slovenian
+//     date ordinals ("5. september" is NOT a boundary -- a period followed by
+//     a lowercase word never ends a sentence).
 //
 // Contracts mirrored from auto/feeds.js: hard timeout on every fetch,
 // null-on-failure (a factless artist simply gets no trivia segment), and an
@@ -36,6 +39,9 @@ const WIKIPEDIA_SL_SUMMARY = 'https://sl.wikipedia.org/api/rest_v1/page/summary'
 // (feeds.js API User-Agent intentionally NOT rebranded -- engineering id).
 const USER_AGENT = 'RadioClyde-autoRadio/1.0 (self-hosted radio automation; deterministic templates)';
 const MUSICBRAINZ_MIN_GAP_MS = 1000;
+// The spoken-aside budget for a wikipedia fact -- the same 24-word ceiling
+// every template-pool sentence obeys (test/voiceRegister.test.mjs block D).
+export const SPOKEN_SENTENCE_MAX_WORDS = 24;
 
 export function foldArtist(name) {
   return String(name ?? '')
@@ -125,15 +131,42 @@ async function fetchMusicBrainzArtist(artist, timeoutMs) {
   });
 }
 
-// Fallback: the whole sl.wikipedia extract for the artist's name. The extract
-// is normalized (whitespace collapse, ONE trailing punctuation char dropped
-// -- the template adds it back) but never restructured.
+// Fallback: the FIRST sentence of the sl.wikipedia extract, budget-checked
+// for a spoken aside. The extract is normalized (whitespace collapse, ONE
+// trailing punctuation char dropped -- the template adds it back) but never
+// restructured.
 //
 // Entity guard: a name like "Bush" resolves to the plant just as happily as
 // to the band, so the page must be a normal article (not a disambiguation
 // page) AND its normalized title must fold-match the artist we asked about --
 // anything else is not a fact about THIS artist and returns null instead of
 // risking a wrong sentence on air.
+//
+// Val 28 A3: the whole-extract contract used to speak entire encyclopedia
+// paragraphs verbatim -- the most formal, least conversational text the
+// station owns. The cut is a pure selection: FIRST complete sentence only,
+// kept only when it fits the 24-word spoken-aside budget (the same ceiling
+// test/voiceRegister.test.mjs enforces on every pool sentence). Budget miss
+// -> null (honest drop); abbreviations like "5. september" never split a
+// sentence (a boundary needs a period followed by whitespace + an uppercase
+// word, or end-of-text).
+export function firstSpokenSentence(extract, { maxWords = SPOKEN_SENTENCE_MAX_WORDS } = {}) {
+  const text = String(extract ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  // First sentence end: [.!?] followed by whitespace + an UPPERCASE start
+  // (Unicode -- Č/Š/Ž included) or end-of-text. A period before a lowercase
+  // word ("5. september", "npr. beseda") is an abbreviation dot, not a
+  // boundary.
+  const boundary = /[.!?](?=\s+[\p{Lu}]|\s*$)/u.exec(text);
+  const candidate = boundary ? text.slice(0, boundary.index) : text;
+  const words = candidate.split(' ').filter((w) => /\S/.test(w));
+  if (words.length === 0) return null;
+  if (words.length > maxWords) return null;
+  // Same trailing-punctuation strip the whole-extract path always did -- the
+  // template pool adds the final period back (triviaArtist/triviaGeneral).
+  return candidate.replace(/[.\s]+$/, '');
+}
+
 async function fetchWikipediaSlSummary(artist, expectedFold, timeoutMs) {
   const url = `${WIKIPEDIA_SL_SUMMARY}/${encodeURIComponent(artist)}`;
   const res = await fetch(url, {
@@ -153,10 +186,17 @@ async function fetchWikipediaSlSummary(artist, expectedFold, timeoutMs) {
   }
   const extract = String(json?.extract ?? '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[.\s]+$/, '');
+    .trim();
   if (!extract) return null;
-  return { artist, source: 'wikipedia-sl', text: extract };
+  const spoken = firstSpokenSentence(extract);
+  if (!spoken) {
+    // Two honest drops share this branch: a first sentence past the spoken
+    // budget, and a degenerate extract with no measurable words. Either way
+    // the segment vanishes rather than airing encyclopedia prose.
+    log(`trivia/artist: "${artist}" -- prvi stavek wikipedia izvlečka je predolg za govorno vmesno besedo ali brez besed -- segment spusti.`);
+    return null;
+  }
+  return { artist, source: 'wikipedia-sl', text: spoken };
 }
 
 const artistTriviaCache = new Map(); // fold(name) -> { at, value }

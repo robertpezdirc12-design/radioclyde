@@ -259,6 +259,33 @@ describe('E. stale sweep', () => {
     assert.ok(fs.existsSync(operator), 'OPERATOR clip must never be removed by this job');
     assert.equal(fs.readFileSync(operator, 'utf8'), 'operator bytes');
   });
+
+  // Val 28 C3: promo ne sme reklamirati oddaje, ki je ŽE na etru. Okno je
+  // zdaj STROGO prihodnje (start > zdaj) in pometanje teče ob vsakem tiku,
+  // zato klip oddaje, ki je medtem začela, zapusti bazen takoj, ko jo tik
+  // zagleda -- "prihajajoča" napoved ne leti čez začetek oddaje.
+  test('a clip whose show has since STARTED is swept on the next tick (C3: strictly-future window)', async () => {
+    resetPromosDir();
+    writeStation([{ id: 'win', startTime: START_T, durationMinutes: 30 }]);
+    enable({ horizonHours: 12.8 });
+
+    const fakes = makeFakes();
+    const first = await producePromoClips(fakes);
+    assert.equal(first.produced, 1);
+    assert.equal(producedNames('promo_win').length, 1);
+
+    // Ura "gre čez začetek": urnik prepisan tako, da je ISTA oddaja začela
+    // ~10 minut nazaj (relativni-casni fixtures vzorec), obzorje pa skrčeno
+    // pod jutrišnjo ponovitev -- oddaja je IZ okna, njen klik je torej
+    // zastarel in ga ta tiki pomete.
+    const past = new Date(Date.now() - 10 * 60000);
+    writeStation([{ id: 'win', startTime: `${pad2(past.getHours())}:${pad2(past.getMinutes())}`, durationMinutes: 30 }]);
+    enable({ horizonHours: 2 });
+    const second = await producePromoClips(fakes);
+    assert.equal(second.produced, 0, 'no promo is produced for an already-started show');
+    assert.ok(second.removed >= 1, 'the started show\'s clip is swept out of the pool');
+    assert.equal(producedNames('promo_win').length, 0, 'nothing left in rotation for the airing show');
+  });
 });
 
 // --- F. loudness bake ----------------------------------------------------------

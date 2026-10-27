@@ -1,7 +1,8 @@
-// Deterministic "Track Selection" brief parser -- the no-AI counterpart to
-// producer/trackSelection/query.js's LLM step. Turns the brief's prose
-// (plus optional structured `key: value` lines) into the same concrete query
-// object the LLM's produce_query tool produced, so trackSelection/queue.js's
+// Deterministic "Track Selection" brief parser -- since Val 28 the only
+// brief parser (its former LLM counterpart, producer/trackSelection/
+// query.js, is removed). Turns the brief's prose (plus optional structured
+// `key: value` lines) into the same concrete query object the LLM's
+// produce_query tool used to produce, so trackSelection/queue.js's
 // buildTrackQueue() runs unchanged past this point.
 //
 // Design rules for this module:
@@ -306,8 +307,8 @@ function parseProse(text, genreTags) {
 // main entry
 // ---------------------------------------------------------------------------
 
-// Same contract as trackSelection/query.js's produceTrackQuery: returns
-// { query } whose shape buildTrackQueue() consumes. `genreTags` comes from
+// Same contract the old LLM produceTrackQuery had: returns { query } whose
+// shape buildTrackQueue() consumes. `genreTags` comes from
 // librarySource.listGenreTagsAny() (real Plex tags, or the local library's
 // own tag set) so the caller decides where metadata truth lives.
 export function produceTrackQueryDeterministic({ trackSelectionText, genreTags = [], albumGenreTags = [] }) {

@@ -14,7 +14,7 @@
         <li><a href="#on-air" data-view="on-air">On Air</a></li>
         <li><a href="#shows" data-view="shows">Shows</a></li>
         <li><a href="#schedule" data-view="schedule">Schedule</a></li>
-        <li><a href="#prompts" data-view="prompts">Prompts</a></li>
+        <li><a href="#prompts" data-view="prompts">Osebje</a></li>
         <li><a href="#requests" data-view="requests">Requests</a></li>
         <li><a href="#polls" data-view="polls">Ankete</a></li>
         <li><a href="#library" data-view="library">Library</a></li>
@@ -153,20 +153,15 @@
       <div id="schedule-toast" class="schedule-toast" hidden></div>
 
       <section id="view-prompts" class="view" hidden>
-        <h1>Prompts</h1>
+        <h1>Osebje (personas)</h1>
         <div class="card">
-          <h2>Script review</h2>
-          <textarea id="script-review-prompt" rows="5"></textarea>
-          <div class="form-actions">
-            <button id="save-script-review" type="button" class="btn btn-primary">Save</button>
-            <span id="script-review-message" class="action-message"></span>
-          </div>
-        </div>
-        <div class="card">
-          <h2>Personas</h2>
+          <h2>Seznam voditeljev</h2>
+          <p class="muted">Imena, ki jih smejo show-opisi in scenariji naslavljati. Glas vsake osebe se nastavi v config.json (autoRadio.voice.personas) -- tukaj je samo imenik.</p>
           <div id="personas-list"></div>
           <div class="form-actions">
-            <button id="save-personas" type="button" class="btn btn-primary">Save all personas</button>
+            <input id="new-persona-id" placeholder="id nove osebe (npr. markec)">
+            <button id="add-persona" type="button" class="btn">Dodaj</button>
+            <button id="save-personas" type="button" class="btn btn-primary">Shrani</button>
             <span id="personas-message" class="action-message"></span>
           </div>
         </div>

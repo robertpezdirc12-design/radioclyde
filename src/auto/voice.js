@@ -1,6 +1,6 @@
-// The no-model voice layer. In autoRadio mode every `dj`/`live` segment's
-// audio comes from one of five sources, chosen by
-// config.autoRadio.voice.mode -- none of which is a self-hosted AI TTS model:
+// The station's voice layer. Every `dj`/`live` segment's audio comes from
+// one of five sources, chosen by config.autoRadio.voice.mode -- none of
+// which is a self-hosted AI TTS model:
 //
 //   "clips"  -- pre-recorded clips, one file per speech slot, per persona:
 //               <dataDir>/<clipsDir>/<persona>/<slot>.wav
@@ -37,8 +37,17 @@
 //               and transcripts still record the rendered lines.
 //
 // All provider output is normalized through ffmpeg to pcm_s16le/24kHz/mono
-// -- the same codec contract Chatterbox output had -- so the director's
-// plain concat-demuxer splicing of consecutive speech clips stays lossless.
+// -- the long-standing speech codec contract every consumer relies on -- so
+// the director's plain concat-demuxer splicing of consecutive speech clips
+// stays lossless.
+//
+// Val 28 ("samo skripte brez AI modelov"): the old Chatterbox AI TTS and the
+// config.autoRadio.enabled mode switch are REMOVED -- this voice layer is
+// the station's only speech synthesis path, and the autoRadio block is
+// plain station configuration (voice/rubrics/music/rules), not a mode flag.
+// Existing configs that still carry "enabled": false (or leftover
+// lmStudio/chatterbox blocks) simply ignore them; doctor's config check
+// tells the operator they're inert.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -51,10 +60,6 @@ import { synthesizePiper } from './piperVoice.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('station');
-
-export function autoRadioEnabled() {
-  return !!config.autoRadio?.enabled;
-}
 
 export function voiceMode() {
   return config.autoRadio?.voice?.mode ?? 'clips';
@@ -295,9 +300,9 @@ export async function synthesizeNoModelSpeech({ persona, slot, text, outPath, se
   }
 
   try {
-    // Normalize to the Chatterbox codec contract (pcm_s16le, 24kHz, mono) so
-    // downstream concat/annotation logic is format-agnostic; gain matches the
-    // Chatterbox path's treatment (user-recorded clips stay untouched).
+    // Normalize to the station's speech codec contract (pcm_s16le, 24kHz,
+    // mono) so downstream concat/annotation logic is format-agnostic
+    // (user-recorded clips stay untouched by the gain).
     const tmp = `${outPath}.norm.wav`;
     await execFileAsync('ffmpeg', [
       '-y', '-i', sourcePath,

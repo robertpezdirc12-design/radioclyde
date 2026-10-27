@@ -13,9 +13,22 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { setupTestConfig, repoRoot } from './fixtures.mjs';
+
+const execFileAsync = promisify(execFile);
+
+const HAS_FFMPEG = (() => {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const SKIP_FFMPEG = HAS_FFMPEG ? false : 'ffmpeg not available on this box';
 
 setupTestConfig('format-clock', {
   imaging: { checkIntervalMinutes: 30 }, // deliberately NO beds block (the gating case)
@@ -391,25 +404,39 @@ describe('E. weather production', () => {
     assert.equal(r2.produced, 1, 'the file never landed, so the next tick retries');
   });
 
-  test('gain bake: off-target LUFS -> ffmpeg volume pass onto the final bytes', async () => {
+  test('gain bake + lead-out trail: off-target LUFS -> volume AND trailing fade in one pass', async () => {
     enable({});
     reset();
     const { synthesize, analyze, run, push, runCalls } = makeFakes({ lufs: -20 });
     await formatClockTick({ now: at(14, 11), schedule: mkSchedule([]), synthesize, analyze, run, push, fetchWeather: weatherOf(WEATHER_FULL) });
     assert.equal(runCalls.length, 1);
     const argv = runCalls[0].args;
-    assert.ok(argv.includes('volume=4dB'), `expected the measured +4 dB bake, got ${argv.join(' ')}`);
+    // Val 28 B2: the bake pass carries gain + the baked lead-out trail
+    // (areverse/afade-in/areverse = fade-out on the last 0.5 s, no duration
+    // needed up front).
+    assert.ok(
+      argv.includes('volume=4dB,areverse,afade=t=in:st=0:d=0.5,areverse'),
+      `expected the measured +4 dB bake WITH the 0.5 s lead-out trail, got ${argv.join(' ')}`
+    );
     assert.ok(argv.includes('-f') && argv.includes('mp3'), 'the extension-less tmp needs the explicit mp3 muxer (Val 21 lesson)');
     assert.equal(fs.readFileSync(bedClip(`weather_${DAY}_14-15.mp3`), 'utf8'), 'gained fake mp3');
   });
 
-  test('on-target LUFS -> bytes land untouched, no ffmpeg pass', async () => {
+  test('on-target LUFS -> fade-only pass (volume=0dB no-op): every measured bed gets the trail', async () => {
     enable({});
     reset();
     const { synthesize, analyze, run, push, runCalls } = makeFakes({ lufs: -16 });
     await formatClockTick({ now: at(14, 11), schedule: mkSchedule([]), synthesize, analyze, run, push, fetchWeather: weatherOf(WEATHER_FULL) });
-    assert.equal(runCalls.length, 0);
-    assert.equal(fs.readFileSync(bedClip(`weather_${DAY}_14-15.mp3`), 'utf8'), 'fake mp3 bytes');
+    // Val 28 B2 changed this contract deliberately: "bytes land untouched"
+    // became "loudness lands untouched" -- the lead-out trail is part of the
+    // bed's presentation, so a measured on-target clip still takes ONE pass
+    // (a no-op gain + the fade), never a full-untouched rename.
+    assert.equal(runCalls.length, 1);
+    assert.ok(
+      runCalls[0].args.includes('volume=0dB,areverse,afade=t=in:st=0:d=0.5,areverse'),
+      `expected the fade-only trail pass, got ${runCalls[0].args.join(' ')}`
+    );
+    assert.equal(fs.readFileSync(bedClip(`weather_${DAY}_14-15.mp3`), 'utf8'), 'gained fake mp3');
   });
 
   test('ebur128 failure -> clip lands UNMEASURED (station unaffected)', async () => {
@@ -434,6 +461,37 @@ describe('E. weather production', () => {
     assert.equal(fs.readFileSync(bedClip(`weather_${DAY}_14-15.mp3`), 'utf8'), 'fake mp3 bytes');
     // No tmp leftovers survive the tick (atomic discipline).
     assert.deepEqual(fs.readdirSync(config.paths.bedsDir).filter((n) => n.includes('tmp')), []);
+  });
+
+  // Val 28 B2 real forensics: the pinned args above prove the filter string,
+  // this proves the BYTES -- run the production filter chain through the real
+  // ffmpeg onto a generated voice-like mp3 and measure that the last stretch
+  // of the output is materially quieter than the body. Skip-guarded (the
+  // autocueLoudness.test.mjs honesty pattern).
+  test('REAL ffmpeg: the baked trail is in the bytes (tail mean well under body)', { skip: SKIP_FFMPEG }, async () => {
+    const dir = path.join(config.dataDir, 'b2-forensics');
+    fs.mkdirSync(dir, { recursive: true });
+    const src = path.join(dir, 'voice.mp3');
+    const out = path.join(dir, 'voice-trailed.mp3');
+    // A 4 s constant "voice" (the body level the trail must fall from).
+    await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=4', '-b:a', '64k', src]);
+    await execFileAsync('ffmpeg', [
+      '-y', '-v', 'error', '-i', src,
+      '-filter:a', 'volume=0dB,areverse,afade=t=in:st=0:d=0.5,areverse',
+      '-f', 'mp3', out,
+    ]);
+    const meanOf = async (args) => {
+      // Seek/limit args are INPUT-side (before -i): -sseof is input-only.
+      const { stderr } = await execFileAsync('ffmpeg', ['-hide_banner', ...args, '-i', out, '-af', 'volumedetect', '-f', 'null', '-']);
+      const m = /mean_volume:\s*(-?[\d.]+) dB/.exec(stderr);
+      return Number.parseFloat(m[1]);
+    };
+    const body = await meanOf(['-t', '2']);
+    const tail = await meanOf(['-sseof', '-0.3']);
+    assert.ok(
+      body - tail >= 6,
+      `the last 0.3 s must sit >= 6 dB under the body (body ${body} dB, tail ${tail} dB)`
+    );
   });
 });
 

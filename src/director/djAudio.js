@@ -1,40 +1,26 @@
 // Synthesizes and caches a single `dj` segment's speech. A segment's text
 // comes straight from script.md and never changes between same-day repeats
-// of a show, so its Chatterbox output is deterministic -- cached once per
-// script (keyed by segment position within it) under
-// <showDateDir>/dj-audio/, and reused by every same-day airing *and* by
-// prewarmAudio.js's downtime pass, instead of resynthesizing byte-identical
-// audio each time.
+// of a show, so its audio is deterministic -- cached once per script (keyed
+// by segment position within it) under <showDateDir>/dj-audio/, and reused
+// by every same-day airing *and* by prewarmAudio.js's downtime pass, instead
+// of resynthesizing byte-identical audio each time.
+//
+// Val 28 ("samo skripte brez AI modelov"): the Chatterbox branch (a
+// self-hosted AI TTS model, serialized behind a station lock file)
+// is REMOVED -- the no-model voices are the only synthesis path:
+// clips / edge / piper / sapi / espeak / none (auto/voice.js), keyed by
+// `slot` (open/intro/recap/... or live:<kind>) with `text` for the speaking
+// providers. djDrops.gain is applied inside the voice layer (clips stay
+// untouched -- they are the operator's own recordings).
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from '../config/index.js';
-import { withLock } from '../lib/lock.js';
-import { applyGain } from '../lib/audio.js';
-import { loadPersonas } from '../scheduler/promptsUtil.js';
-import { synthesizeVoice } from './tts.js';
-import { autoRadioEnabled, synthesizeNoModelSpeech } from '../auto/voice.js';
+import { synthesizeNoModelSpeech } from '../auto/voice.js';
 
-// In autoRadio mode the same cache layout serves the no-model voice layer.
-// `slot` (open/intro/recap/... or live:<kind>) is what clips mode keys its
-// files by; sapi/espeak only speak `text`. Cached returns stay identical in
-// shape to the Chatterbox path ({ filePath, ttsDurationMs, cached }).
 export async function synthesizeSpeechToPath(persona, text, filePath, slot = 'dj', seed = '', track = null) {
-  if (autoRadioEnabled()) {
-    const startedAt = Date.now();
-    const spoke = await synthesizeNoModelSpeech({ persona, slot, text, outPath: filePath, seed, track });
-    if (!spoke) return { skipped: true, ttsDurationMs: 0 };
-    return { skipped: false, ttsDurationMs: Date.now() - startedAt };
-  }
-  const voiceFile = loadPersonas()[persona]?.voiceFile;
-  if (!voiceFile) throw new Error(`Unknown persona "${persona}" -- no voiceFile in config.`);
   const startedAt = Date.now();
-  const audio = await withLock(config.paths.chatterboxLockPath, () => synthesizeVoice(text, voiceFile));
-  const ttsDurationMs = Date.now() - startedAt;
-  // Mirror of director/index.js's own ttsLog guard (config.djDrops?.gain ?? 1):
-  // a config without a djDrops block must not kill speech synthesis.
-  const amplified = await applyGain(audio, config.djDrops?.gain ?? 1, config.dataDir);
-  fs.writeFileSync(filePath, amplified);
-  return { skipped: false, ttsDurationMs };
+  const spoke = await synthesizeNoModelSpeech({ persona, slot, text, outPath: filePath, seed, track });
+  if (!spoke) return { skipped: true, ttsDurationMs: 0 };
+  return { skipped: false, ttsDurationMs: Date.now() - startedAt };
 }
 
 export async function getCachedDjAudio(djAudioDir, segmentIndex, persona, text, slot = 'dj', seed = '', track = null) {

@@ -387,23 +387,23 @@ describe('E. wiring pins (source structure)', () => {
     assert.ok(liveAt < closeAt, 'announcement first, sign-off second');
   });
 
-  test('boundaryWalk.js pushes it before the close push (AI-mode build)', () => {
-    const src = srcOf('src/producer/boundaryWalk.js');
-    assert.match(src, /segments\.push\(\{\s*type: 'live',\s*persona: primaryPersona,\s*kind: 'nextShow',/);
-    const liveAt = src.indexOf("kind: 'nextShow'");
-    const closeAt = src.indexOf('await generateCloseLine({ persona: primaryPersona, showContext, airDate, record })');
-    assert.ok(liveAt !== -1 && closeAt !== -1, 'both pushes present');
-    assert.ok(liveAt < closeAt, 'announcement first, sign-off second');
-  });
+  // (Val 28: the boundaryWalk.js AI-mode twin of this pin is gone with the
+  // AI producer -- scriptBuilder.js is the only script builder left.)
 
   test('director/index.js threads the occurrence identity into resolveLiveLine', () => {
     const src = srcOf('src/director/index.js');
     assert.match(src, /await resolveLiveLine\(seg, \{ show: id, weekday, date, timeKey \}\)/);
   });
 
-  test('liveSegments.js imports resolveNextShowValues from liveLines.js (no-cycle pin, both paths one resolver)', () => {
+  test('liveSegments.js delegates to liveLines.js (no-cycle pin: ONE resolver, no director-side twin)', () => {
+    // Val 28 ("samo skripte brez AI modelov"): the AI branch that used to
+    // import resolveNextShowValues directly is gone -- the director side
+    // is now a pure delegation to the auto resolver, so both concerns of
+    // the old pin (no import cycle, no second resolver) hold by construction.
     const src = srcOf('src/director/liveSegments.js');
-    assert.match(src, /import \{[^}]*resolveNextShowValues[^}]*\} from '\.\.\/auto\/liveLines\.js';/);
+    assert.match(src, /import \{ resolveLiveLineAuto \} from '\.\.\/auto\/liveLines\.js';/);
+    assert.ok(!src.includes('resolveNextShowValues'), 'the director side must not grow its own schedule resolver');
+    assert.ok(!src.includes('loadSchedule'), 'no schedule reading on the director side');
   });
 
   test("format.js: VALID_LIVE_KINDS contains 'nextShow', the estimate is 8000", () => {

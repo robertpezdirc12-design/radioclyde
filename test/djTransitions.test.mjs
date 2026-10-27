@@ -361,3 +361,44 @@ describe('stampTransitionFlags (file round-trip)', () => {
     assert.match(result.error, /ne obstaja/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Val 28 D1: the effects are armed AUTOMATICALLY at playlist-write time --
+// the CLI stamper stays for manual touch-ups, but the layer no longer
+// depends on a hand running it. The deterministic RULES (which measurements
+// earn which effect) are pinned pure in test/autocueHead.test.mjs
+// (transitionFlagsFor) and integrated in its annotateTrackEntry blocks;
+// this block pins the WIRING: the one writer both filler.m3u and show
+// playlist.m3u go through calls the stamper for every music entry.
+// ---------------------------------------------------------------------------
+describe('auto-stamping at playlist-write time (Val 28 D1)', () => {
+  const playlistSrc = fs.readFileSync(path.join(repoRoot(), 'src', 'director', 'playlist.js'), 'utf8');
+  const autocueSrc = fs.readFileSync(path.join(repoRoot(), 'src', 'lib', 'autocue.js'), 'utf8');
+  const fillerSrc = fs.readFileSync(path.join(repoRoot(), 'src', 'scheduler', 'generateFillerPlaylist.js'), 'utf8');
+
+  test('annotateTrackEntry (the shared writer) appends the effect fields', () => {
+    assert.match(playlistSrc, /transitionFlagAnnotate/, 'the writer calls the stamper');
+    assert.match(autocueSrc, /export function transitionFlagsFor/, 'the deterministic rules live in autocue');
+    assert.match(autocueSrc, /export function transitionFlagAnnotate/, 'the path-level annotate helper exists');
+    // The effect fields land in the SAME annotate group (dj_transitions.liq
+    // reads them as request metadata), after fade-in and before amplify.
+    assert.match(playlistSrc, /fields\.push\(\.\.\.transitionFlagAnnotate\(filePath\)\);/);
+  });
+
+  test('filler.m3u flows through the same writer (both playlists are covered by construction)', () => {
+    assert.match(fillerSrc, /localPaths\.map\(annotateTrackEntry\)/, 'filler uses the shared writer');
+  });
+
+  test('the effect keys in the stamper match dj_transitions.liq exactly', () => {
+    // The closed key set: what the CLI stamps, what the writer stamps, and
+    // what the .liq seam dispatcher reads must be the same three strings.
+    assert.equal(Object.keys(TRANSITION_FLAGS).length, 3, 'exactly three effects');
+    for (const key of Object.values(TRANSITION_FLAGS)) {
+      assert.match(
+        transitionsRaw,
+        new RegExp(`metadata\\["${key}"\\]`),
+        `${key} must be read by the seam dispatcher`
+      );
+    }
+  });
+});

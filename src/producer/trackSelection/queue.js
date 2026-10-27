@@ -30,9 +30,10 @@ export function neverPlayBans(excludeKeywords) {
 }
 
 // Heavier per-track commentary (intro + teaser + trivia, roughly two DJ
-// segments) costs more airtime than the old single-line-per-track pipeline
-// budgeted for (~25s) -- this is a starting estimate, expected to get tuned
-// once real Chatterbox-timed shows exist to check it against.
+// segments) costs more airtime than a single-line-per-track pipeline would
+// budget for (~25s) -- this is a starting estimate, expected to get tuned
+// once aired shows accumulate measured DJ-speech timings to check it
+// against.
 const DEFAULT_DJ_OVERHEAD_SECONDS = 45;
 
 // "Best of"/"greatest hits"-style albums are exactly the compilations a

@@ -1,8 +1,9 @@
-// Grounded in real Chatterbox measurements (8/25/51-word test lines produced
-// 2.72s/6.84s/14.32s of audio => ~2.9-3.7 words/sec). Shared by anything that
-// needs to lay out a plausible timeline before TTS actually runs -- the
-// preview tool (cli/previewShowPrep.js) and the producer's duration check
-// (script/format.js) both need this same estimate.
+// Grounded in real spoken-audio measurements (8/25/51-word test lines
+// produced 2.72s/6.84s/14.32s of audio => ~2.9-3.7 words/sec; measured on
+// the station's historical TTS voice -- the sizing input stands). Shared by
+// anything that needs to lay out a plausible timeline before TTS actually
+// runs -- the producer's duration check (script/format.js) needs this same
+// estimate.
 const ESTIMATED_SPEECH_WORDS_PER_SEC = 3.4;
 
 export function estimateSpeechMs(text) {

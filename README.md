@@ -20,20 +20,27 @@ and no neural TTS at all**.
   <img src="docs/GoogleTV.jpg" alt="Google TV app" width="49%">
 </p>
 
-## Two operating modes
+## How it runs (one deterministic pipeline)
 
-| | **AI mode** (classic LLM mode) | **Auto mode** (`autoRadio`) |
-|---|---|---|
-| Track selection | Local LLM resolves the brief into a Plex query | Deterministic rule parser + rule-based queue |
-| DJ script | LLM writes every line against Wikipedia-researched facts | Relaxed Slovenian rock-register templates filled from library metadata (short sentences, sparse fillers, pooled variants) |
-| Voice | Chatterbox (neural TTS) | **Edge neural TTS** / **local Piper** / pre-recorded clips / Windows SAPI / espeak-ng / none |
-| Service segments | LLM-composed live lines | **Live data rubriques**: ARSO weather, RTV Slovenija sport headlines, Wikidata "on this day" |
-| Hardware needed | GPU/CPU heavy LLM + TTS model | Any box — even a Raspberry Pi |
-| Offline capable | No | Yes (`--offline` dry-run, music-only fallback) |
+Since Val 28 the station is **script-only, with no AI models anywhere**
+("samo skripte brez AI modelov"): the deterministic `autoRadio` pipeline is
+THE pipeline. (The old dual-mode architecture — a classic LM Studio
+LLM + Chatterbox TTS mode behind `autoRadio.enabled: false` — was removed
+outright; see the commit message and docs/auto-radio.md for the history.)
 
-Both modes share the same scheduler, director, Liquidsoap/Icecast playout,
-web pages and mobile apps. Switch with one flag — `"autoRadio": { "enabled":
-true }` — with no other wiring, and every part downstream works unchanged.
+| | The station |
+|---|---|
+| Track selection | Deterministic rule parser + rule-based queue (artist cooldown, popularity mix, decade spread, time-of-day steering) |
+| DJ script | Relaxed Slovenian rock-register templates filled from library metadata (short sentences, sparse fillers, pooled variants, varied fenceposts) |
+| Voice | **Edge neural TTS** / **local Piper** / pre-recorded clips / Windows SAPI / espeak-ng / none |
+| Service segments | **Live data rubriques**: ARSO weather, RTV Slovenija sport headlines, Wikidata "on this day" |
+| Hardware needed | Any box — even a Raspberry Pi |
+| Offline capable | Yes (`--offline` dry-run, music-only fallback) |
+
+The scheduler, director, Liquidsoap/Icecast playout, web pages and mobile
+apps are all shared and unchanged. Configs that still carry the old
+`lmStudio`/`chatterbox` blocks or `autoRadio.enabled` simply ignore them —
+`npm run doctor` tells you they're deletable.
 
 ## What it does
 
@@ -324,9 +331,7 @@ now-playing page and the Google TV app.
 |---|---|
 | **Node.js** (this repo) | Orchestration: scheduling, script production, directing, the web server/API |
 | **Plex Media Server** or local folders | Music library backend: track/artist/album metadata and search |
-| **LM Studio** (AI mode only) | Local LLM: track-query resolution, script writing, script editing, live-segment lines |
-| **Chatterbox** (AI mode only) | Neural text-to-speech for the classic mode's DJ audio |
-| **Piper** (auto mode, optional) | Local neural text-to-speech (piper1-gpl): one Slovenian voice, ~60 MB model, fully offline after a one-time download |
+| **Piper** (optional) | Local neural text-to-speech (piper1-gpl): one Slovenian voice, ~60 MB model, fully offline after a one-time download |
 | **Liquidsoap** | Playout engine: plays the directed playlist or falls back to filler, feeds Icecast |
 | **Icecast** | The actual stream server listeners connect to |
 | **Fastify** | Web server: now-playing page, JSON API, authenticated stream proxy, password-protected studio admin, and the scheduling daemon (one merged process) |
@@ -337,15 +342,15 @@ now-playing page and the Google TV app.
 
 1. `npm install`
 2. Copy `config.example.json` to `config.json` and fill in real values
-   (Plex token, Icecast credentials, studio admin password; for AI mode also
-   LM Studio/Chatterbox URLs, for auto mode the `autoRadio` block)
+   (Plex token, Icecast credentials, studio admin password, the
+   `autoRadio` block for voice/rubrics/music rules)
 3. Put your show briefs in `<dataDir>/show-descriptions/` and your weekly
    lineup in `<dataDir>/station.json` (date overrides for holidays and
    `replay` slots ride in the same file)
 4. `npm run runweb` — the scheduler + web server in one process
 
-For a station without a language model, set `"autoRadio": { "enabled": true,
-"voice": { "mode": "edge" } }` — see
+For a station with zero speech hardware, set
+`"autoRadio": { "voice": { "mode": "edge" } }` — see
 [docs/auto-radio.md](docs/auto-radio.md) for the complete Slovenian
 reference. Try one show end-to-end without touching Plex or the network:
 
@@ -607,19 +612,11 @@ station.json entry required):
   rendered script and validation. `--offline` forces the local library and
   skips every network source. Writes the same `script.md`/`tracks.json` the
   scheduler would, so the output can be directed as-is.
-- `npm run preview-tracks -- <show-name>`: the fast one. Resolves
-  `show-descriptions/<show-name>.md`, pulls its `## Track Selection` text
-  and `**Duration:**`, and prints the AI-produced Plex query plus the
-  resulting tracklist. Also accepts a full/relative path, or
-  `--text="<brief>" --duration=<minutes>` for a brief with no file at all.
-  (`preview-track-query-ai` is the same script, longer name.)
-- `npm run preview-track-queue -- --duration=<minutes> [--artist=... --genre=... --decade=...]`: the deterministic track-selection step directly, bypassing the AI query-producing step entirely.
-- `npm run preview-show-prep -- --file=<path> --duration=<minutes>`: the fuller show-prep dry run (track query + research), still short of full script writing.
+- `npm run preview-track-queue -- --duration=<minutes> [--artist=... --genre=... --decade=...]`: the deterministic track-selection step directly (the brief parser + queue builder).
 
-## Auto Radio mode (no LLM, no Chatterbox)
+## Voice (no AI models)
 
-The station can run **fully deterministically** — no language model, no
-neural TTS model on your hardware:
+The station speaks with **no self-hosted AI models** — the voice layer is:
 
 - **Voice engines** (pick one per station, per-show personas map onto them):
   `edge` (Microsoft Edge neural TTS — real Slovenian voices

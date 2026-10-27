@@ -81,6 +81,9 @@ export const CHECK_ORDER = [
   { id: 'beds', label: 'formatna ura (postelje)' },
   { id: 'wheel', label: 'kolo (clockwheel)' },
   { id: 'backup', label: 'rezervne kopije' },
+  // Val 28 (naravni prehodi): merjena prehodna plast -- autocue meritve
+  // glav/repor + prehodni žigi, ki jih pisci seznamov pečatijo iz njih.
+  { id: 'prehodi', label: 'prehodi (merjena plast)' },
 ];
 
 // ZAPRT nabor popravil (SUB/WAVE Finding/fix model): vsako opozorilo novih
@@ -159,6 +162,11 @@ export function slPlural(n, one, few, many) {
 // CLI ujame napako dinamičnega importa in nam jo podasetavljivo podaje --
 // zlomljen config.json je NAPAKA (brez njega ni poti do podatkov), manjkajoč
 // autoRadio blok pa le opozorilo (glavna stran oddaje deluje brez njega).
+//
+// Val 28 ("samo skripte brez AI modelov"): zastareli ključi iz odstranjene
+// AI plasti (lmStudio, chatterbox, autoRadio.enabled) ne storijo več nič --
+// namestitvam, ki jih še nosijo v config.json, to povemo z nota v izpisu,
+// ker edina resnica o njih je, da jih lahko izbrišejo.
 export function checkConfig(configOrError) {
   if (configOrError instanceof Error) {
     return result('config', 'konfiguracija', STATUS.FAIL,
@@ -168,17 +176,20 @@ export function checkConfig(configOrError) {
     return result('config', 'konfiguracija', STATUS.FAIL,
       'config.json se ne prebere: vsebina ni objekt');
   }
+  const legacy = [];
+  if (configOrError.lmStudio) legacy.push('lmStudio');
+  if (configOrError.chatterbox) legacy.push('chatterbox');
   const ar = configOrError.autoRadio;
+  if (ar && typeof ar === 'object' && 'enabled' in ar) legacy.push('autoRadio.enabled');
+  const legacyNote = legacy.length > 0
+    ? ` (zastarelo, ne stori več nič -- lahko izbrišeš: ${legacy.join(', ')})`
+    : '';
   if (!ar || typeof ar !== 'object') {
     return result('config', 'konfiguracija', STATUS.WARN,
-      'config.json berljiv, ampak blok autoRadio manjka -- avtomatski program ne bo stopil na parket');
-  }
-  if (!ar.enabled) {
-    return result('config', 'konfiguracija', STATUS.WARN,
-      'config.json berljiv, ampak autoRadio.enabled = false -- terminirane oddaje greste v klasični način');
+      'config.json berljiv, ampak blok autoRadio manjka -- glas in pravila produkcije padajo na privzetke (clips glas, vir plex)' + legacyNote);
   }
   return result('config', 'konfiguracija', STATUS.OK,
-    `config.json berljiv, autoRadio omogočen (postaja: ${configOrError.stationName ?? 'neznana'})`);
+    `config.json berljiv, avtomatski program aktiven (postaja: ${configOrError.stationName ?? 'neznana'})` + legacyNote);
 }
 
 // -- 2. podatkovna mapa ------------------------------------------------------
@@ -1031,6 +1042,15 @@ export async function checkImaging({
       if (!fix) fix = FIXES['check-scheduler'];
       parts.push(`${layer.label}: ${clips} (m3u prazen!)`);
     } else {
+      // Val 28 C2 (širina vrtenja): radio.liq izbira iz teh plasti z
+      // mode="randomize" BREZ spomina -- 1-3 kipi pomenita, da isti
+      // ID/efekt leti uro za uro (CADA prisega, imaging izdaja). Štirje so
+      // minimum, ki ga vrtenje sploh lahko imenujemo. Nujna rezerva je
+      // izvzeta: njena naloga je preživetje, ne pestrost.
+      if (layer.key !== 'emergency' && clips < 4) {
+        problems.push(`${layer.label}: tanko vrtenje (${clips} ${slPlural(clips, 'kip', 'kipa', 'kipov')}) -- izbira je brez spomina, isti posnetek gre na eter uro za uro`);
+        if (!fix) fix = FIXES['load-imaging-clips'];
+      }
       parts.push(`${layer.label}: ${clips}`);
     }
   }
@@ -1323,6 +1343,62 @@ export async function checkBackup({
   return result('backup', 'rezervne kopije', STATUS.OK, parts.join(' · '));
 }
 
+// -- 19. prehodi (merjena plast) [Val 28] ---------------------------------------
+// Autocuejeva merjena prehodna plast: pregled glave/repa vsakega sleda
+// (lib/autocue.js) + ŽIGI, ki jih iz teh meritev pečatijo pisci seznamov
+// (director/playlist.js annotateTrackEntry: izmerjen liq_fade_in namesto
+// fiksnega 2 s, liq_cross_duration na merjenih repih, učinki
+// sweep/washout/dissolve na redkih velikih števkah). Resnica o etru je
+// .m3u (ista filozofija kot imaging plasti): štejemo VNOSI, ki dejansko
+// letijo -- vnos "nosi merjen prehod", kadar ima kakršenkoli izmerjen žig.
+// Efektni žigi so vidni šele na Liquidsoapu 2.4.6+ (zato jih doctor tukaj
+// šteje ločeno -- po nadgradnji mora biti plast PRIPRAVLJENA, ne
+// presenečena); izmerjeni fade-in in crossfade pa sta slišna že danes.
+export async function checkPrehodi({ fillerPath = null, readFileImpl = null } = {}) {
+  if (!fillerPath || typeof readFileImpl !== 'function') {
+    return result('prehodi', 'prehodi (merjena plast)', STATUS.SKIP,
+      'preskočeno -- pot do filler.m3u ali bralnik ni podan (izpeljava iz dataDir živi v CLI-ju)');
+  }
+  let fillerContent = null;
+  try { fillerContent = await readFileImpl(fillerPath, 'utf8'); } catch { fillerContent = null; }
+  if (fillerContent === null) {
+    return result('prehodi', 'prehodi (merjena plast)', STATUS.SKIP,
+      'preskočeno -- filler.m3u še ne obstaja (to že pove preverjanje predvajalnih list)');
+  }
+  const lines = String(fillerContent).split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
+  if (lines.length === 0) {
+    return result('prehodi', 'prehodi (merjena plast)', STATUS.WARN,
+      'filler.m3u je prazen -- noben vnos ne nosi merjenih prehodov',
+      'zgeneriraj seznam: npm run generate-filler-playlist',
+      FIXES['regenerate-filler']);
+  }
+  const flags = { washout: 0, dissolve: 0, sweep: 0 };
+  let measured = 0;
+  for (const line of lines) {
+    const m = /^annotate:([^:]*):/.exec(line);
+    if (!m) continue; // gola pot: nobenega žiga (ročna vrstica) -- pošteno neizmerjena
+    const group = m[1];
+    let carries = false;
+    if (group.includes('liq_cross_duration')) carries = true; // izmerjen rep
+    const fade = /liq_fade_in="([^"]*)"/.exec(group);
+    if (fade && fade[1] !== '2') carries = true; // 2 = privzet/srednji pas; 0.5 / 2.5-4.0 = izmerjeno
+    if (group.includes('liq_washout')) { carries = true; flags.washout += 1; }
+    if (group.includes('liq_dissolve')) { carries = true; flags.dissolve += 1; }
+    if (group.includes('liq_sweep')) { carries = true; flags.sweep += 1; }
+    if (carries) measured += 1;
+  }
+  const pct = Math.round((measured / lines.length) * 100);
+  const detail = `filler.m3u: ${measured}/${lines.length} ${slPlural(lines.length, 'vnos', 'vnosa', 'vnosov')} nosi izmerjene prehode (${pct} %) · washout ${flags.washout} · dissolve ${flags.dissolve} · sweep ${flags.sweep}`;
+  if (measured === 0) {
+    return result('prehodi', 'prehodi (merjena plast)', STATUS.WARN,
+      `${detail} -- autocue meritve glav/repor ne tečejo ali je indeks prazen: vsak prehod je raven (fiksni fade-in, brez crossfade na repih)`,
+      'preveri, da schedulerjev autocue tik teče (dataDir/autocue_index.json raste z vsakim uro)',
+      FIXES['check-scheduler']);
+  }
+  return result('prehodi', 'prehodi (merjena plast)', STATUS.OK,
+    `${detail} (učinkovni žigi se prižgejo na Liquidsoapu 2.4.6+, izmerjeni fade-in/crossfade sta slišna že danes)`);
+}
+
 // -- sestava -------------------------------------------------------------------
 export function orderResults(results) {
   const byId = new Map(results.map((r) => [r.id, r]));
@@ -1473,6 +1549,11 @@ export async function runDoctor({
     configOk
       ? safe('backup', 'rezervne kopije', () => checkBackup({ backupDir, backupIntervalMinutes, retentionDays, nowMs }))
       : result('backup', 'rezervne kopije', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    // Val 28 -- merjena prehodna plast (ISTA pot/bralnik kot checkM3u, zato
+    // brez novih šivov: fillerPath + readFileImpl že prihajata zgoraj).
+    configOk
+      ? safe('prehodi', 'prehodi (merjena plast)', () => checkPrehodi({ fillerPath, readFileImpl }))
+      : result('prehodi', 'prehodi (merjena plast)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
   ];
 
   // POMENBNO: najprej await, ŠELE nato orderResults -- orderResults bere

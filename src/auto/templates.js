@@ -1,9 +1,10 @@
-// Template-based DJ speech -- the no-AI replacement for producer/moves.js's
-// per-move LLM completions and director/liveSegments.js's live-line
-// completions. Each broadcast moment (open, track intro, post-track recap,
-// quiz, weather handoff, close, live time/weather) is one of a small set of
-// fixed sentence templates with {placeholders}, drawn from the show's real
-// library metadata. Default templates are Slovenian; every slot can be
+// Template-based DJ speech -- the station's only speech source (since
+// Val 28 the former LLM completions in producer/moves.js and
+// director/liveSegments.js are removed outright). Each broadcast moment
+// (open, track intro, post-track recap, quiz, weather handoff, close, live
+// time/weather) is one of a small set of fixed sentence templates with
+// {placeholders}, drawn from the show's real library metadata. Default
+// templates are Slovenian; every slot can be
 // overridden or extended via config.autoRadio.templates (see
 // docs/auto-radio.md for the full reference).
 //
@@ -373,6 +374,17 @@ export const DEFAULT_TEMPLATES = {
     'V drugi polovici kviz: ugibajte z nami. Kasneje pa \u0161e {artist}.',
     'Kviz \u0161e prihaja, {artist} tudi -- nikamor ne hitite.',
   ],
+  // Val 28 C1: the MID-show tease -- one more touch of the professional
+  // radio pattern (top tease + mid tease bookending the show's second half).
+  // Renders once at the fenceposts module's midTeaseIndex (the quiz position
+  // when a quiz exists, else halfway), naming an artist still ahead in the
+  // queue -- true by construction, same rule as the top tease.
+  teaseMid: [
+    'Pred nami je \u0161e {artist} -- ostajajte pri nas.',
+    'V drugi polovici poslu\u0161ate \u0161e {artist}.',
+    '\u0160e {artist} pride v tej oddaji -- kar dr\u017eite se.',
+    'Glejte, \u010dez kak\u0161no pesem pa \u0161e {artist}. Ne odhajajte.',
+  ],
 
   // P4 #25: "Anketa" rubric -- the listener poll (server/pollsStore.js) read
   // at air time. Two shapes: fresh poll (no votes yet) asks for votes, a
@@ -456,6 +468,34 @@ export const DEFAULT_TEMPLATES = {
     '{dayWord} ob {time} vas na {station} čaka {show}, za mikrofonom pa {host} -- ostanite z nami!',
     'Napovedujemo: {show} z voditeljem {host}, {dayWord} ob {time}, tukaj na {station}. Ne zamudite!',
     '{dayWord} ob {time} -- {show} in {host} na {station}. Ne zamudite!',
+  ],
+
+  // Val 28 A2: STATION-level general clips (pre-generate-clips.mjs) -- the
+  // open/close/handoff that air on every show in pregenerated mode. The
+  // show-shaped pools above need {show}/{host}; these clips exist precisely
+  // for show-less music blocks, so they get their own {station}-only pools
+  // in the same relaxed register (they used to be three hardcoded texts
+  // that aired verbatim on EVERY show -- the last fixed-formal surface).
+  // Seed carries the local date (pre-generate-clips.mjs), so a re-run of the
+  // script rotates the variant per day; owners override via
+  // config.autoRadio.templates like every other pool.
+  stationOpen: [
+    'Dobrodošli na {station}. Uživajte v glasbi.',
+    'Tako -- {station} je na nogah, glasba tudi. Kar se namestite.',
+    'Pozdravljeni! {station} in dober zvok za vse.',
+    'No, prižgimo: {station} vrti, vi pa kar ostanite.',
+  ],
+  stationClose: [
+    'S tem je oddaja zaključena. Do naslednjega srečanja!',
+    'To je to za danes. {station} ostaja prižgana.',
+    'Za tokrat konec -- hvala, da ste bili z nami na {station}.',
+    'Glasba pa ne gre spat, {station} tudi ne.',
+  ],
+  stationHandoff: [
+    'Poglejmo še, kakšno vreme nas čaka.',
+    'Kakšno je zunaj? Poglejmo še vreme.',
+    'Vreme je na vrsti -- povejmo, kaj nas čaka zunaj.',
+    'Zunaj se kaj dogaja? Napoved takoj sledi.',
   ],
 
   // Paket D1 (docs/programming-research.md §5): formatna ura -- the beds the

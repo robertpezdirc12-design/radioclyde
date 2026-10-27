@@ -9,15 +9,15 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { toLocalISOString } from '../lib/time.js';
-import { getDurationSeconds, concatWavFiles, applyFadeOut } from '../lib/audio.js';
+import { getDurationSeconds, applyFadeOut } from '../lib/audio.js';
 import * as scheduleUtil from '../scheduler/scheduleUtil.js';
 import { toLocalPath } from '../plex/musicLibrary.js';
 import { mergeTrackRatingKeys } from '../plex/ratingKeyIndex.js';
-import { restartChatterbox } from '../scheduler/restartChatterbox.js';
 import { resolveLiveLine } from './liveSegments.js';
 import { loadValidatedScript } from './scriptLoader.js';
 import { synthesizeSpeechToPath, getCachedDjAudio } from './djAudio.js';
 import { annotateSpeechEntry, annotateJingleEntry, annotateTrackEntry } from './playlist.js';
+import { finalizeSpeechRun } from './speechRuns.js';
 import { prefetchLyrics } from '../lyrics/lyricsService.js';
 
 const log = createLogger('station');
@@ -64,6 +64,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
   let liveSeq = 0;
   let pendingSpeechFiles = []; // current unbroken run of dj/live clips, not yet flushed to `segments`
   let pendingSpeechPersonas = []; // parallel to pendingSpeechFiles -- one persona name per pending clip
+  let pendingSpeechSlots = []; // parallel to pendingSpeechFiles -- one slot string per pending clip (dj slots as-is, live as "live:<kind>")
 
   // Jingle played as the very first segment ahead of the show's own content.
   // A show's own "jingle" field (station.json schedule entry) wins; falling
@@ -128,6 +129,14 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // to re-concat, and any run touching a `live` segment must be), so it
   // lives in showOccurrenceDir rather than being cached alongside the dj
   // audio itself.
+  //
+  // Val 28 B4+B5 (speechRuns.js): the splice itself grew two finishing
+  // passes -- a 0.7 s beat of true silence after the closing nextShow
+  // announcement (so the sign-off lands as its own thought, not the same
+  // breath), and ONE ebur128 alignment pass per run so DJ speech sits on the
+  // same loudness target as the music (unmeasured/failure = airs as
+  // produced, the autocue honesty discipline). Slots ride along because the
+  // beat is slot-aware, not position-aware.
   let speechSeq = 0;
   async function flushPendingSpeech() {
     if (pendingSpeechFiles.length === 0) return;
@@ -136,21 +145,18 @@ export async function directShow({ id, weekday, date, timeKey }) {
     // name -- annotateSpeechEntry joins these into a single "dj" field, e.g.
     // "Ryan" or "Ryan & Elena" for a real handoff.
     const personas = [...new Set(pendingSpeechPersonas)];
-    if (pendingSpeechFiles.length === 1) {
-      segments.push(pendingSpeechFiles[0]);
-      speechPaths.add(pendingSpeechFiles[0]);
-      speechPersonas.set(pendingSpeechFiles[0], personas);
-    } else {
-      const combined = await concatWavFiles(
-        pendingSpeechFiles,
-        path.join(showOccurrenceDir, `speech_${String(speechSeq++).padStart(3, '0')}.wav`)
-      );
-      segments.push(combined);
-      speechPaths.add(combined);
-      speechPersonas.set(combined, personas);
-    }
+    const outcome = await finalizeSpeechRun({
+      files: pendingSpeechFiles,
+      slots: pendingSpeechSlots,
+      occurrenceDir: showOccurrenceDir,
+      makeName: () => path.join(showOccurrenceDir, `speech_${String(speechSeq++).padStart(3, '0')}.wav`),
+    });
+    segments.push(outcome.path);
+    speechPaths.add(outcome.path);
+    speechPersonas.set(outcome.path, personas);
     pendingSpeechFiles = [];
     pendingSpeechPersonas = [];
+    pendingSpeechSlots = [];
   }
 
   const totalSpeechSegments = parsed.segments.filter((s) => s.type === 'dj' || s.type === 'live').length;
@@ -201,6 +207,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
       );
       pendingSpeechFiles.push(audioPath);
       pendingSpeechPersonas.push(seg.persona);
+      pendingSpeechSlots.push(seg.slot ?? 'dj');
     } else if (seg.type === 'live') {
       speechSegmentSeq++;
       const textStartedAt = Date.now();
@@ -222,23 +229,14 @@ export async function directShow({ id, weekday, date, timeKey }) {
       );
       pendingSpeechFiles.push(audioPath);
       pendingSpeechPersonas.push(seg.persona);
+      pendingSpeechSlots.push(`live:${seg.kind}`);
     }
   }
   await flushPendingSpeech();
 
-  // All of this show's TTS is done -- restart Chatterbox's OS process now
-  // rather than leaving it resident until the next show needs one (see
-  // scheduler/restartChatterbox.js: unloading the model alone doesn't
-  // reclaim everything that accumulates in the process's memory/swap over
-  // many shows). Best-effort: a failure here shouldn't block this show from
-  // finishing production. In autoRadio mode there IS no Chatterbox (the
-  // no-model voice layer replaced it) and restartChatterbox() no-ops
-  // internally, so this stays a harmless call on both paths.
-  try {
-    await restartChatterbox();
-  } catch (err) {
-    log(`[${id}] NOTE: Chatterbox restart failed: ${err.message}`);
-  }
+  // (Val 28: the old Chatterbox OS-process restart that lived here is gone
+  // with the AI voice layer -- the no-model voices are plain CLI calls with
+  // nothing resident to reclaim between shows.)
 
   // Real per-file durations, not the scheduled durationMinutes -- DJ speech
   // length is only ever estimated at script time (lib/format.js's
@@ -278,7 +276,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
   }
 
   // DJ speech clips carry no ID3/metadata tags of their own (they're raw
-  // Chatterbox/ffmpeg output), so plain playlist entries leave Icecast's
+  // voice-layer/ffmpeg output), so plain playlist entries leave Icecast's
   // now-playing display frozen on whatever track played last while the DJ is
   // talking. annotateSpeechEntry (playlist.js) overrides each speech
   // segment's metadata (station.json's station name as artist, this show's

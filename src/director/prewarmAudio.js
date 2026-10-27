@@ -11,7 +11,6 @@ import path from 'node:path';
 import { createLogger } from '../lib/logger.js';
 import { loadValidatedScript } from './scriptLoader.js';
 import { getCachedDjAudio } from './djAudio.js';
-import { restartChatterbox } from '../scheduler/restartChatterbox.js';
 
 const log = createLogger('station');
 
@@ -65,16 +64,9 @@ export async function prewarmShowAudio({ id, weekday, date }) {
     else if (!cached) warmed++;
   }
 
-  // Same reasoning as directShow()'s own restartChatterbox call: reclaim
-  // whatever accumulated in the process's memory/swap during this show's TTS
-  // rather than leaving it resident until the next one. Best-effort -- a
-  // failure here shouldn't block the prewarm pass from moving on to the next
-  // show. No-ops under autoRadio (no Chatterbox to restart).
-  try {
-    await restartChatterbox();
-  } catch (err) {
-    log(`[${id}] NOTE: Chatterbox restart failed after prewarm: ${err.message}`);
-  }
+  // (Val 28: the old Chatterbox OS-process restart that lived here is gone
+  // with the AI voice layer -- the no-model voices are plain CLI calls with
+  // nothing resident to reclaim between shows.)
 
   log(`[${id}] Prewarmed dj audio for ${weekday} ${date}: ${warmed}/${djSegments.length} segment(s) synthesized${skipped ? `, ${skipped} skipped (no-model voice mode with no audio for the slot)` : ''} (rest already cached).`);
   return { warmed, total: djSegments.length, skipped };

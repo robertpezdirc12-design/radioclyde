@@ -75,6 +75,7 @@ import {
   checkBeds,
   checkWheel,
   checkBackup,
+  checkPrehodi,
   orderResults,
   doctorExitCode,
   doctorVerdict,
@@ -119,10 +120,11 @@ async function realSeams() {
 }
 
 describe('P4 #31 doctor -- config', () => {
-  test('healthy enabled config -> ok with station name', () => {
-    const r = checkConfig({ stationName: 'Radio Markec', autoRadio: { enabled: true } });
+  test('healthy config -> ok with station name', () => {
+    const r = checkConfig({ stationName: 'Radio Markec', autoRadio: { voice: { mode: 'edge' } } });
     assert.equal(r.status, STATUS.OK);
     assert.match(r.detail, /Radio Markec/);
+    assert.ok(!r.detail.includes('zastarelo'), 'no legacy note on a clean config');
   });
 
   test('import Error -> fail carrying the message', () => {
@@ -131,8 +133,26 @@ describe('P4 #31 doctor -- config', () => {
     assert.match(r.detail, /config\.json not found/);
   });
 
-  test('disabled or missing autoRadio block -> warn (main channel still works)', () => {
-    assert.equal(checkConfig({ autoRadio: { enabled: false } }).status, STATUS.WARN);
+  // Val 28 ("samo skripte brez AI modelov"): the AI layer is gone, so a
+  // config that still carries its keys (lmStudio, chatterbox,
+  // autoRadio.enabled -- in EITHER value) is not a mode choice anymore,
+  // it is dead weight the doctor honestly names as deletable. The station
+  // itself runs the single deterministic pipeline either way.
+  test('legacy AI keys (lmStudio/chatterbox/enabled) -> still ok, with an honest stale note', () => {
+    const r = checkConfig({
+      stationName: 'Radio Markec',
+      lmStudio: { url: 'http://x:1234', model: 'qwen' },
+      chatterbox: { url: 'http://x:8004' },
+      autoRadio: { enabled: false, voice: { mode: 'edge' } },
+    });
+    assert.equal(r.status, STATUS.OK, 'the flag is inert -- the pipeline runs regardless');
+    assert.match(r.detail, /zastarelo/);
+    assert.match(r.detail, /lmStudio/);
+    assert.match(r.detail, /chatterbox/);
+    assert.match(r.detail, /autoRadio\.enabled/);
+  });
+
+  test('missing autoRadio block -> warn (defaults apply, main channel still works)', () => {
     assert.equal(checkConfig({ stationName: 'x' }).status, STATUS.WARN);
     assert.equal(checkConfig(null).status, STATUS.FAIL);
   });
@@ -460,11 +480,11 @@ describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
     }
   });
 
-  test('CHECK_ORDER ima 18 vnosov v zamrznjenem redu (7 + 6 za viri + 5 Val 26 za errors)', () => {
+  test('CHECK_ORDER ima 19 vnosov v zamrznjenem redu (7 + 6 za viri + 5 Val 26 za errors + prehodi)', () => {
     assert.deepEqual(CHECK_ORDER.map((c) => c.id), [
       'config', 'dataDir', 'tts', 'library', 'ledger', 'corpus', 'feeds',
       'icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors',
-      'station', 'imaging', 'beds', 'wheel', 'backup',
+      'station', 'imaging', 'beds', 'wheel', 'backup', 'prehodi',
     ]);
     for (const c of CHECK_ORDER) {
       assert.equal(typeof c.label, 'string');
@@ -821,7 +841,7 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     assert.match(report.results.find((r) => r.id === 'beds').detail, /izklopljene \(OPT-IN\)/);
   });
 
-  test('polna injekcija -> 18 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
+  test('polna injekcija -> 19 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -834,7 +854,15 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     const entry = { ratingKey: 'rk', artist: 'A', title: 'T', album: 'L', durationMs: 1, showId: 'j', playedAt: '2026-10-25T08:00:00+02:00' };
     fs.writeFileSync(path.join(cfg.dataDir, 'history', 'aired.jsonl'), JSON.stringify(entry) + '\n');
     fs.writeFileSync(path.join(cfg.dataDir, 'now_playing.m3u'), '# trenutna\nskladba-1.mp3\nskladba-2.mp3\n');
-    fs.writeFileSync(path.join(cfg.dataDir, 'filler.m3u'), 'filler-1.mp3\nfiller-2.mp3\nfiller-3.mp3\n');
+    // Val 28: filler z IZMERJENIMI prehodi (fade-in 0.5 = izmerjen hladni
+    // začetek, washout na velikem repu) -- polna postaja ima merjeno plast
+    // pripravljeno, zato je tudi prehodi OK.
+    fs.writeFileSync(
+      path.join(cfg.dataDir, 'filler.m3u'),
+      'annotate:source_tag="music",liq_fade_in="0.5":/tmp/filler-1.mp3\n'
+        + 'annotate:source_tag="music",liq_fade_in="2",liq_washout="1":/tmp/filler-2.mp3\n'
+        + 'annotate:source_tag="music",liq_fade_in="2":/tmp/filler-3.mp3\n'
+    );
     const logsDir = path.join(cfg.dataDir, 'logs');
     fs.mkdirSync(logsDir);
     fs.writeFileSync(path.join(logsDir, 'station.log'), '[2026-10-25T11:00:00+02:00] ERROR ena sama, ne vzorec\n');
@@ -875,6 +903,9 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     assert.equal(byId.icecast.status, 'ok');
     assert.equal(byId.liquidsoap.status, 'warn');
     assert.equal(byId.m3u.status, 'ok');
+    assert.equal(byId.prehodi.status, 'ok');
+    assert.match(byId.prehodi.detail, /2\/3 vnosa nosi izmerjene prehode \(67 %\)/);
+    assert.match(byId.prehodi.detail, /washout 1/);
     assert.equal(byId.storage.status, 'ok');
     assert.equal(byId.host.status, 'ok');
     assert.equal(byId.errors.status, 'ok');
@@ -1040,20 +1071,44 @@ describe('Val 26 doctor -- imaging plasti', () => {
   test('vse plasti napolnjjene -> ok s številkami; promosi izklopljeni so poštena opomba', async () => {
     const dir = tmpDir();
     const { dirs, m3us } = mkImaging(dir);
-    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
-    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
-    fs.writeFileSync(path.join(dirs.stingers, 's2.mp3'), 'x');
+    // Val 28 C2: 4 kipi na plast -- pod 4 bi zdaj opozorilo o tankem vrtenju
+    // (radio.liq randomize brez spomina).
+    for (let i = 1; i <= 4; i++) {
+      fs.writeFileSync(path.join(dirs.id, `id${i}.mp3`), 'x');
+      fs.writeFileSync(path.join(dirs.stingers, `s${i}.mp3`), 'x');
+    }
     fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
     fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
     fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s1.mp3') + m3uLine('stinger', '/tmp/s2.mp3'));
     fs.writeFileSync(m3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
     const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, promosEnabled: false, readFileImpl: fsp.readFile });
     assert.equal(r.status, STATUS.OK);
-    assert.match(r.detail, /ID-ji \(polna ura\): 1/);
-    assert.match(r.detail, /stingerji: 2/);
+    assert.match(r.detail, /ID-ji \(polna ura\): 4/);
+    assert.match(r.detail, /stingerji: 4/);
     assert.match(r.detail, /nujna rezerva: 1/);
     assert.match(r.detail, /promosi: izklopljeni \(OPT-IN\)/);
     assert.ok(!('hint' in r) && !('fix' in r));
+  });
+
+  // Val 28 C2: širina vrtenja -- radio.liq izbira iz plasti z mode="randomize"
+  // BREZ spomina, zato 1-3 kipi pomenijo isti posnetek uro za uro. Nujna
+  // rezerva je izvzeta (njena naloga je preživetje, ne pestrost).
+  test('tanka plast (2 kipa) -> warn o vrtenju + fix load-imaging-clips; nujna rezerva se ne pritoži', async () => {
+    const dir = tmpDir();
+    const { dirs, m3us } = mkImaging(dir);
+    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
+    fs.writeFileSync(path.join(dirs.id, 'id2.mp3'), 'x');
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(dirs.stingers, `s${i}.mp3`), 'x');
+    fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
+    fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
+    fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s1.mp3'));
+    fs.writeFileSync(m3us.emergency, m3uLine('emergency', '/tmp/e.wav'));
+    const r = await checkImaging({ imagingDirs: dirs, imagingM3us: m3us, promosEnabled: false, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /ID-ji \(polna ura\): 2/);
+    assert.match(r.detail, /tanko vrtenje \(2 kipa\)/);
+    assert.doesNotMatch(r.detail, /nujna rezerva: tanko/);
+    assert.deepEqual(r.fix, FIXES['load-imaging-clips']);
   });
 
   test('prazna mapa ID-jev -> warn "molčijo, postaja igra dalje" + fix load-imaging-clips', async () => {
@@ -1099,8 +1154,10 @@ describe('Val 26 doctor -- imaging plasti', () => {
   test('promosi vklopljeni: prazni -> warn; napolnjeni -> ok del "vklopljeni"', async () => {
     const dir = tmpDir();
     const { dirs, m3us } = mkImaging(dir);
-    fs.writeFileSync(path.join(dirs.id, 'id1.mp3'), 'x');
-    fs.writeFileSync(path.join(dirs.stingers, 's1.mp3'), 'x');
+    for (let i = 1; i <= 4; i++) {
+      fs.writeFileSync(path.join(dirs.id, `id${i}.mp3`), 'x');
+      fs.writeFileSync(path.join(dirs.stingers, `s${i}.mp3`), 'x');
+    }
     fs.writeFileSync(path.join(dirs.emergency, 'e1.wav'), 'x');
     fs.writeFileSync(m3us.id, m3uLine('id', '/tmp/a.mp3'));
     fs.writeFileSync(m3us.stingers, m3uLine('stinger', '/tmp/s.mp3'));
@@ -1120,6 +1177,70 @@ describe('Val 26 doctor -- imaging plasti', () => {
     const r = await checkImaging({ imagingDirs: {} });
     assert.equal(r.status, STATUS.SKIP);
     assert.match(r.detail, /poti plasti niso podane/);
+  });
+});
+
+// R2. prehodi (merjena plast) [Val 28] -- resnica o etu je .m3u: štejemo
+// vnose, ki dejansko letijo in nosijo IZMERJEN žig (liq_fade_in drugačen od
+// privzetega 2 s, liq_cross_duration na repu, ali efekt
+// sweep/washout/dissolve). Brez poti/bralnika -> pošten preskok; prazen
+// filler ali filler brez izmerjenih žigov -> opozorilo (autocue ne teče);
+// zdrav filler -> OK s pokritostjo in ločenimi številkami učinkov.
+describe('Val 28 doctor -- prehodi (merjena plast)', () => {
+  const line = (group, file) => `annotate:${group}:${file}\n`;
+
+  test('brez poti ali bralnika -> preskok', async () => {
+    assert.equal((await checkPrehodi({})).status, STATUS.SKIP);
+    assert.equal((await checkPrehodi({ fillerPath: '/tmp/x.m3u' })).status, STATUS.SKIP);
+    assert.equal((await checkPrehodi({ readFileImpl: fsp.readFile })).status, STATUS.SKIP);
+  });
+
+  test('manjkajoč filler.m3u -> preskok (to že pove preverjanje seznamov)', async () => {
+    const dir = tmpDir();
+    const r = await checkPrehodi({ fillerPath: path.join(dir, 'filler.m3u'), readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /filler\.m3u še ne obstaja/);
+  });
+
+  test('prazen filler -> warn z fixom regenerate-filler', async () => {
+    const dir = tmpDir();
+    const filler = path.join(dir, 'filler.m3u');
+    fs.writeFileSync(filler, '# samo komentar\n\n');
+    const r = await checkPrehodi({ fillerPath: filler, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /filler\.m3u je prazen/);
+    assert.deepEqual(r.fix, FIXES['regenerate-filler']);
+  });
+
+  test('gole poti brez žigov -> warn "ravni prehodi" s fixom check-scheduler', async () => {
+    const dir = tmpDir();
+    const filler = path.join(dir, 'filler.m3u');
+    fs.writeFileSync(filler, 'filler-1.mp3\nfiller-2.mp3\n');
+    const r = await checkPrehodi({ fillerPath: filler, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /0\/2 vnosa nosi izmerjene prehode \(0 %\)/);
+    assert.match(r.detail, /vsak prehod je raven/);
+    assert.deepEqual(r.fix, FIXES['check-scheduler']);
+  });
+
+  test('izmerjeni vnosi -> ok s pokritostjo + ločenimi učinki (fade 2 s srednji pas NE šteje)', async () => {
+    const dir = tmpDir();
+    const filler = path.join(dir, 'filler.m3u');
+    fs.writeFileSync(
+      filler,
+      line('source_tag="music",liq_fade_in="0.5"', '/tmp/a.mp3') // izmerjen hladni začetek
+        + line('source_tag="music",liq_fade_in="2"', '/tmp/b.mp3') // srednji pas: NE izmerjen
+        + line('source_tag="music",liq_fade_in="2",liq_washout="1"', '/tmp/c.mp3') // učinek
+        + line('source_tag="music",liq_fade_in="3.2",liq_cross_duration="8.5"', '/tmp/d.mp3') // oboje
+    );
+    const r = await checkPrehodi({ fillerPath: filler, readFileImpl: fsp.readFile });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /3\/4 vnosa nosi izmerjene prehode \(75 %\)/);
+    assert.match(r.detail, /washout 1/);
+    assert.match(r.detail, /dissolve 0/);
+    assert.match(r.detail, /sweep 0/);
+    assert.match(r.detail, /2\.4\.6\+/);
+    assert.ok(!('fix' in r), 'ok brez popravka');
   });
 });
 
@@ -1425,7 +1546,7 @@ describe('Val 26 doctor -- PRAVI šivi (dinamični uvoz po setupTestConfig)', ()
 
 // W. runDoctor sestava -- pet novih pod istim pokrovom
 describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
-  test('polna postaja (urnik + imaging + postelje + kolo + backup) -> 18 rezultatov, novi OK, determinizem', async () => {
+  test('polna postaja (urnik + imaging + postelje + kolo + backup) -> 19 rezultatov, novi OK, determinizem', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -1438,7 +1559,12 @@ describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
     const entry = { ratingKey: 'rk', artist: 'A', title: 'T', album: 'L', durationMs: 1, showId: 'j', playedAt: '2026-10-25T08:00:00+02:00' };
     fs.writeFileSync(path.join(cfg.dataDir, 'history', 'aired.jsonl'), JSON.stringify(entry) + '\n');
     fs.writeFileSync(path.join(cfg.dataDir, 'now_playing.m3u'), '# trenutna\nskladba-1.mp3\n');
-    fs.writeFileSync(path.join(cfg.dataDir, 'filler.m3u'), 'filler-1.mp3\n');
+    // Val 28: izmerjeni prehodi v fillerju (0.5 = izmerjen hladni začetek).
+    fs.writeFileSync(
+      path.join(cfg.dataDir, 'filler.m3u'),
+      'annotate:source_tag="music",liq_fade_in="0.5":/tmp/f1.mp3\n'
+        + 'annotate:source_tag="music",liq_fade_in="2",liq_dissolve="1":/tmp/f2.mp3\n'
+    );
     const logsDir = path.join(cfg.dataDir, 'logs');
     fs.mkdirSync(logsDir);
     fs.writeFileSync(path.join(logsDir, 'station.log'), '[2026-10-25T11:00:00+02:00] ERROR ena sama, ne vzorec\n');
@@ -1465,8 +1591,11 @@ describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
     fs.mkdirSync(imagingDirs.stingers, { recursive: true });
     fs.mkdirSync(imagingDirs.emergency, { recursive: true });
     fs.mkdirSync(imagingDirs.promos, { recursive: true });
-    fs.writeFileSync(path.join(imagingDirs.id, 'id1.mp3'), 'x');
-    fs.writeFileSync(path.join(imagingDirs.stingers, 's1.mp3'), 'x');
+    // Val 28 C2: 4 kipi na vedno-vklopljeni plasti (tanko vrtenje -> warn).
+    for (let i = 1; i <= 4; i++) {
+      fs.writeFileSync(path.join(imagingDirs.id, `id${i}.mp3`), 'x');
+      fs.writeFileSync(path.join(imagingDirs.stingers, `s${i}.mp3`), 'x');
+    }
     fs.writeFileSync(path.join(imagingDirs.emergency, 'e1.wav'), 'x');
     fs.writeFileSync(path.join(imagingDirs.promos, 'promo_vecer_2026-10-26_18-00.mp3'), 'x');
     const m3uLine = (tag, file) => `annotate:source_tag="${tag}",liq_fade_in="0":${file}\n`;
@@ -1531,15 +1660,19 @@ describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
     });
 
     const report = await runDoctor(inputs());
-    assert.equal(report.results.length, 18);
+    assert.equal(report.results.length, 19);
     assert.deepEqual(report.results.map((r) => r.id), CHECK_ORDER.map((c) => c.id));
     assert.equal(report.exitCode, 0); // opozorilo (mrtva miza), ne napaka
     const byId = Object.fromEntries(report.results.map((r) => [r.id, r]));
     assert.equal(byId.station.status, STATUS.OK);
     assert.match(byId.station.detail, /2 terminirani oddaji na teden/);
     assert.equal(byId.imaging.status, STATUS.OK);
-    assert.match(byId.imaging.detail, /ID-ji \(polna ura\): 1/);
+    assert.match(byId.imaging.detail, /ID-ji \(polna ura\): 4/);
     assert.match(byId.imaging.detail, /promosi: 1 \(vklopljeni\)/);
+    assert.equal(byId.prehodi.status, STATUS.OK);
+    assert.match(byId.prehodi.detail, /2\/2 vnosa nosi izmerjene prehode \(100 %\)/);
+    assert.match(byId.prehodi.detail, /dissolve 1/);
+    assert.match(byId.prehodi.detail, /2\.4\.6\+/);
     assert.equal(byId.beds.status, STATUS.OK);
     assert.match(byId.beds.detail, /vreme ob: 15, 45/);
     assert.match(byId.beds.detail, /okno vremena: 06:00-22:00/);

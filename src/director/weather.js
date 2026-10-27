@@ -1,7 +1,7 @@
 // Deterministic current-conditions fetch for `live` weather/time-weather
 // segments -- resolved at director time, per script-format.md, never at
-// authoring time. No LLM involved here; the director's LM Studio call (in
-// director/liveSegments.js) only turns this real data into a spoken line.
+// authoring time. No model involved anywhere: auto/liveLines.js drops the
+// fetched data straight into the station's Slovenian templates.
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
 import { isValidTimeZone } from '../lib/time.js';
@@ -40,19 +40,19 @@ export function describeWeatherCode(code) {
 }
 
 // 15s: a plain third-party REST GET has no business running long -- unlike
-// Chatterbox/LM Studio, there's no "normal but slow" case to accommodate
+// the old model servers, there's no "normal but slow" case to accommodate
 // here, only a hang to guard against. Confirmed live 2026-08-07/08: this
 // call previously had no timeout at all, and directShow() (via
 // resolveLiveLine()) awaits it directly -- a single hung request here froze
-// the entire shared production queue indefinitely with no error logged,
-// exactly like the un-timed-out LM Studio call in src/llm/client.js.
+// the entire shared production queue indefinitely with no error logged
+// (the same outage class the old un-timed-out model call caused before the
+// AI layer was removed in Val 28).
 // Units default to metric (celsius/kmh): the station is Slovenian and every
-// spoken surface speaks metric -- the auto-radio templates read "°C" and
-// "km/h" literally (DEFAULT_TEMPLATES.live.weather, auto/templates.js) and
-// the AI live segments state the same labels (director/liveSegments.js's
-// fact line). The auto path's explicit celsius/kmh params (auto/liveLines.js)
-// are therefore redundant but kept deliberately -- self-documenting at the
-// call site. /api/weather passes its own temperatureUnit from
+// spoken surface speaks metric -- the templates read "°C" and "km/h"
+// literally (DEFAULT_TEMPLATES.live.weather, auto/templates.js). The auto
+// path's explicit celsius/kmh params (auto/liveLines.js) are therefore
+// redundant but kept deliberately -- self-documenting at the call site.
+// /api/weather passes its own temperatureUnit from
 // config.weather.temperatureUnit either way (server/weatherApi.js), so the
 // public page is unaffected by this default.
 export async function fetchCurrentWeather({ temperatureUnit = 'celsius', windSpeedUnit = 'kmh' } = {}) {

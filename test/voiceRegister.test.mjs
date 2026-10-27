@@ -15,9 +15,12 @@
 //      (open/intro/recap/beds/promos/live handoffs -- short conversational
 //      sentences ARE the register), <=24 everywhere (guards against
 //      future walls of text; placeholders count as one word),
-//   E. the shared DEFAULT_PERSONA_PROMPT exists and speaks the same
-//      register (LLM surfaces: producer/moves.js + director/liveSegments.js
-//      import it -- no more inline "You are X, a radio DJ." duplicates),
+//   E. (Val 28 "samo skripte brez AI modelov") the LLM register surfaces
+//      are REMOVED, not patched: src/llm/, producer/moves.js and the AI
+//      branch of director/liveSegments.js are gone -- live lines come from
+//      the template resolver alone, so the register pins above are the ONLY
+//      register that exists (the global no-AI guardrail lives in its own
+//      file, test/noAiModels.test.mjs),
 //   F. the shipped example config carries the relaxed Edge prosody default
 //      (edgeRate "-6%", the P4 #26 knob -- pace IS naturalness),
 //   G. pre-generate-clips.mjs renders through the station's pools, not a
@@ -34,7 +37,6 @@ import { setupTestConfig, repoRoot } from './fixtures.mjs';
 setupTestConfig('voice-register', {});
 
 const { renderSlot, DEFAULT_TEMPLATES, DISCOURSE_MARKERS } = await import('../src/auto/templates.js');
-const { DEFAULT_PERSONA_PROMPT } = await import('../src/llm/prompts.js');
 const { edgeProsodyForPersona } = await import('../src/auto/edgeTts.js');
 
 const repo = repoRoot();
@@ -89,6 +91,7 @@ const POOL_MINIMUMS = [
   ['triviaGeneral', 4],
   ['tease', 3],
   ['teaseQuiz', 3],
+  ['teaseMid', 4],
   ['pollRunning', 3],
   ['pollResults', 3],
   ['requestShout', 4],
@@ -99,6 +102,12 @@ const POOL_MINIMUMS = [
   ['bedWeather.noWind', 4],
   ['bedNextShow.withHost', 4],
   ['bedNextShow.noHost', 4],
+  // Val 28 A2: the station-level general clips (pregenerated mode) get the
+  // same fat-pool discipline -- three hardcoded texts aired on EVERY show
+  // before this.
+  ['stationOpen', 4],
+  ['stationClose', 4],
+  ['stationHandoff', 4],
 ];
 
 function poolByPath(dotted) {
@@ -210,28 +219,20 @@ describe('D. sentence ceilings', () => {
 });
 
 // ---------------------------------------------------------------------------
-// E. shared DEFAULT_PERSONA_PROMPT (LLM surfaces speak the same register)
+// E. (Val 28) the LLM register surfaces are REMOVED, not patched
 // ---------------------------------------------------------------------------
 
-describe('E. shared default persona prompt', () => {
-  test('exists, names the persona, and pins the register', () => {
-    assert.equal(typeof DEFAULT_PERSONA_PROMPT, 'function');
-    const prompt = DEFAULT_PERSONA_PROMPT('Markec');
-    assert.ok(prompt.includes('Markec'));
-    assert.match(prompt, /relaxed and natural/i);
-    assert.match(prompt, /never robotic and never shouted/i);
-    assert.match(prompt, /short conversational sentences/i);
-    assert.match(prompt, /never invent/i);
-    assert.match(prompt, /never lean on a catchphrase/i);
+describe('E. LLM surfaces removed (samo skripte brez AI modelov)', () => {
+  test('liveSegments.js delegates straight to the template resolver -- no llm/ import, no model call', () => {
+    const live = fs.readFileSync(path.join(repo, 'src', 'director', 'liveSegments.js'), 'utf8');
+    assert.ok(!live.includes('llm/'), 'no llm/ import may remain in the live path');
+    assert.ok(!live.includes('complete('), 'no model completion call may remain');
+    assert.match(live, /resolveLiveLineAuto/, 'the template resolver is the only path');
   });
 
-  test('moves.js and liveSegments.js import it -- no inline fallback duplicates', () => {
-    const moves = fs.readFileSync(path.join(repo, 'src', 'producer', 'moves.js'), 'utf8');
-    const live = fs.readFileSync(path.join(repo, 'src', 'director', 'liveSegments.js'), 'utf8');
-    for (const [name, src] of [['moves.js', moves], ['liveSegments.js', live]]) {
-      assert.match(src, /DEFAULT_PERSONA_PROMPT\(/, `${name} uses the shared default`);
-      assert.ok(!src.includes('a radio DJ.'), `${name} still carries the old inline fallback`);
-    }
+  test('producer/moves.js (the LLM move generator) no longer exists', () => {
+    assert.ok(!fs.existsSync(path.join(repo, 'src', 'producer', 'moves.js')), 'moves.js must be gone');
+    assert.ok(!fs.existsSync(path.join(repo, 'src', 'llm')), 'the src/llm/ module must be gone');
   });
 });
 
@@ -272,10 +273,43 @@ describe('G. pregenerated track clips speak the station grammar', () => {
     );
   });
 
+  // Val 28 A2: the three station-level general clips render through the
+  // station pools with a date-seeded rotation + sidecar, instead of three
+  // hardcoded texts that aired verbatim on every show.
+  test('Val 28 A2: general clips render through stationOpen/stationClose/stationHandoff', () => {
+    const src = fs.readFileSync(path.join(repo, 'pre-generate-clips.mjs'), 'utf8');
+    assert.match(src, /slot:\s*'stationOpen'/, 'open general clip uses the stationOpen pool');
+    assert.match(src, /slot:\s*'stationClose'/, 'close general clip uses the stationClose pool');
+    assert.match(src, /slot:\s*'stationHandoff'/, 'handoff general clip uses the stationHandoff pool');
+    assert.ok(
+      !src.includes("text: 'Dobrodo\u0161li na Radio Markec. U\u017eivajte v glasbi.'"),
+      'the hardcoded general texts must be gone (variant 1 of the pool keeps the old wording)'
+    );
+    // Date-seeded rotation + sidecar contract: same-day re-run is a no-op.
+    assert.match(src, /general\|\$\{clip\.name\}\|\$\{generalDateKey\}/, 'seed carries the local date');
+    assert.match(src, /\.txt/, 'sidecar .txt remembers what the wav speaks');
+  });
+
   test('renderSlot still renders deterministically for a fixed seed', () => {
     const a = renderSlot('intro', { values: { artist: 'A', title: 'T' }, seed: 'det' });
     const b = renderSlot('intro', { values: { artist: 'A', title: 'T' }, seed: 'det' });
     assert.equal(a, b);
     assert.ok(!a.includes('{') && !a.includes('undefined'));
+  });
+
+  test('Val 28 A2: station pools render fully substituted and stay deterministic', () => {
+    for (const slot of ['stationOpen', 'stationClose', 'stationHandoff']) {
+      const a = renderSlot(slot, { values: { station: 'Radio Markec' }, seed: 'same-day' });
+      const b = renderSlot(slot, { values: { station: 'Radio Markec' }, seed: 'same-day' });
+      assert.equal(a, b);
+      assert.ok(!a.includes('{') && !a.includes('undefined'), `${slot} fully substituted`);
+    }
+    // stationOpen names the station in every variant; the close/handoff pools
+    // legitimately keep station-less variants (the old fixed texts survive as
+    // variant 1 -- register continuity, not regression).
+    for (let i = 0; i < 8; i++) {
+      const open = renderSlot('stationOpen', { values: { station: 'Radio Markec' }, seed: `probe-${i}` });
+      assert.ok(open.includes('Radio Markec'), 'every stationOpen variant names the station');
+    }
   });
 });

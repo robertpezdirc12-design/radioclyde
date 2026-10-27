@@ -23,7 +23,6 @@ import { updateNowPlaying } from './updateNowPlaying.js';
 import { generateFillerPlaylist } from './generateFillerPlaylist.js';
 import { cleanupOldShows } from './cleanupOldShows.js';
 import { backupStation } from './backupStation.js';
-import { restartChatterbox } from './restartChatterbox.js';
 import { writeImagingPlaylists } from './imagingPlaylists.js';
 import { producePromoClips } from './promoProducer.js';
 import { formatClockTick } from './formatClock.js';
@@ -207,12 +206,10 @@ export function startScheduler() {
   // block (the shipped default -- the feature is opt-in) register a
   // no-op tick instead of throwing the F2-class boot TypeError.
   every(cadence(config.archive?.pruneIntervalMinutes, 1440), 'archive_prune', pruneArchives);
-  // ?. matters: config.linux.json ships WITHOUT a chatterbox block (auto-radio
-  // installs have no Chatterbox to restart), and reading
-  // config.chatterbox.restartIntervalMinutes unguarded threw TypeError at boot
-  // -- which silently killed every job registered AFTER it (auditor's F2 class
-  // of defect, caught by the listener-analytics smoke test on 2026-10-24).
-  every(cadence(config.chatterbox?.restartIntervalMinutes, 1440), 'chatterbox_restart', restartChatterbox);
+  // (Val 28: the old chatterbox_restart job is gone with the AI voice
+  // layer -- no Chatterbox process exists to restart, and reading the
+  // chatterbox block here at all was the F2-class boot hazard the
+  // listener-analytics smoke test caught on 2026-10-24.)
   // Audience memory: one Icecast status poll per minute appended to the
   // listener-samples ledger (analytics/listenerSamples.js) -- the studio
   // Analytics view charts it and joins it with aired.jsonl for per-track

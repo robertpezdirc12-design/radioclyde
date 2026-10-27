@@ -5,9 +5,10 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-// All Chatterbox output is the same codec (pcm_s16le, 24000Hz, mono --
-// confirmed live via Liquidsoap's decoder logs), so a plain concat-demuxer
-// stream copy (no re-encode) is safe and lossless here.
+// Every speech clip the voice layer produces carries the same codec
+// (pcm_s16le, 24000Hz, mono -- the normalize pass in auto/voice.js
+// guarantees it), so a plain concat-demuxer stream copy (no re-encode) is
+// safe and lossless here.
 export async function getDurationSeconds(filePath) {
   const { stdout } = await execFileAsync('ffprobe', [
     '-v', 'error',
@@ -18,15 +19,61 @@ export async function getDurationSeconds(filePath) {
   return parseFloat(stdout);
 }
 
-export async function concatWavFiles(filePaths, outputPath) {
+export async function concatWavFiles(filePaths, outputPath, { runner = execFileAsync } = {}) {
   const listPath = `${outputPath}.list.txt`;
   const listContent = filePaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n') + '\n';
   fs.writeFileSync(listPath, listContent);
   try {
-    await execFileAsync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', outputPath]);
+    await runner('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', outputPath]);
   } finally {
     fs.unlinkSync(listPath);
   }
+  return outputPath;
+}
+
+// Val 28 B5: N seconds of true silence in the speech codec contract
+// (24 kHz mono s16 -- the normalized output every dj/live clip already
+// carries, so the concat demuxer stream-copies it in losslessly).
+// Cached by the caller (one pause file per occurrence dir); the runner seam
+// is the same test injection the rest of this module grows.
+export async function ensureSilenceWav(outPath, seconds, { runner = execFileAsync } = {}) {
+  try {
+    const st = fs.statSync(outPath);
+    if (st.isFile() && st.size > 44) return outPath; // canonical header alone
+  } catch {
+    // not there yet -- generated below
+  }
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  await runner(
+    'ffmpeg',
+    [
+      '-y',
+      '-v', 'error',
+      '-f', 'lavfi',
+      '-i',
+      `anullsrc=duration=${seconds}:sample_rate=24000:channel_layout=mono`,
+      '-c:a', 'pcm_s16le',
+      outPath,
+    ],
+    { timeout: 60_000, windowsHide: true }
+  );
+  return outPath;
+}
+
+// Val 28 B4: bake a fixed dB gain into a WAV as pcm_s16le. The caller owns
+// in-place safety (write to a tmp path, rename over the target -- ffmpeg
+// must never read and write the same file). '-f wav' is LOAD-BEARING for
+// the same reason promoProducer's '-f mp3' is: callers bake into tmp names
+// whose extension is NOT .wav (the align-<pid> suffix), and ffmpeg picks the
+// muxer from the output filename's extension -- without the explicit format
+// the real ffmpeg dies with "Error opening output files" (the Val 21
+// lesson, re-learned live in Val 28's own E2E).
+export async function bakeGain(inputPath, outputPath, db, { runner = execFileAsync } = {}) {
+  await runner(
+    'ffmpeg',
+    ['-y', '-v', 'error', '-i', inputPath, '-filter:a', `volume=${db}dB`, '-c:a', 'pcm_s16le', '-f', 'wav', outputPath],
+    { timeout: 60_000, windowsHide: true }
+  );
   return outputPath;
 }
 

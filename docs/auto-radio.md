@@ -1,19 +1,23 @@
-# Auto Radio (način `autoRadio`) — radio brez jezikovnega modela
+# Radio Markec — samo skripte, brez AI modelov
 
-Ta dokument opisuje **avtomatski način** delovanja Radio Markec: popolnoma
-deterministično radijsko postajo brez jezikovnega modela (LM Studio) in brez
-nevronskih TTS modelov (Chatterbox). Glasba se izbira po pravilih, govor se
-sestavlja iz predlog, zvok pa prihaja iz vnaprej posnetih posnetkov ali
-klasičnih sintetizatorjev (Windows SAPI / espeak-ng).
+Ta dokument opisuje delovanje Radio Markec: popolnoma deterministično
+radijsko postajo **brez jezikovnega modela in brez nevronskih TTS modelov**
+("samo skripte brez AI modelov", Val 28). Glasba se izbira po pravilih,
+govor se sestavlja iz predlog, zvok pa prihaja iz vnaprej posnetih posnetkov
+ali klasičnih sintetizatorjev (Windows SAPI / espeak-ng) ter Edge/Piper
+stevilskih glasov.
 
-> Zasnova: ista orkestracija kot pri AI načinu (urnik → producent → direktor
-> → Liquidsoap/Icecast), le da so vse odločitve podane v podatkih in
-> predlogah. AI pot ostane nespremenjena in vedno na voljo — `autoRadio` je
-> izklopna zastavica, ne zamenjava celotnega sistema.
+> Zgodovina (Val 28): postaja je nekoč imele DVA načina — "AI način"
+> (LM Studio qwen3.6-35b-a3b + Chatterbox TTS) in avtomatski način za
+> zastavico `autoRadio.enabled`. V valu 28 je bila CELA AI plast odstranjena
+> po direktivi lastnika: avtomatska pot je edina pot. Stari konfiguracijski
+> ključi (`lmStudio`, `chatterbox`, `autoRadio.enabled`) so mrtvi — postaja
+> jih ignorira, `npm run doctor` pove, da jih lahko izbrišeš, in
+> `test/noAiModels.test.mjs` pazi, da se plast ne vrne.
 
-## Kaj je spremenjeno v primerjavi z AI načinom
+## Kaj je bilo nekoč AI — in kaj je zdaj
 
-| Faza | AI način (privzeto) | autoRadio način |
+| Faza | Nekoč (AI način) | Zdaj (edini način) |
 |---|---|---|
 | Razlaga briefa (»## Track Selection«) | LLM (`producer/trackSelection/query.js`) | deterministični parser (`auto/briefQuery.js`) |
 | Izbira skladb | deterministična (`trackSelection/queue.js`) | ista koda + dodatna pravila (`auto/rules.js`) |
@@ -21,26 +25,23 @@ klasičnih sintetizatorjev (Windows SAPI / espeak-ng).
 | Pisanje DJ vrstic | LLM (`producer/moves.js`, `boundaryWalk.js`) | predloge (`auto/templates.js`, `scriptBuilder.js`) |
 | Pregled skripte | LLM (`producer/reviewScript.js`) | ne potreben (predloge se ne ponavljajo) |
 | Žive segmente (čas/vreme) | LLM (`director/liveSegments.js`) | predloge + pravi podatki Open-Meteo (`auto/liveLines.js`) |
-| Glas (TTS) | Chatterbox (`director/tts.js`) | posnetki / SAPI / espeak / brez (`auto/voice.js`) |
+| Glas (TTS) | Chatterbox (`director/tts.js`) | posnetki / Edge / Piper / SAPI / espeak / brez (`auto/voice.js`) |
 
 Vse ostalo — urnik (`station.json`), predkúšnja (prewarm), direkcija,
 `playlist.m3u`, spletna stran, studio, Android aplikaciji, scrobbling — dela
 enako kot prej.
 
-## Vklop
+## Nastavitev
 
-1. V `config.json` dodaj blok `autoRadio` (glej `config.example.json`) in
-   nastavi `"enabled": true`.
-2. Bloka `lmStudio` in `chatterbox` lahko izbrišeš — postaja jih ne obiskuje
-   več. (Ostanejo lahko tudi; autoRadio ima prednost.)
-3. Ponovno zaženi storitev. Producent se prek isti zastavice preklopi v
-   deterministično pot, direktor pa v brezmodelni govor.
+1. V `config.json` dodaj blok `autoRadio` (glej `config.example.json`).
+2. Bloka `lmStudio` in `chatterbox` ter ključ `autoRadio.enabled` lahko
+   izbrišeš — postaja jih ne bere več (obstoječe namestitve delujejo naprej
+   tudi z njimi; doctor javi, da so odstranljivi).
 
 Primer minimalnega bloka:
 
 ```json
 "autoRadio": {
-  "enabled": true,
   "stationName": "Radio Markec",
   "music": { "source": "auto", "localDirs": ["/mnt/glasba"] },
   "rules": {
@@ -158,10 +159,10 @@ Dodatno veljajo obstoječa pravila postaje: `shows.repeatWindowDays`
 - **`none`** — brez govora sploh: postaja predvaja glasbo (+ jingle), vsa
   besedila pa ostanejo v `script.md`/`transcript.json`.
 
-Vsi viri se ob prvi uporabi normalizirajo v pcm_s16le/24 kHz/mono (isti
-kodekski dogovor, ki ga je imel Chatterboxov izhod), zato spajanje sosednjih
-govornih odsekov ostane brez izgub. SAPI/espeak/edge/piper izhod dobi še
-`djDrops.gain`; posnetki (clips, pregenerated) ostanejo netaknuti.
+Vsi viri se ob prvi uporabi normalizirajo v pcm_s16le/24 kHz/mono (davni
+kodekski dogovor govorne plasti), zato spajanje sosednjih govornih odsekov
+ostaja brez izgub. SAPI/espeak/edge/piper izhod dobi še `djDrops.gain`;
+posnetki (clips, pregenerated) ostanejo netaknuti.
 
 ### Govorni stil: naravno, pogovorno, hecavno (P4 #24)
 
@@ -1267,3 +1268,67 @@ način, da izpis ostane determinističen).
 - Popolna determiniranost zaporedja je zavestno zmehčana: izbira uporablja
   naključni miks znotraj pravil (kot prej), le različice predlog in posnetkov
   so povsem odločene z zgoščevalom.
+
+## Prehodi: naravni šivi med pesmimi in govorom (Val 28)
+
+"Robotski prehodi" so bili druga polovica direktive iz vala 27 — ta razdelek
+opisuje, kaj ju je odprlo. Vsa dela so deterministična (nič AI modelov) in
+izhajajo iz IZMEROV (avtocuejev indeks glave/repa vsakega sleda).
+
+### Kaj je slišno že na današnjem Liquidsoapu 2.2.4
+
+- **Izmerjen fade-in namesto fiksnega 2 s** (B1): avtocuejeva nova GLAVNA
+  prečka (`analyzeHead`, prvih 20 s vsakega sleda) izmeri, kako pesem
+  ZAČNE. Postopna (gradualna) introska zgradba dobi 2,5–4,0 s fade-in
+  (izmerjeni vzpon JE platno), hladen napad 0,5 s omehčitve, srednji pas
+  in neizmerjeni sledi pa obdržijo star privzetek 2 s — neizpreskanjena
+  knjižnica se obnaša bajtno enako kot prej. `radio.liq` fade.in ovojnice
+  so NEVRATNE, zato je to slišno takoj.
+- **Bed lead-out** (B2): postelje formatne ure so imele 0,8 s lead-in, a
+  NIČ lead-out — zadnja beseda je padla v silo. Vsak izmerjen klip zdaj
+  dobi 0,5 s zapečene izumrtve, ki se sklada z duckerjevim izpustom —
+  glasba se dvigne POD pojemenjujoč rep, ne pa s klifom.
+- **Utiha med napovedjo in poslavljanjem** (B5): zaključna "kaj sledi"
+  napoved in poslavljanje sta bila spojena v en dih. Med njima je zdaj
+  0,7 s prave tišine (`director/speechRuns.js`) — napoved pristane.
+- **Glasnost govora poravnana z glasbo** (B4): DJ govor je bil edina zvočna
+  ploskev brez poravnave glasnosti (Edge je redno 4–8 LUFS pod glasbo).
+  Vsak govorni tekel dobi EN ebur128 prečko in zapečeno korekcijo na cilj
+  `autocue.targetLufs` (privzeto −16); `djDrops.gain` ostane kot okus
+  (1,3 = +2,3 dB nad glasbo). Neizmerjen/neuspešen tekel gre na eter, kot
+  je bil — govor nikoli ne izgine zaradi merjenja.
+- **Raznolikost govornih mej** (C1): vsaka meja med pesmimi ni več obvezni
+  intro+recap par. `producer/fenceposts.js` deterministično (seme =
+  oddaja+datum) pusti ~1 od 4 mej tiho (dve pesmi hrbet-ob-hrbtu, nikoli
+  sosednji, kviz in vremenski prehod sta vedno zaščitena), oddaje z ≥ 6
+  pesmimi dobijo EN tease v drugi polovici (`teaseMid` bazen). Trivia P4 #17
+  kadenca ni gatingana — dejstvo o izvajalcu naravnost v pesem je sam
+  sebi prelom.
+- **Promosi ne reklamirajo oddaje, ki je ravno na etru** (C3): okno promosev
+  je strogo prihodnje; klip oddaje, ki je medtem začela, ob naslednjem tiku
+  (≤ 30 min) zapusti bazen. Iskrena meja: v tem oknu lahko zastareli promo
+  še enkrat odleti (randomize brez spomina) — dokumentirano in sprejeto.
+
+### Kaj se prižge ob nadgradnji na Liquidsoap 2.4.6 (D1)
+
+- **Avtomatski učinki prehodov**: spala plast sweep/washout/dissolve se ni
+  več oborožuje ročno (CLI). Pisec seznamov (`director/playlist.js`
+  `annotateTrackEntry` — skupen writer za filler.m3u in oddajne liste)
+  žiga učinke SAMODEJNO iz istih meritev, deterministično:
+  `liq_washout` na EPskem izumrtju (rep ≥ 6 s in ≥ 10 dB globok),
+  `liq_dissolve` na globoki ambientni zgradbi (glava ≥ 3,5 s in ≥ 10 dB),
+  `liq_sweep` na GLASNEM hladnem začetku (napad ≤ 500 ms in LUFS ≥ −9,5).
+  Redkost je namen: vsak prag vpraša "je ta šiv trenutek?", pošten privzet
+  odgovor pa je ne — ravninski crossfade ostaja delovni konj.
+  `stampTransitionFlags.js` CLI ostaja za ročne popravke.
+  Doktorjevo preverjanje **prehodi** (#19) meri pokritost teh žigov v
+  filler.m3u — po nadgradnji mora biti plast pripravljena, ne presenečena.
+
+### Zavestno odloženo (iskreno)
+
+- **Urnina ID plošča čez govor** (B3): `radio.liq` nalaga ID ob :00:00 čez
+  VSE (tudi čez DJ govor). Popravek bi potreboval track_sensitive mejo, ki
+  je na 2.2.4 ni — odloženo do nadgradnje.
+- **Hit-the-post** (govor čez intro pesmi): zahteva detekcijo začetka
+  vokala — ostaja na seznamu idej.
+- **BPM/stem prehodi**: dokumentirano zavrnjeno (proti arhitekturi brez AI).

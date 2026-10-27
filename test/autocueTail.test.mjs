@@ -125,15 +125,20 @@ const loudStderr = [
   '    Peak:      -1.0 dBFS',
 ].join('\n');
 
-// A runner answering the loudness pass and the tail pass with canned stderr
-// (switching on -sseof, exactly how the two real execFileAsync calls differ)
-// and recording every call's args for pinning.
-function cannedRunner({ tail = tailStderrFor(fadeSeries), tailError = null, calls = [] } = {}) {
+// A runner answering the loudness pass, the tail pass and the head pass
+// (Val 28 B1) with canned stderr -- switching on the exact flag shapes of
+// the three real execFileAsync calls (-sseof = tail, leading -t 20 = head,
+// neither = loudness) -- and recording every call's args for pinning.
+function cannedRunner({ tail = tailStderrFor(fadeSeries), tailError = null, head = tailStderrFor(coldSeries), headError = null, calls = [] } = {}) {
   return async (file, args) => {
     calls.push({ file, args });
     if (args.includes('-sseof')) {
       if (tailError) throw tailError;
       return { stderr: tail };
+    }
+    if (args[2] === '-t') {
+      if (headError) throw headError;
+      return { stderr: head };
     }
     return { stderr: loudStderr };
   };
@@ -371,19 +376,28 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
     });
 
     assert.deepEqual(
-      { analyzed: summary.analyzed, skipped: summary.skipped, failed: summary.failed, tailFailed: summary.tailFailed },
-      { analyzed: 1, skipped: 0, failed: 0, tailFailed: 0 }
+      {
+        analyzed: summary.analyzed,
+        skipped: summary.skipped,
+        failed: summary.failed,
+        tailFailed: summary.tailFailed,
+        headFailed: summary.headFailed,
+      },
+      { analyzed: 1, skipped: 0, failed: 0, tailFailed: 0, headFailed: 0 }
     );
-    // Loudness pass first, tail pass second (the order that guarantees
-    // loudness never regresses on a tail failure).
-    assert.equal(calls.length, 2);
+    // Loudness pass first, tail pass second, head pass third (the order that
+    // guarantees loudness never regresses on a tail/head failure).
+    assert.equal(calls.length, 3);
     assert.ok(calls[0].args.includes('ebur128=peak=true'));
     assert.ok(!calls[0].args.includes('-sseof'));
     assert.deepEqual(calls[1].args.filter((a) => a === '-sseof' || a === '-20'), ['-sseof', '-20']);
     assert.ok(calls[1].args.includes('ebur128=metadata=1:framelog=info')); // pinned DEVIATION 1
+    assert.deepEqual(calls[2].args.filter((a, i) => (i === 2 && a === '-t') || (i === 3 && a === '20')), ['-t', '20']);
 
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.deepEqual(onDisk.tracks[file].tail, { windMs: 10000, fade: true, lufsDrop: 29.8 });
+    // The canned head is the flat cold series -> the cold regime lands too.
+    assert.deepEqual(onDisk.tracks[file].head, { riseMs: 0, gradual: false, lufsRise: 0 });
     assert.equal(onDisk.tracks[file].lufs, -12); // loudness from the canned Summary
     assert.equal(crossfadeAnnotate(file), '10.0');
   });
@@ -393,11 +407,12 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
     const file = writeWav(path.join(dir, 'cold.wav'), 1);
     const summary = await analyzeMissing([file], { runner: cannedRunner({ tailError: new Error('boom') }) });
     assert.deepEqual(
-      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed },
-      { analyzed: 1, failed: 0, tailFailed: 1 }
+      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
+      { analyzed: 1, failed: 0, tailFailed: 1, headFailed: 0 }
     );
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.equal(onDisk.tracks[file].tail, undefined);
+    assert.deepEqual(onDisk.tracks[file].head, { riseMs: 0, gradual: false, lufsRise: 0 });
     assert.equal(onDisk.tracks[file].lufs, -12);
     assert.equal(crossfadeAnnotate(file), null); // no stamp...
     assert.match(annotateTrackEntry(file), /liq_amplify=/); // ...but loudness is intact
@@ -408,13 +423,14 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
     const file = writeWav(path.join(dir, 'legacy.wav'), 1);
     const stat = fs.statSync(file);
     // A pre-tail-pass entry whose mtimeMs+size still matches: the scan must
-    // skip it (zero ffmpeg calls) and the entry must stay tail-less.
+    // skip it (zero ffmpeg calls) and the entry must stay tail-less (and
+    // head-less -- the same skip rule covers both passes).
     writeTestIndex({ [file]: { mtimeMs: stat.mtimeMs, size: stat.size, lufs: -14, peak: -2, analyzedAt: 'legacy' } });
     const calls = [];
     const summary = await analyzeMissing([file], { runner: cannedRunner({ calls }) });
     assert.deepEqual(
-      { analyzed: summary.analyzed, skipped: summary.skipped, tailFailed: summary.tailFailed },
-      { analyzed: 0, skipped: 1, tailFailed: 0 }
+      { analyzed: summary.analyzed, skipped: summary.skipped, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
+      { analyzed: 0, skipped: 1, tailFailed: 0, headFailed: 0 }
     );
     assert.equal(calls.length, 0);
     assert.equal(crossfadeAnnotate(file), null);
@@ -435,9 +451,11 @@ describe('annotateTrackEntry liq_cross_duration stamping', () => {
         tail: { windMs: 9000, fade: true, lufsDrop: 25 },
       },
     });
+    // Val 28 D1: an EPIC fade-out ending (windMs 9 s + drop 25 dB, both past
+    // the washout thresholds) also arms the dormant washout effect.
     assert.equal(
       annotateTrackEntry('/music/tail.mp3'),
-      'annotate:source_tag="music",liq_fade_in="2",liq_amplify="-3.7 dB",liq_cross_duration="9.0":/music/tail.mp3'
+      'annotate:source_tag="music",liq_fade_in="2",liq_washout="1",liq_amplify="-3.7 dB",liq_cross_duration="9.0":/music/tail.mp3'
     );
   });
 

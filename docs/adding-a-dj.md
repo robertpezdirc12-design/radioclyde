@@ -1,63 +1,70 @@
 # Adding a new DJ persona
 
-A "DJ" is just a `dataDir/prompts.json` `personas` entry (a voice + a system
-prompt) plus a couple of optional cosmetic assets. No code to write or build
-step to run -- every place that reads personas goes through
+A "DJ" is just a `dataDir/prompts.json` `personas` roster entry plus a voice
+setting in `config.json` (and a couple of optional cosmetic assets). No code
+to write or build step to run -- every place that reads personas goes through
 `src/scheduler/promptsUtil.js`'s `loadPersonas()`, which re-reads
 `prompts.json` fresh on every call, so a new entry is picked up immediately,
-no restart needed. Easiest done through the studio admin's Prompts page
+no restart needed. Easiest done through the studio admin's Osebje page
 (`/studio`); the steps below are for hand-editing the file directly.
 
-## 1. Get the reference voice clip onto the Chatterbox server
+> Val 28 ("samo skripte brez AI modelov"): the AI layer is gone, so a persona
+> no longer carries an LLM `systemPrompt` (the writing voice is the station's
+> template register, the same for everyone) or a Chatterbox `voiceFile` (the
+> AI voice clone is gone with it). A persona is now a **roster identity** --
+> the names show briefs and scripts are allowed to address -- and the VOICE
+> per persona lives in `config.autoRadio.voice.personas` (Edge/Piper/espeak
+> settings), not in `prompts.json`. Old files that still carry the dead
+> fields keep loading unchanged (they're simply ignored).
 
-Chatterbox does the actual voice cloning from a reference `.wav`, and it
-does so entirely on its own side -- **this repo never touches that file**.
-`prompts.json`'s `voiceFile` is sent to Chatterbox as an opaque
-`predefined_voice_id` string (`src/director/tts.js`'s `requestSynthesis`);
-nothing here reads, uploads, or resolves it against a local path.
-
-So before anything in this repo can use a new voice, the reference clip has
-to already exist in Chatterbox's own voice library, under whatever filename
-you're about to reference. That's entirely a Chatterbox-server-side step
-(its own UI/API/filesystem), outside this codebase.
-
-A clean reference clip matters more than any generation parameter: since
-Chatterbox clones the reference recording's own acoustic character, a
-bassy, close-mic'd, or noisy source clip comes through in every line that
-persona ever speaks, and no `cfg_weight`/`exaggeration` tuning
-(`config.chatterbox`, see `tts.js`) fixes that after the fact.
-
-## 2. Pick a persona id
+## 1. Pick a persona id
 
 Lowercase, single word, `^[a-z0-9_-]+$` (this exact pattern is enforced by
 `src/server/djPhotoProxy.js` for the photo route, and matches every existing
 key in `prompts.json`'s `personas`). e.g. `marcus`.
 
-## 3. Add the persona to `dataDir/prompts.json`
+## 2. Add the persona to `dataDir/prompts.json`
 
-Through the studio admin (`/studio` → Prompts) or by hand:
+Through the studio admin (`/studio` → Osebje) or by hand:
 
 ```json
 "personas": {
-  "marcus": {
-    "voiceFile": "Marcus.wav",
-    "systemPrompt": "You are Marcus, a ..."
-  }
+  "marcus": {}
 }
 ```
 
-- `voiceFile` -- must exactly match the filename Chatterbox already knows
-  (step 1).
-- `systemPrompt` -- short persona description, same shape as every other
-  entry. Used as the DJ's writing-voice instruction wherever this persona's
-  lines get drafted (`src/producer/moves.js`, `src/director/liveSegments.js`
-  for live weather/time call-ins).
-
-This is the only edit required for the persona to *exist*. `prompts.json`
-lives under `dataDir`, outside the repo (same as `station.json`) -- there's
-no `config.example.json`-style template for it since it's real station data,
+That's the whole entry -- the roster is a list of names. `prompts.json` lives
+under `dataDir`, outside the repo (same as `station.json`) -- there's no
+`config.example.json`-style template for it since it's real station data,
 not operational config; a fresh deploy seeds it from scratch (or copies an
-existing one, e.g. from [sample-data/](../sample-data/) if provided).
+existing one, e.g. from [sample-data/](../sample-data/)).
+
+## 3. Give the persona a voice (`config.json`)
+
+Per-persona voice settings live in the `autoRadio.voice.personas` block
+(see `docs/auto-radio.md` for the full knob list). What to set depends on
+the station's `autoRadio.voice.mode`:
+
+- `edge` -- a per-persona `edgeVoice` (e.g. `"sl-SI-PetraNeural"`) plus the
+  usual prosody knobs (`edgeRate`/`edgePitch`/`edgeVolume`); the station
+  defaults apply to personas with no block of their own.
+- `piper` -- a per-persona `piperVoice` key (e.g. `"sl_SI-artur-medium"`).
+- `clips` -- record `<dataDir>/<clipsDir>/<persona>/<slot>.wav` files for
+  every speech slot the persona speaks (see `docs/auto-radio.md` for the
+  numbered-variant sync contract); a missing clip skips that speech segment
+  honestly, music keeps playing.
+- `espeak`/`sapi` -- a per-persona voice code/name.
+
+```json
+"autoRadio": {
+  "voice": {
+    "mode": "edge",
+    "personas": {
+      "marcus": { "edgeVoice": "sl-SI-RokNeural" }
+    }
+  }
+}
+```
 
 ## 4. Optional: photo
 
@@ -87,10 +94,10 @@ listed on this line.
   `src/script/format.js`'s `parseScript` flags an unrecognized `persona:` as
   a warning, not a blocking error (`src/producer/generateScript.js` still
   writes `script.md` to disk either way) -- the mistake instead surfaces
-  later, as a hard throw from `src/director/djAudio.js` ("Unknown persona
-  ... no voiceFile in config.js") when directing tries to synthesize that
-  segment. Double-check the id matches `prompts.json` exactly before a show
-  airs on it, don't rely on script generation to catch it.
+  later at directing time, when the voice layer has no settings for that
+  persona and the segment is skipped (clips mode) or spoken with the
+  station-default voice (edge/piper). Double-check the id matches
+  `prompts.json` exactly before a show airs on it.
 - **No dry-run tool exists yet for "just synthesize one line and listen."**
   The closest thing is `node src/cli/prewarmShowAudio.js --id=<showId>`,
   which synthesizes every not-yet-cached `dj` segment of an already-produced
@@ -98,12 +105,9 @@ listed on this line.
   script.md to exist first. For a quick smoke test of a brand new voice
   before wiring it into any show, the fastest path is a throwaway one-off:
   ```js
-  import { synthesizeVoice } from './src/director/tts.js';
+  import { synthesizeNoModelSpeech } from './src/auto/voice.js';
   import fs from 'node:fs';
-  fs.writeFileSync('/tmp/test.wav', await synthesizeVoice('Hello, this is a test.', 'Marcus.wav'));
+  // Note the lowercase-first signature: resolves the persona's voice
+  // settings itself; writes /tmp/test.wav and returns true on success.
+  await synthesizeNoModelSpeech({ persona: 'marcus', slot: 'open', text: 'Pozdravljeni, to je test.', outPath: '/tmp/test.wav' });
   ```
-- **`config.chatterbox`'s `exaggeration`/`cfgWeight`/`temperature` are
-  global, not per-persona** -- they tune every voice's generation the same
-  way. If one new voice needs different tuning than the rest, that's not
-  currently supported and would need `tts.js`/`djAudio.js` changed to accept
-  a per-persona override.

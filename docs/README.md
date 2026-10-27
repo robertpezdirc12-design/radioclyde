@@ -31,8 +31,9 @@ docs mostly in Slovenian.
   the dual internal/external server-profile auto-reachability design),
   package layout, key design decisions.
 - [adding-a-dj.md](adding-a-dj.md) — end-to-end walkthrough for introducing
-  a new DJ persona/voice: the Chatterbox-side voice clip, the `config.json`
-  entry, optional photo, and wiring a show's brief to actually use it.
+  a new DJ persona: the `prompts.json` roster entry, the per-persona voice
+  settings in `config.json`, optional photo, and wiring a show's brief to
+  actually use it.
 - [subwave-deep-analysis.md](subwave-deep-analysis.md) — deep analysis of
   SUB/WAVE, the reference agentic-AI-DJ station project: what it actually
   is, where it beats us, where we win, and which deterministic ideas were

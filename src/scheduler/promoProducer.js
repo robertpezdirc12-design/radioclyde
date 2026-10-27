@@ -114,10 +114,22 @@ export async function producePromoClips({
   // days are dark would return fewer than maxClips occurrences even though
   // in-window shows exist further out; asking for a healthy surplus lets the
   // horizon filter do the trimming. nextOccurrences already excludes shows
-  // that started earlier today (scheduleUtil.js:356), so promos only ever
-  // speak about FUTURE shows -- never about one that is already on air.
+  // that started earlier today (scheduleUtil.js:356) -- and Val 28 C3 adds
+  // the belt to those braces: the window filter demands a STRICTLY FUTURE
+  // start, so even a show starting THIS minute (nextOccurrences' skip is
+  // `< nowMinutes`, an equal minute passes) never gets a promo produced
+  // while it airs, and a clip whose show has since started falls out of the
+  // window -> pruneStalePromos sweeps it at this same tick -> the m3u
+  // refresh below takes it out of rotation. Residual honesty: between a
+  // show's start and this job's next tick (<= 30 min) an already-produced
+  // promo can still air once or twice -- the pool is randomize without
+  // memory, and this job is the only pruner. Documented, accepted, bounded.
   const raw = nextOccurrences(loadSchedule(), new Date(), 30);
-  const inWindow = raw.filter((occ) => absoluteStart(occ.date, occ.show.startTime) - Date.now() <= horizonMs);
+  const now = Date.now();
+  const inWindow = raw.filter((occ) => {
+    const start = absoluteStart(occ.date, occ.show.startTime);
+    return start > now && start - now <= horizonMs;
+  });
   const occurrences = inWindow.slice(0, maxClips);
 
   fs.mkdirSync(config.paths.imagingPromosDir, { recursive: true });

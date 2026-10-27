@@ -9,7 +9,7 @@ function escapeAnnotateValue(value) {
 // the same module the scheduler's autocue scan job writes. An empty or
 // missing index simply yields no field for any track -- see the comment on
 // annotateTrackEntry below for the pass-through contract.
-import { amplifyAnnotate, crossfadeAnnotate } from '../lib/autocue.js';
+import { amplifyAnnotate, crossfadeAnnotate, fadeInAnnotate, transitionFlagAnnotate } from '../lib/autocue.js';
 
 // radio.liq wraps show_source/filler_source in fade.in(); this is the
 // per-track duration that operator uses unless a playlist entry's own
@@ -18,6 +18,13 @@ import { amplifyAnnotate, crossfadeAnnotate } from '../lib/autocue.js';
 // entry sets its own override. (There's no equivalent fade.out() in
 // radio.liq -- see lib/audio.js's applyFadeOut for why the jingle's fade-out
 // is baked into its audio instead of done live.)
+//
+// Val 28 B1: this constant is now the DEFAULT, not the verdict -- the
+// autocue head pass (lib/autocue.js analyzeHead) measures how each track
+// actually begins, and annotateTrackEntry stamps the measured value for the
+// regimes it can size (gradual intro 2.5-4.0 s, cold attack 0.5 s). The
+// moderate middle and every unmeasured track keep exactly this 2 s, so an
+// unscanned library behaves byte-identically to before.
 const TRACK_FADE_IN_SECONDS = 2;
 
 // Source-family tags (docs/ready-made-scripts-analysis.md §2.5 -- the
@@ -36,7 +43,7 @@ export const SOURCE_TAG = {
 };
 
 // DJ speech clips carry no ID3/metadata tags of their own (they're raw
-// Chatterbox/ffmpeg output), so plain playlist entries leave Icecast's
+// voice-layer/ffmpeg output), so plain playlist entries leave Icecast's
 // now-playing display frozen on whatever track played last while the DJ is
 // talking. Liquidsoap's `annotate:` request protocol lets a playlist entry
 // override its own metadata -- used here (station.json's station name as
@@ -101,8 +108,28 @@ export function annotateJingleEntry(filePath, showTitle, stationName) {
 // radio.liq's dj_transition_buffer default (3.5 s) stands: the same
 // pass-through contract as liq_amplify above. Values are our own
 // 0.1-quantized number strings, never user data, so no escaping concerns.
+//
+// liq_fade_in (Val 28 B1, entry-aware fade-in sizing): the head pass's
+// measured value when it has one (gradual intro 2.5-4.0 s, cold attack
+// 0.5 s), else the TRACK_FADE_IN_SECONDS default above. The fade.in
+// wrappers are UNGATED in radio.liq, so this stamp is audible on the 2.2.4
+// box the station runs today -- one fixed 2 s on every track regardless of
+// how it begins was the flattest seam in the station's sound.
+//
+// Val 28 D1 (transition-effect stamps): the dormant dj_transitions.liq
+// layer (sweep/washout/dissolve -- %ifversion >= 2.4.6) is armed here,
+// deterministically, from the SAME autocue measurements (see
+// lib/autocue.js transitionFlagsFor): an epic fade-out ending carries
+// liq_washout, a deep ambient build-in carries liq_dissolve, a hot cold
+// start carries liq_sweep. Unmeasured or unremarkable entries carry no
+// flag -- the plain linear crossfade stays the workhorse seam, and nothing
+// changes on air until the box's Liquidsoap upgrade lights the layer.
 export function annotateTrackEntry(filePath) {
-  const fields = [`source_tag="${SOURCE_TAG.music}"`, `liq_fade_in="${TRACK_FADE_IN_SECONDS}"`];
+  const fields = [
+    `source_tag="${SOURCE_TAG.music}"`,
+    `liq_fade_in="${fadeInAnnotate(filePath) ?? TRACK_FADE_IN_SECONDS}"`,
+  ];
+  fields.push(...transitionFlagAnnotate(filePath));
   const amplify = amplifyAnnotate(filePath);
   if (amplify) fields.push(`liq_amplify="${amplify}"`);
   const cross = crossfadeAnnotate(filePath);

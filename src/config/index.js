@@ -33,7 +33,6 @@ config.paths = {
   nowPlayingPath: path.join(config.dataDir, 'now_playing.m3u'),
   nowPlayingStatePath: path.join(config.dataDir, 'now_playing_state.json'),
   fillerPath: path.join(config.dataDir, 'filler.m3u'),
-  chatterboxLockPath: path.join(config.dataDir, '.chatterbox.lock'),
   wikipediaCacheDir: path.join(config.dataDir, 'cache', 'wikipedia'),
   trackRatingKeysPath: path.join(config.dataDir, 'track_ratingkeys.json'),
   trackRatingKeysLockPath: path.join(config.dataDir, '.track_ratingkeys.lock'),

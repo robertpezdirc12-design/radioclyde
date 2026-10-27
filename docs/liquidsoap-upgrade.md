@@ -127,11 +127,19 @@ torej referenčni box deluje nespremenjeno). Namestitev na drugi poti (npr.
    vsaj dve meji skladb: pričakovan zvok = enak kot prej (brez žigov so vsi
    seam-i ravninski crossfade 3,5 s namesto trdega reza — to je edina
    razlika brez žigov; govor/jingli ostanejo trdi rezi).
-5. **Efekti po želji**: žigi prek
+5. **Efekti so že oboroženi SAMODEJNO (Val 28 D1)**: pisci seznamov
+   (`director/playlist.js` annotateTrackEntry) žigajo `liq_washout` /
+   `liq_dissolve` / `liq_sweep` deterministično iz avtocue meritev glave in
+   repa (epsko izumrtje → washout, globoka ambientna zgradba → dissolve,
+   glasen hladen začetek → sweep; podrobnosti v docs/auto-radio.md, razdelek
+   Prehodi). Ročni žigos je še vedno možen za popravke po okusu:
    `node src/liquidsoap/stampTransitionFlags.js data/filler.m3u --set sweep`
    (ali `washout --delay 0.45`, `dissolve`, `--only <podniz>`, `--clear all`,
-   `--list`). Pred zrakom poslušaj vsak učinek vsaj enkrat:
-   sweep = filtri izven, washout = slapback, dissolve = zgoščenost.
+   `--list`) — a pozor: pisec seznama žige postavlja znova ob vsakem
+   prepisu, torej ročni žig zdrži le do naslednjega tika. Pred zrakom
+   poslušaj vsak učinek vsaj enkrat: sweep = filtri izven, washout =
+   slapback, dissolve = zgoščenost. Doktorjevo preverjanje `prehodi` pove
+   pokritost.
 6. **Po-preskus P2 oprtih točk na novem buildu** (isti postopek kot vedno):
    tih WAV v now_playing.m3u → prehod na nujno podlago ob ~20 s + vpis v
    `dataDir/history/deadair.jsonl`; beds push → utiha na začetku govora,

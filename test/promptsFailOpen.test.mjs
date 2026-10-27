@@ -13,7 +13,7 @@ import { setupTestConfig } from './fixtures.mjs';
 
 setupTestConfig('prompts-fail-open');
 
-const { loadPersonas, loadScriptReview, savePersonas, saveScriptReview } = await import('../src/scheduler/promptsUtil.js');
+const { loadPersonas, savePersonas } = await import('../src/scheduler/promptsUtil.js');
 const { registerStudioShowsApi } = await import('../src/server/studioShowsApi.js');
 const { config } = await import('../src/config/index.js');
 
@@ -31,7 +31,6 @@ describe('promptsUtil (dataDir/prompts.json fail-open)', () => {
   test('fresh deploy: no prompts.json -> honest empty, never a throw', () => {
     fs.rmSync(config.paths.promptsFile, { force: true });
     assert.deepEqual(loadPersonas(), {});
-    assert.deepEqual(loadScriptReview(), { enabled: true, systemPrompt: null });
   });
 
   test('torn prompts.json reads as empty too (atomic writes make this rare, not impossible)', () => {
@@ -41,14 +40,24 @@ describe('promptsUtil (dataDir/prompts.json fail-open)', () => {
 
   test('valid file behavior unchanged; a save from empty recreates the file', async () => {
     fs.rmSync(config.paths.promptsFile, { force: true });
-    await savePersonas({ markec: { voiceFile: 'markec.wav', systemPrompt: 'Ti si Markec.' } });
-    assert.deepEqual(loadPersonas(), { markec: { voiceFile: 'markec.wav', systemPrompt: 'Ti si Markec.' } });
+    await savePersonas({ markec: {} });
+    assert.deepEqual(loadPersonas(), { markec: {} });
+  });
 
-    await saveScriptReview('Poglej scenarij.');
-    const review = loadScriptReview();
-    assert.equal(review.systemPrompt, 'Poglej scenarij.');
-    // the earlier personas survive the scriptReview save (one file, two blocks)
-    assert.equal(loadPersonas().markec.voiceFile, 'markec.wav');
+  // Val 28 ("samo skripte brez AI modelov"): prompts.json is a pure persona
+  // roster now -- the systemPrompt/voiceFile fields of the old AI layer are
+  // inert, and an existing file that still carries them must load EXACTLY
+  // as-is (passed through, ignored by every consumer) rather than being
+  // silently rewritten or rejected.
+  test('legacy persona fields (voiceFile/systemPrompt) are passed through untouched', () => {
+    fs.writeFileSync(
+      config.paths.promptsFile,
+      JSON.stringify({ personas: { markec: { voiceFile: 'markec.wav', systemPrompt: 'Ti si Markec.' } } })
+    );
+    assert.deepEqual(
+      loadPersonas(),
+      { markec: { voiceFile: 'markec.wav', systemPrompt: 'Ti si Markec.' } }
+    );
   });
 });
 

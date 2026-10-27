@@ -100,6 +100,12 @@ const log = createLogger('station');
 const FFMPEG_TIMEOUT_MS = 60_000;
 const FFMPEG_MAX_BUFFER = 32 * 1024 * 1024;
 
+// Val 28 B2: the baked lead-out trail, the exit mirror of bedQueue's 0.8 s
+// brown-noise lead-in. 0.5 s pairs with the ducker's ~0.5 s release time
+// constant (radio.liq duck_release): music rides back up UNDER the fading
+// tail instead of stepping in off a cliff the instant the last word ends.
+const BED_TAIL_FADE_SECONDS = 0.5;
+
 // How long after fireTime an unfired slot still counts as fireable. Sized
 // against the default 6 s tick: ~7 chances under a lagging event loop, and
 // past it the slot is honestly late -- the weather of :15 aired at :16 is a
@@ -376,25 +382,41 @@ async function produceBedClip(event, { synthesize, analyze, run, fetchWeather })
     try {
       const { lufs } = await analyze(tmpEdge);
       const { amplify } = amplifyDbFor(lufs);
-      if (amplify === 0) {
-        fs.renameSync(tmpEdge, event.clipPath);
-      } else {
-        tmpGain = `${event.clipPath}.tmp2-${process.pid}`;
-        // '-f mp3' LOAD-BEARING (Val 21's live-E2E catch): the tmp name is
-        // extension-less on purpose, and ffmpeg picks the muxer from the
-        // output filename's extension -- without the explicit format the
-        // real ffmpeg dies with "Unable to choose an output format".
-        await run(
-          'ffmpeg',
-          ['-y', '-i', tmpEdge, '-filter:a', `volume=${amplify}dB`, '-f', 'mp3', tmpGain],
-          { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: FFMPEG_MAX_BUFFER, windowsHide: true }
-        );
-        fs.renameSync(tmpGain, event.clipPath);
-      }
+      // Val 28 B2 -- the bed's LEAD-OUT, the mirror of bedQueue's 0.8 s
+      // lead-in: the last 0.5 s of every measured clip fades to silence,
+      // baked into the SAME pass as the gain. The lead-in pre-engages the
+      // ducker before the first word; this trail guarantees the file never
+      // ENDS at full voice level either (the ducker's ~0.5 s release then
+      // rides music back up under a fading tail instead of off a cliff).
+      // areverse+afade-in+areverse = a fade-out on the last N seconds
+      // without needing the file's duration up front; volume=0dB (on-target
+      // clips) is a no-op gain, so EVERY measured bed gets the same exit.
+      tmpGain = `${event.clipPath}.tmp2-${process.pid}`;
+      // '-f mp3' LOAD-BEARING (Val 21's live-E2E catch): the tmp name is
+      // extension-less on purpose, and ffmpeg picks the muxer from the
+      // output filename's extension -- without the explicit format the
+      // real ffmpeg dies with "Unable to choose an output format".
+      await run(
+        'ffmpeg',
+        [
+          '-y',
+          '-i',
+          tmpEdge,
+          '-filter:a',
+          `volume=${amplify}dB,areverse,afade=t=in:st=0:d=${BED_TAIL_FADE_SECONDS},areverse`,
+          '-f',
+          'mp3',
+          tmpGain,
+        ],
+        { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: FFMPEG_MAX_BUFFER, windowsHide: true }
+      );
+      fs.renameSync(tmpGain, event.clipPath);
     } catch (measureErr) {
       // ebur128 or ffmpeg failed: land the UNCORRECTED clip -- a
       // slightly-off-level bed beats no bed, and the broadcast-bus limiter
       // (radio.liq's compress before output.icecast) still catches peaks.
+      // (This also means no baked trail -- the honest degradation the next
+      // produce of the same slot will replace.)
       log(
         `format_clock: clip ${event.key} loudness unmeasured (${measureErr?.message ?? measureErr}) -- landing as-is, station unaffected.`
       );

@@ -1,9 +1,10 @@
-// The deterministic boundary walk -- the no-AI counterpart to
-// producer/boundaryWalk.js + producer/moves.js (+ reviewScript.js, which is
-// simply unnecessary here: templates cannot repeat each other's phrasing the
-// way free generation does). The code walks the tracklist exactly like
-// boundaryWalk.js does -- open, per-track intro/recap, mid-show quiz, the
-// two-thirds weather handoff, close -- but every spoken line is rendered
+// The deterministic boundary walk -- since Val 28 ("samo skripte brez AI
+// modelov") the ONLY script builder (its former AI counterpart,
+// producer/boundaryWalk.js + producer/moves.js + reviewScript.js, is
+// removed; review is unnecessary here anyway: templates cannot repeat each
+// other's phrasing the way free generation does). The code walks the
+// tracklist classically -- open, per-track intro/recap, mid-show quiz, the
+// two-thirds weather handoff, close -- and every spoken line is rendered
 // from config templates (auto/templates.js) with the track's real library
 // metadata, not generated.
 //
@@ -14,6 +15,7 @@
 // plays -- the clip and the transcript line stay in sync by construction.
 import { renderSlot, trackValues, currentValues, showName } from './templates.js';
 import { timeBlockKey } from './rules.js';
+import { decideFenceposts } from '../producer/fenceposts.js';
 
 // Every dj segment carries the EXACT seed its template variant was drawn
 // with (script/format.js persists it as a `seed:` field; director/index.js
@@ -315,6 +317,20 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
   const quizIndex = brief.hasQuiz ? Math.floor(n / 2) : -1;
   const weatherAfterIndex = brief.hasWeather ? Math.floor((n * 2) / 3) : -1;
 
+  // Val 28 C1: the deterministic talk map (producer/fenceposts.js) -- same
+  // seed discipline as every renderSlot draw, so a regenerated script and
+  // its own cached audio never disagree about which boundaries talk.
+  const fenceposts = decideFenceposts({
+    seed: seedFor({ showId, date, slot: 'fenceposts' }),
+    trackCount: n,
+    hasQuiz: brief.hasQuiz,
+    hasWeather: brief.hasWeather,
+  });
+  // Boundary i silent => the recap of track i and the intro of track i+1
+  // are BOTH dropped (a genuine back-to-back pair). silentBefore(i) is the
+  // read the intro/trivia side needs.
+  const silentBefore = (i) => i >= 1 && fenceposts.silentBoundaries.has(i - 1);
+
   const primaryPersona = brief.primaryPersona;
   const weatherPersona = brief.weatherPersona ?? primaryPersona;
 
@@ -393,9 +409,33 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
     const track = tracks[i];
     const trackSeed = seedFor({ showId, date, track, slot: 'x' });
 
+    // Val 28 C1: the MID-show tease -- one talk break with a task ("keep
+    // them through the back half") at the fenceposts module's midTeaseIndex.
+    // Names an artist still ahead in the queue (second-to-last track, so it
+    // differs from the top tease's last-track promise), true by construction.
+    if (i === fenceposts.midTeaseIndex && i >= 1) {
+      const teaseMidArtist = tracks[Math.max(1, n - 2)]?.artist ?? tracks[n - 1]?.artist;
+      if (teaseMidArtist) {
+        const teaseMidSeed = seedFor({ showId, date, slot: 'teaseMid' });
+        segments.push({
+          type: 'dj',
+          persona: primaryPersona,
+          slot: 'teaseMid',
+          seed: teaseMidSeed,
+          body: renderSlot('teaseMid', {
+            values: { ...commonValues(), artist: teaseMidArtist },
+            seed: teaseMidSeed,
+          }),
+        });
+      }
+    }
+
     // P4 #17: "Zanimivosti" land right before the intro of every 3rd track
     // -- a fact about THAT track's artist, or a general rock fact when the
-    // artist has none.
+    // artist has none. Val 28 C1: trivia is deliberately NOT gated on silent
+    // boundaries -- a fact about the artist straight into the song is a
+    // natural break in its own right (the boundary drops only the
+    // intro/recap pair, and the P4 #17 cadence stays intact).
     segments.push(
       ...triviaSegments({ trivia, track, index: i, persona: primaryPersona, commonValues, showId, date, trackSeed, state: triviaState })
     );
@@ -418,7 +458,9 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
             })
           : renderSlot('quizIntro', { values: { ...commonValues(), ...trackValues(track) }, seed: quizIntroSeed }),
       });
-    } else {
+    } else if (!silentBefore(i)) {
+      // Val 28 C1: a silent boundary drops this intro -- the previous track
+      // runs straight into this one (the recap before it was dropped too).
       const introSeed = `${trackSeed}|intro`;
       segments.push({
         type: 'dj',
@@ -445,7 +487,10 @@ export function buildSegmentsAuto({ tracks, brief, showId, date, rubricData = nu
             })
           : renderSlot('quizReveal', { values: { ...commonValues(), ...trackValues(track) }, seed: quizRevealSeed }),
       });
-    } else {
+    } else if (!fenceposts.silentBoundaries.has(i)) {
+      // Val 28 C1: a silent boundary drops this recap -- the next track runs
+      // straight on (protected boundaries -- quiz reveal, weather handoff --
+      // are never silent by construction in the fenceposts module).
       const recapSeed = `${trackSeed}|recap`;
       segments.push({
         type: 'dj',

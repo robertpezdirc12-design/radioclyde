@@ -16,6 +16,7 @@ import { parseFile } from 'music-metadata';
 import { config } from './src/config/index.js';
 import { synthesizePiper } from './src/auto/piperVoice.js';
 import { renderSlot, stationName } from './src/auto/templates.js';
+import { currentLocalDateString } from './src/director/weather.js';
 
 const execFileAsync = promisify(execFile);
 const OUT_DIR = path.resolve(config.dataDir, 'pre-generated');
@@ -105,21 +106,39 @@ for (const filePath of audioFiles) {
   }
 }
 
+// Val 28 A2: the three station-level clips render through the STATION'S own
+// pools (templates.js stationOpen/stationClose/stationHandoff -- the same
+// relaxed register and the same config.autoRadio.templates overrides as every
+// other spoken surface) instead of three hardcoded texts that aired verbatim
+// on every show. Seed carries the LOCAL DATE, so a re-run of the script the
+// next day draws the next variant; the sidecar .txt remembers which text the
+// wav on disk actually speaks, so a same-day re-run is a no-op and an owner
+// pool edit re-synthesizes. Filenames stay frozen (general_open.wav ...) --
+// voice.js's resolver, voiceStatus.js and the studio UI pin them.
 const generalClips = [
-  // Show-agnostic wording -- these files air on EVERY show in pregenerated
-  // mode, so they must not name a specific show (audit 2026-10-24: the old
-  // text said "oddaji Test All Music" on every single opening).
-  { name: 'open', text: 'Dobrodošli na Radio Markec. Uživajte v glasbi.' },
-  { name: 'close', text: 'S tem je oddaja zaključena. Do naslednjega srečanja!' },
-  { name: 'handoff_weather', text: 'Poglejmo še, kakšno vreme nas čaka.' },
+  { name: 'open', slot: 'stationOpen' },
+  { name: 'close', slot: 'stationClose' },
+  { name: 'handoff_weather', slot: 'stationHandoff' },
 ];
+const generalDateKey = currentLocalDateString(config.weather?.timezone ?? 'UTC');
 for (const clip of generalClips) {
+  const seed = `general|${clip.name}|${generalDateKey}`;
+  const text = renderSlot(clip.slot, { values: { station: stationName() }, seed });
   const outFile = path.join(OUT_DIR, `general_${clip.name}.wav`);
-  if (!fs.existsSync(outFile)) {
-    await synthesize(clip.text, outFile);
-    console.log(`Generated: ${path.basename(outFile)}`);
-    count++;
+  const sidecar = `${outFile}.txt`;
+  let spokenPreviously = null;
+  try {
+    spokenPreviously = fs.readFileSync(sidecar, 'utf8');
+  } catch {
+    // first run after Val 28 (or a fresh install): no sidecar yet
   }
+  if (fs.existsSync(outFile) && spokenPreviously === text) {
+    continue; // same date, same pool draw -> the wav already speaks this text
+  }
+  await synthesize(text, outFile);
+  fs.writeFileSync(sidecar, text);
+  console.log(`Generated: ${path.basename(outFile)}`);
+  count++;
 }
 
 console.log(`\nTotal generated: ${count} clips`);

@@ -23,7 +23,7 @@ import { setupTestConfig } from './fixtures.mjs';
 setupTestConfig('trivia', {});
 
 const { GENERAL_ROCK_FACTS, pickGeneralRockFacts } = await import('../src/auto/rockFacts.js');
-const { foldArtist, buildArtistFactFromMusicBrainz, fetchArtistTrivia, collectArtistTrivia } = await import(
+const { foldArtist, buildArtistFactFromMusicBrainz, fetchArtistTrivia, collectArtistTrivia, firstSpokenSentence, SPOKEN_SENTENCE_MAX_WORDS } = await import(
   '../src/auto/trivia.js'
 );
 const { parseBriefRubrics } = await import('../src/auto/briefQuery.js');
@@ -191,7 +191,7 @@ describe('fetchArtistTrivia (stubbed network)', () => {
     }
   });
 
-  test('MB miss -> sl.wikipedia fallback, whole extract, trailing punctuation stripped', async () => {
+  test('MB miss -> sl.wikipedia fallback, first spoken sentence, trailing punctuation stripped', async () => {
     const stub = stubFetch([
       { match: MB_RE, reply: () => errorReply(404) },
       {
@@ -205,6 +205,61 @@ describe('fetchArtistTrivia (stubbed network)', () => {
       assert.match(fact.text, /Farrokh Bulsara/);
       assert.equal(/\.$/.test(fact.text), false, 'trailing period stripped (template adds it)');
       assert.equal(stub.calls.filter((c) => MB_RE.test(c.url)).length, 1, 'one MB attempt');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  // Val 28 A3: the fallback speaks the FIRST sentence only, within the spoken
+  // budget -- never whole encyclopedia paragraphs, and never a sentence cut
+  // mid-grammar to fit.
+  describe('Val 28 A3: first spoken sentence (pure)', () => {
+    test('multi-sentence extract -> only the first sentence is spoken', () => {
+      const out = firstSpokenSentence(
+        'Queen je britanska rock skupina. Ustanovljena je bila leta 1970 v Londonu. Freddie Mercury je bil njen vokalist.'
+      );
+      assert.equal(out, 'Queen je britanska rock skupina');
+    });
+
+    test('Slovenian ordinal dates are not sentence boundaries', () => {
+      const out = firstSpokenSentence(
+        'Freddie Mercury, rojen kot Farrokh Bulsara, je bil britanski glasbenik, * 5. september 1946, Zanzibar. Kasneje je živel v Londonu.'
+      );
+      assert.match(out, /5\. september 1946/);
+      assert.equal(out.endsWith('Zanzibar'), true, 'first sentence runs to the real boundary');
+    });
+
+    test('first sentence past the 24-word budget -> null (honest drop, no surgery)', () => {
+      const long = ['beseda', 'druga', 'tretja', 'cetrta', 'peta', 'sesta', 'sedma', 'osma', 'deveta', 'deseta',
+        'enajsta', 'dvanajsta', 'trinajsta', 'stirinajsta', 'petnajsta', 'sestanajsta', 'sedemnajsta', 'osemnajsta', 'devetnajsta', 'dvajseta',
+        'enaindvajseta', 'dvaindvajseta', 'triindvajseta', 'stiriindvajseta', 'petindvajseta', 'sestindvajseta'].join(' ');
+      assert.equal(firstSpokenSentence(`${long}. Sledi kratek stavek.`), null);
+    });
+
+    test('no boundary at all (single period-less sentence) -> whole text within budget', () => {
+      assert.equal(firstSpokenSentence('Queen je britanska rock skupba iz Londona'),
+        'Queen je britanska rock skupba iz Londona');
+    });
+
+    test('empty / whitespace-only / budget override', () => {
+      assert.equal(firstSpokenSentence(''), null);
+      assert.equal(firstSpokenSentence('   \t\n  '), null);
+      assert.equal(firstSpokenSentence('a b c d', { maxWords: 3 }), null);
+      assert.equal(SPOKEN_SENTENCE_MAX_WORDS, 24, 'budget pinned to the all-pools sentence ceiling');
+    });
+  });
+
+  test('MB miss -> wikipedia first sentence past budget -> segment dropped (null)', async () => {
+    const long = Array.from({ length: 28 }, (_, i) => `beseda${i + 1}`).join(' ');
+    const stub = stubFetch([
+      { match: MB_RE, reply: () => errorReply(404) },
+      {
+        match: WIKI_RE,
+        reply: () => jsonReply(wikiBody({ title: 'Nek Izvajalec', extract: `${long}. Kratek stavek sledi.` })),
+      },
+    ]);
+    try {
+      assert.equal(await fetchArtistTrivia('Nek Izvajalec'), null, 'over-budget first sentence -> no trivia segment');
     } finally {
       stub.restore();
     }
@@ -397,8 +452,17 @@ describe('buildSegmentsAuto trivia placement (P4 #17)', () => {
     const triviaIdx = slots.map((s, i) => [s, i]).filter(([s]) => s === 'triviaArtist').map(([, i]) => i);
     assert.equal(triviaIdx.length, 4, `12 tracks -> sprinkles at 1/4/7/10 (got ${slots.filter((s) => s === 'triviaArtist').length})`);
     for (const idx of triviaIdx) {
-      assert.equal(slots[idx + 1], 'intro', 'trivia sits right before the track intro');
-      const trackSeg = segments[idx + 2];
+      // Val 28 C1: a silent boundary drops the intro/recap pair, but trivia
+      // is deliberately NOT gated -- a fact about the artist straight into
+      // the song is a natural break in its own right. So the segment after
+      // a trivia is either the intro of its track, or (silent boundary) the
+      // track itself.
+      const next = slots[idx + 1];
+      const trackSeg = next === 'intro' ? segments[idx + 2] : segments[idx + 1];
+      assert.ok(
+        next === 'intro' || next === 'TRACK',
+        `trivia precedes its track's intro or, on a silent boundary, the track itself (got ${next})`
+      );
       assert.equal(trackSeg.type, 'track');
       assert.ok(segments[idx].body.includes(trackSeg.artist), 'the fact describes the artist about to play');
     }
