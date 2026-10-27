@@ -17,6 +17,12 @@ pre-generated/
 # Generated at runtime, not source
 .env
 
+# Userspace Liquidsoap binaries pulled by scripts/fetch-liquidsoap.mjs
+# (official Docker images, extracted rootfs + run wrappers -- see
+# docs/liquidsoap-upgrade.md). Never commit: hundreds of MB, regenerable
+# from the registry with one command.
+.liq-bin/
+
 # Local test/dev log artifacts (never commit logs)
 *.log
 !docs/**/*.log

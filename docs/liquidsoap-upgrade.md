@@ -90,15 +90,77 @@ tudi kratke dodatne prehode (d = 0.02–0.5 s, prihajajoča meta včasih še
 prazna) — to so takojšnji mehki preklopi, slušno neopazni; na boxu
 pričakuj v dnevniku več `dj_transition` klicev kot je glasbenih meja.
 
-Reproducirati je mogoče tako (brez roota): anonimen
-`registry-1.docker.io` pull tagov `v2.2.4`/`v2.4.6` slike
-`savonet/liquidsoap`, razpakirati sloje, pognati binarno z lastnim
-loaderjem (`ld-linux-x86-64.so.2 --library-path ...`), za 2.4.6 z
-`--stdlib <rootfs>/usr/share/liquidsoap/libs/stdlib.liq`, za 2.2.4 z
-LD_PRELOAD shimom, ki preusmerja `/usr/share/liquidsoap` (trdo kodirana
-pot) v rootfs. Podrobnosti v worklogu Task 26.
+Reproducirati je mogoče BREZ roota in brez dockerja z enim ukazom —
+postopek je od vala 30 (2026-10-27) V REPOZITORIJU in razmnožljiv:
+
+```
+node scripts/fetch-liquidsoap.mjs              # pridobi obe uradni binarki (anonimno)
+cd liquidsoap
+RADIOCLYDE_HOME=<dom-s-config.json> ../.liq-bin/v2.2.4/run.sh --check radio.liq
+RADIOCLYDE_HOME=<dom-s-config.json> ../.liq-bin/v2.4.6/run.sh --check radio.liq
+```
+
+Orodje (0 novih odvisnosti — Node ≥ 24 globalni fetch) pridobi anonimne
+manifeste in plasti slika `savonet/liquidsoap`, jih razširi v `.liq-bin/`
+(gitignored) z pravilnim OCI whiteout vrstnim redom, najde binarko + NJEN
+lastni ld-linux nalagalnik in prave lib mape (vključno z zasebnimi Debianovimi
+dir-ji, ki jih slike navajajo le z ABSOLUTNIM DT_RUNPATH — npr.
+`usr/lib/x86_64-linux-gnu/pulseaudio` za libpulsecommon; LD_PRELOAD jih NE
+more prestreči, ker ld.so razrešuje svoje odvisnosti z internimi sysklici),
+za 2.2.x prevede `scripts/ldshim.c` (LD_PRELOAD preusmeritev trdo kodirane
+poti `/usr/share/liquidsoap` v rootfs; open/stat/access/mkdir + at/64/xstat
+različice, `struct stat64` za 64-bitne wrapperje), za 2.3+ pa podá
+`--stdlib <rootfs>/usr/share/liquidsoap/libs/stdlib.liq` (FILE, ne mapa).
+Samo-preverba orodja je `run.sh --version`. Podrobnosti prvotnega ročnega
+postopka (2026-10-24) so zgodovina — njegov worklog je padel v svedru;
+ORODJE je zdaj nosilec resnice. Izbere se lahko katero koli oznako
+(`--tags v2.4.6`) in platformo (`--platform linux/arm64`).
+
+## Ponovitev v peskovniku na TEKOČI skripti (2026-10-27, Val 30) — OBVEZNO PREBRATI
+
+Matrika zgoraj je bila merjena 2026-10-24 — potem pa sta se SPREMENILA OBa
+preverjena artefakta (radio.liq: RADIOCLYDE_HOME, A1 `mode="normal"`, B2
+promo plast, B3 icy identiteta; dj_transitions.liq: CROSS STAMPS strip).
+Trditev »skripta je 2.4.6-ready« je bila za tekoče drevo NEVELJAVNA in
+orodje jo je takoj ujelo: **radio.liq se na uradni 2.4.6 NI PARSAO**
+(`Error 15: Missing arguments in function application: string` na vrstici
+z `getenv("RADIOCLYDE_HOME")`). Gol `getenv` je zastareli alias, katerega
+oblika se razlikuje po buildih: 2.2.x jemlje `(ime)` in vrne `""` za
+nenastavljeno, 2.4.6-ova `deprecations.liq` pa definira
+`getenv(default="", v)` z defaultom NAJPREJ in POZICIJSKO — stari klic je
+postal delna aplikacija. Popravek (v radio.liq, pripeto s testom):
+`environment.get("RADIOCLYDE_HOME")` — byte-identična v obeh stdlibih
+(`libs/utils.liq` v 2.4.6 sliki in v2.2.4 tarju), označeni `~default=""`
+je na klicnem mestu izpustljiv, na 2.4.x pa je to edino nezastarelo
+črkovanje. BREZ te preverbe bi lastnikov korak 3 spodaj padel šele ob
+nadgradnji — zdaj gre skozi že pred buildom.
+
+Sveža matrika na tekočem drevesu (2026-10-27, uradni binarki, isti
+uporabniški postopek kot zgoraj):
+
+| Preverba | 2.2.4-1 (vrata ZAPRTA) | 2.4.6 (vrata ODPRTA) |
+|---|---|---|
+| `--check` | EXIT 0, TIHO (0 opozoril) | EXIT 0, točno 1 znano opozorilo (`null()` → `null`, spodaj) |
+| `--describe-sources` | (2.2.4 zastave nima) | EXIT 0; graf vsebuje `cross` + `source.dynamic` |
+| živ zagon | 15 s čisto (shim dela v RUNTIME-u; decoder dejansko predvaja WAV) | 40 s čisto; VSI TRIje učinki na etru: `dissolve (d=8.98s)` (velikost iz žiga liq_cross_duration=9.0 prek CROSS STAMPS bloka — prvič kdaj binarno preverjen), `sweep`, `washout tap=0.45s` (žig prebran) |
+
+Opombe k živemu zagonu: edine napake v dnevniku so `ECONNREFUSED` do
+icecasta (v peskovniku ga ni — pričakovano); `d` v dnevnikih učinkov je
+`min(remaining(a), remaining(b))` — DEJANSKO zvočno polje, žig je le rezerva
+(14-sekundni preskusni WAV-i puščajo 5 s repov po 9 s prekrivanjih; prava
+glasba s 8–12 s žigi pusti minute); `playlist.parser` opozorila ob praznih
+imaging m3u so znana benigna šumovja (enako na boxu).
 
 ## Koraki na boxu
+
+**PRED korakom 1 (novo, Val 30): pred-poletna preverba z uradno binarko,
+brez builda.** `node scripts/fetch-liquidsoap.mjs` pridobi uradni 2.4.6
+binary v `.liq-bin/` in njegov `run.sh --check radio.liq` (korak 3 spodaj)
+poganja ŠE PRED opam buildom — če gre skozi tukaj, gre skozi tudi po buildu;
+če NE gre skozi, si prihranil cel build. Enako orodje teče na vsakem
+Linuxu z node+tar (+gcc le za 2.2.x žig), tudi brez roota in brez dockerja,
+zato je uporabno tudi kot CI-preverba po vsakem valu, ki se pride do
+radio.liq (matrika zgoraj je nastala tako).
 
 **Namestitvena pot**: `radio.liq` vse pomožne procese (`deadair/recordEvent.js`,
 `plex/scrobbleTrack.js`) in branje `config.json` izpelje iz spremenljivke

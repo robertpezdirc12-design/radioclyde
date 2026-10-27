@@ -21,6 +21,10 @@ docs mostly in Slovenian.
 - [liquidsoap-upgrade.md](liquidsoap-upgrade.md) — the runtime upgrade
   runbook 2.2.4-1+dev → 2.4.6 (P3 #11): why exactly that version, what the
   `%ifversion` gates change on the box, and the post-upgrade verification.
+  Since Val 30 it also carries `scripts/fetch-liquidsoap.mjs` — running the
+  OFFICIAL Liquidsoap binaries userspace (anonymous registry pull, no root,
+  no docker) for a pre-flight `--check` before any opam build; its 2026-10-27
+  run caught and fixed a real 2.4.6 parse regression in radio.liq.
 - [android-tv-app.md](android-tv-app.md) — architecture of the native
   Android TV/Google TV client (`android-tv/`, a separate Gradle project in
   this repo): package layout, the backend API it consumes, key design

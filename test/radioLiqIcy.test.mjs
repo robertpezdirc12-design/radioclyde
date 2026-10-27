@@ -8,6 +8,11 @@
 //    (name/description/genre) in the reference radio.liq AND in the install.sh
 //    template's heredoc copy -- with MATCHING values, so the two copies
 //    cannot drift (the Val 20 A1 two-copies discipline applied to icy).
+//    The description is HONEST post-Val 28 (Val 30): the station runs no AI
+//    models ("samo skripte brez ai modelov"), so the identity every player
+//    and directory sees must not claim "AI DJ Radio" -- the same
+//    must-not-lie discipline noAiModels.test.mjs pins for the tree, applied
+//    to the broadcast metadata.
 //  - ABSENT: no url= in the reference file (a placeholder URL would be a soft
 //    lie on the dev box -- install.sh keeps its operator-editable url=), no
 //    send_icy_metadata on the main output (per-track icy already flows via
@@ -45,8 +50,21 @@ describe('radio.liq icy identity (output.icecast name/description/genre)', () =>
   test('reference output.icecast advertises the three icy literals', () => {
     assert.match(liq, /output\.icecast\(/);
     assert.match(liq, /name = "Radio Markec",/);
-    assert.match(liq, /description = "Slovenian AI DJ Radio",/);
+    assert.match(liq, /description = "Slovenian script-driven radio",/);
     assert.match(liq, /genre = "Various",/);
+  });
+
+  test('icy description carries NO AI claim (Val 30 broadcast-truth guard)', () => {
+    // The description is the one string the station BROADCASTS about itself
+    // to every player and directory (TuneIn & friends). Since Val 28 the
+    // station runs no AI models, so this field must not re-introduce an
+    // "AI" claim -- the string-level twin of noAiModels.test.mjs. Historical
+    // note: "Slovenian AI DJ Radio" survived the Val 28 scrub because
+    // radio.liq was last touched by Val 21 -- this pin keeps it dead.
+    const desc = liq.match(/description = "([^"]*)",/);
+    assert.ok(desc, 'icy description literal not found');
+    assert.doesNotMatch(desc[1], /\bAI\b/i);
+    assert.doesNotMatch(desc[1], /umetn/i);
   });
 
   test('reference file deliberately has NO url= (soft-lie guard)', () => {
@@ -63,7 +81,7 @@ describe('radio.liq icy identity (output.icecast name/description/genre)', () =>
     // drift silently. install.sh's output.icecast also carries url=, which is
     // its own operator-editable placeholder and intentionally NOT mirrored.
     assert.match(installSh, /name="Radio Markec",/);
-    assert.match(installSh, /description="Slovenian AI DJ Radio",/);
+    assert.match(installSh, /description="Slovenian script-driven radio",/);
     assert.match(installSh, /genre="Various",/);
     assert.match(installSh, /url="https:\/\/your-domain\.com",/);
   });

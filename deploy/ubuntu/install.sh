@@ -226,7 +226,7 @@ output.icecast(
   password="CHANGE_ME_SOURCE_PASSWORD",
   mount="/stream.mp3",
   name="Radio Markec",
-  description="Slovenian AI DJ Radio",
+  description="Slovenian script-driven radio",
   url="https://your-domain.com",
   genre="Various",
   radio

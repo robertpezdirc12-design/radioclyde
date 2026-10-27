@@ -17,9 +17,21 @@
 # RADIOCLYDE_HOME lets a deploy point the engine at its own install (e.g.
 # /opt/radioclyde) WITHOUT editing this file; unset, it keeps the original
 # dev-box path so the reference install resolves the same paths as before.
-# getenv returns "" for an unset variable on Liquidsoap 2.x -- if a build ever
-# disagrees, the fix is one line here, not six scattered literals.
-let home = if getenv("RADIOCLYDE_HOME") == "" then "/home/ai/radioclyde" else getenv("RADIOCLYDE_HOME") end
+#
+# environment.get(name) -- NOT bare getenv(): the 2026-10-27
+# run of scripts/fetch-liquidsoap.mjs against the official 2.4.6 image
+# caught this line failing to PARSE there ("Missing arguments in function
+# application: string") -- bare getenv is a deprecated alias whose shape
+# differs per build: 2.2.x takes (name) and returns "" when unset, while
+# 2.4.6's deprecations.liq defines getenv(default="", v) with the default
+# FIRST and POSITIONAL, so the old call becomes a partial application.
+# environment.get is byte-identical in both stdlibs (libs/utils.liq:5 in the
+# 2.4.6 image, src/libs/utils.liq in the v2.2.4 tar) and its ~default=""
+# is a LABELED optional, safely omittable at the call site -- the ONE form
+# that parses on both engines, and the only non-deprecated spelling on 2.4.x
+# anyway. (Call-site labels take no tilde: environment.get(default=..., name)
+# per the stdlib's own call in deprecations.liq.)
+let home = if environment.get("RADIOCLYDE_HOME") == "" then "/home/ai/radioclyde" else environment.get("RADIOCLYDE_HOME") end
 
 let json.parse (config : {
   dataDir: string,
@@ -678,7 +690,12 @@ radio = compress(attack=1.0, release=80.0, threshold=-1.0, ratio=20.0, knee=0.5,
 # retune the literals here. name/description/genre deliberately MATCH the
 # install.sh template's output.icecast (deploy/ubuntu/install.sh) -- the two
 # copies are pinned together in test/radioLiqIcy.test.mjs so they cannot
-# drift. url= is deliberately OMITTED in this reference file: a placeholder
+# drift. The description is honest post-Val 28 ("samo skripte brez AI
+# modelov"): the station runs no AI models, so the broadcast metadata must
+# not claim "AI DJ Radio" to every player and directory -- this is the
+# on-air twin of the comments-must-not-lie scrub (Val 28 removed the AI
+# layer from the tree; Val 30 removed its last broadcast-facing claim).
+# url= is deliberately OMITTED in this reference file: a placeholder
 # URL would be a soft lie on the dev box (the install.sh template keeps its
 # operator-editable url= for real deployments). Dynamic "Sedaj: X" updates of
 # the mount description were evaluated and deferred -- the roadmap itself
@@ -688,7 +705,7 @@ output.icecast(%mp3(bitrate=config.icecast.bitrate),
   password = config.icecast.sourcePassword,
   mount = config.icecast.mount,
   name = "Radio Markec",
-  description = "Slovenian AI DJ Radio",
+  description = "Slovenian script-driven radio",
   genre = "Various",
   radio)
 
