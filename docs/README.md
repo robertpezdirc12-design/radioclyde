@@ -12,19 +12,28 @@ docs mostly in Slovenian.
 - [auto-radio.md](auto-radio.md) — the deterministic `autoRadio` mode: a
   station with no LM and no neural TTS (rule-based track selection, template
   speech, pre-recorded/SAPI/espeak voice), stage-by-stage against the AI
-  path, and how to switch it on.
+  path, and how to switch it on. It has since grown into the operational
+  reference for the speech layer: the hit-the-post DJ ramps and the ID-overlay
+  `normalize=false` fix (both Val 32) and the daypart speech pacing (Val 33)
+  live here.
 - [imaging-layer.md](imaging-layer.md) — the Liquidsoap imaging layers:
   top-of-hour station IDs, periodic stingers, auto-produced promos, emergency
   bed, dead-air guard and telnet-pushed talk-over beds (the Val 23 format
   clock auto-produces the weather/next-show beds on top), with every
-  operator's semantics verified against the Liquidsoap sources.
+  operator's semantics verified against the Liquidsoap sources. Carries the
+  Val 32 `normalize=false` fix history — the official ID-overlay recipe's
+  default silently played the station at half volume and starved the
+  program under `blank.strip`.
 - [liquidsoap-upgrade.md](liquidsoap-upgrade.md) — the runtime upgrade
   runbook 2.2.4-1+dev → 2.4.6 (P3 #11): why exactly that version, what the
   `%ifversion` gates change on the box, and the post-upgrade verification.
   Since Val 30 it also carries `scripts/fetch-liquidsoap.mjs` — running the
   OFFICIAL Liquidsoap binaries userspace (anonymous registry pull, no root,
   no docker) for a pre-flight `--check` before any opam build; its 2026-10-27
-  run caught and fixed a real 2.4.6 parse regression in radio.liq.
+  run caught and fixed a real 2.4.6 parse regression in radio.liq. Since
+  Val 32 it also holds the live-bisection matrix that isolated the
+  `blank.strip` + ID-overlay `normalize=true` bug on both official binaries
+  (the +6 dB fix existing installs get from a plain `git pull`).
 - [android-tv-app.md](android-tv-app.md) — architecture of the native
   Android TV/Google TV client (`android-tv/`, a separate Gradle project in
   this repo): package layout, the backend API it consumes, key design
@@ -71,7 +80,9 @@ docs mostly in Slovenian.
   via a narrowly-scoped slice of the autocue pattern: only `liq_amplify`,
   the one field our Liquidsoap 2.2.4 build actually reads. Now also the
   ending-aware crossfade tail pass (the extra `-sseof -20` ebur128
-  measurement and the 8–12 s `liq_cross_duration` decision table).
+  measurement and the 8–12 s `liq_cross_duration` decision table), and
+  since Val 32 the vocal head pass (the first-32 s 250–3200 Hz band
+  measurement behind `liq_ramp` hit-the-post DJ ramps).
 - [stream-mounts.md](stream-mounts.md) — the optional Ogg-Opus/Ogg-FLAC
   mounts and the hourly MP3 archive: generated `streams.liq`, restart
   semantics, bitrate ladders, every published surface, and the player

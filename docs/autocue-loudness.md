@@ -172,6 +172,55 @@ prehodom, ostanejo brez žiga, dokler se ne re-analizirajo — preskok
 re-analize. Kdor hoče obstoječo knjižnico pre-žigosati, izbriše
 `dataDir/autocue_index.json` in pusti jobu, da ga zgradi znova.
 
+## Uvodni prehod (vocal pass): rampa, »hit-the-post« in `liq_ramp` (Val 32)
+
+Tretja izmera istega off-line joba (za glasnostjo, glavnim fade-in prehodom
+Val 28 B1 in repnim prehodom): po uspešni analizi vsaka nova/spremenjena
+datoteka dobi še **prehod po prvih 32 s**, pasovno omejen na 250–3200 Hz
+(območje formantov, kjer živi glas; bas kitara in boben sedijo pod njim,
+cimbalski um nad njim), spet ebur128 momentna serija. Prva TOČKA, kjer pas
+drži ≥ +4,5 dB nad lastno izhodiščno linijo obrezanega začetka ≥ 1,2 s, je
+zapolnitev introja — shranjena kot `vocal: { onsetMs }` (null, kadar se
+intro v 32 s nikoli ne zapolni). Trajanje drže je namerno: bobenski vložek
+ali ena sama nabrana nota ne držita 1,2 s, kitarski tematski vstop pa drži —
+za rampo je tudi to pravi »post«, ne samo vokal.
+
+```bash
+ffmpeg -hide_banner -nostats -t 32 -i <datoteka> \
+  -filter_complex 'highpass=f=250,lowpass=f=3200,ebur128=metadata=1:framelog=info' -f null -
+```
+
+(Konstante v `src/lib/autocue.js`: `VOCAL_WINDOW_SECONDS=32`,
+`VOCAL_BAND_HIGHPASS_HZ=250`, `VOCAL_BAND_LOWPASS_HZ=3200`,
+`VOCAL_RISE_DB=4.5`, `VOCAL_SUSTAIN_SECONDS=1.2`.)
+
+Ob branju `rampStampFor` (director/playlist.js `resolveRampSeams`) odloči,
+ali GOVORNI šiv postane rampa: žig `liq_ramp="1"` na OBEH straneh šiva, en
+sam intro klip (spliciran open+intro nikoli — rampa predstavi ENO
+skladbo), govor ≤ okno ≤ zapolnitev − 1,5 s robu (`RAMP_MARGIN_SECONDS`:
+spust 0,6 s + zamik detektorja + dih), okno ≥ 5 s (tesneje od tega
+tveganje pretehta potezo) in govor ≤ 20 s (DJ-jev rampni budget, pod
+cross_stamps capom 30 s). `dj_transitions.liq`ova RAMPA veja (za
+`%ifversion >= 2.4.6`, kot vsi prehodi — na 2.2.4 so žigi nedejavni in
+šiv ostane trd rez) zaigra govor NAD duckano pesmijo (0.2, isti programski
+floor kot postelje) in jo čez zadnji del govora dvigne nazaj na 1.0
+(smoothstep, spust 0,6 s). Živo izmerjeno na uradni 2.4.6 (2026-10-28,
+Goertzel sonda: govor 412,8 polno, pesem 82,5 = točno 0,2, dvig
+~0,3–0,5 s na šivu, pesem naprej nedotaknjena).
+
+Iskrene meje: (1) prekrivanje je dolgo kot crossovo okno sprožitve
+prehoda (~4,6 s izmerjeno na 8-s govoru) — rampa pokrije ZADNJI del
+govora, ne vsega; (2) detekcija meri zapolnitev, ne vokala; (3) pesmi,
+ki so glasne od prve sekunde, ne nosijo okna (onset null → brez rampe,
+današnji trd rez); (4) neizmerjena knjižnica je bajtno-identična — vnos
+brez `vocal` nikoli ne rampa (preskok mtimeMs+size: pre-žigosanje =
+izbris indeksa, enako kot pri repu). Napaka prehoda se šteje v
+`vocalFailed`, vnos se shrani brez `vocal`, `liq_amplify`/`tail` pa
+ostaneta nespremenjena. Vrata: `config.autocue.rampTalk.enabled`
+(privzeto vklopljeno; sloj je dvojno zaprt — različica prek %ifversion ≥
+2.4.6 IN podatkovno: brez izmere ni rampe — izrecna izklopitev je za
+postaje, ki hočejo staro vedenje tudi po nadgradnji).
+
 ## Iskrena degradacija
 
 | Stanje | Vedenje |
@@ -182,6 +231,7 @@ re-analize. Kdor hoče obstoječo knjižnico pre-žigosati, izbriše
 | ffmpeg manjka | analize failajo in se štejejo; postaja brez spremembe |
 | govor / jingle / ID / stinger / emergency | nikoli ne nosijo polja — fiksna producentska glasnost |
 | Repni prehod pade (ffmpeg) | vnos se shrani BREZ repa + števec `tailFailed`; `liq_amplify` nespremenjen; konec dobi privzeti 3,5 s prehod |
+| Vokalni prehod pade (ffmpeg) | vnos se shrani BREZ `vocal` + števec `vocalFailed`; rampa nikoli ne zaigra, `liq_amplify`/`tail` nespremenjena |
 | Star indeksni vnos (pred repnim prehodom) | nikoli ne dobi žiga (preskok mtimeMs+size); pre-žigosanje = izbris indeksa |
 
 ## Reverzibilnost

@@ -13,7 +13,7 @@ filler_source (glasba)     ─┘
         │
         ├─ fallback(track_sensitive=true, [delay(1800., stingers), …])   ← stingeri
         ├─ fallback(track_sensitive=true, [delay(1200., promos), …])     ← promosi (Paket B2)
-        ├─ add([…, switch([({0m0s}, id)])])                              ← ID overlay
+        ├─ add(normalize=false, […, switch([({0m0s}, id)])])           ← ID overlay (Val 32 fix)
         ├─ sidechain ducker (rms.smooth + on_frame + amplify)            ← postelje (P3 #13, nadomešča #12 smooth_add)
         ├─ blank.detect + blank.strip (max_blank=20.)                    ← dead-air stražar (P2 #9)
         ├─ amplify(override="liq_amplify")
@@ -22,6 +22,23 @@ filler_source (glasba)     ─┘
 ```
 
 Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se zmeša NAD mešanico, emergency leži pod vsem programom, šele pod njim je mksafe-ova tišina. Vsak vir je `playlist()` (fallible): **prazen ali manjkajoč .m3u pomeni, da sloj preprosto ni na voljo** — postaja z brez imaging sredstev se obnaša točno kot prej. Degradacijska lestvica je »izpusti sloj«, nikoli »izpusti program«.
+
+**ID overlay `normalize=false` (Val 32, 2026-10-28):** uradni cookbook
+recept `add([normal, switch(...)])` ima privzeti `normalize=true`, ki
+vire meša kot POVPREČJE — odkar je sloj uveden, je cela postaja igrala
+na POL glasnosti (Goertzel 206 proti 412, ×2), v kombinaciji z
+`blank.strip` dead-air stražarja pa je STRADAL program (pesem utihne
+po 10 s na 2.2.4, po ~22 s na 2.4.6). Dvojni bisekt na OBEH uradnih
+binarkah (ena spremenljivka na poskus) je izoliral prav
+`add(normalize=true)` + `blank.strip` nad crossom; popravek
+`add(normalize=false)` na obeh vejah urnega ID overlayja vrne +6 dB in
+konec stradanja (obstoječi eter ga dobi z navadnim `git pull`), beds
+add in prehodi v dj_transitions.liq pa so bili `normalize=false` že
+prej — ta overlay je bilo edino mesto s privzetkom. Protidrift: noben
+`add([radio` brez `normalize=false` več ne preživi testov
+(radioLiqImaging.test.mjs); podrobnosti bisekta v
+[auto-radio.md](auto-radio.md) (»Pol glasnosti + stradanje programa«)
+in [liquidsoap-upgrade.md](liquidsoap-upgrade.md) (matrika).
 
 **Dead-air stražar (P2 #9, popolnitev te lestvice, 2026-10-24):** emergency podlaga lovi samo vire, ki so *nedosegljivi* (prazna m3u) — ne vira, ki igra digitalno tišino (pokvarjen/tih encode ostane "available"). To zapre `blank.strip()` (uradni cookbook recept (5), semantika verificirana iz tega builda `noblank.ml`): po 20 s neprekinjene tišine postane program nedosegljiv, emergency zasede, ob zvoku program vrne. Dva opazovalca `blank.detect` (isti akumulator, pasivna) pišeta vsak prehod v `dataDir/history/deadair.jsonl` (`src/deadair/recordEvent.js`), Diagnostics pa parira epizode (`src/deadair/ledger.js`): `program_*` = "stražar je deloval", `air_*` = "odpovedal je tudi nujni vir". Parametri so literali v radio.liq (json.parse tip nedotaknjen); reverzibilno = izbriši tri vrstice + štiri handlerje. Live verifikacija: `liquidsoap --check` + namerno tih WAV v now_playing.m3u.
 
@@ -40,7 +57,7 @@ Vrstni red je »od zunaj navznoter«: stingeri vstopajo na mejah skladb, ID se z
 Vsaka odločitev v bloku ima dobesedno preverjen vir — v2.2.5 izvorni kodi/dokumentaciji (najbližja verziji 2.2.4-1+dev):
 
 - **`delay(1800., stinger_source)`** — `src/core/operators/delay.ml` (v2.2.5): »Avoids some source to play a new track before some delay elapses after the end of the previous track played.« Po koncu vsake stinger skladbe je vir nedosegljiv do preteka intervala; ob zagonu je `last = 0.`, torej ob zagonu zazveni **natančno en** stinger na prvi meji skladb, kasneje največ ena na interval. Zunanji `fallback(track_sensitive=true)` je tisto, kar stingerje drži na mejah skladb — s `track_sensitive=false` bi rezel glasbo sredi skladbe takoj, ko interval poteče.
-- **ID overlay** — uradni cookbook 2.2.5, sekcija »Mixing and switching«: `add([normal, switch([({0m0s}, jingle)])])`. Switch **nima default veje**: pred :00 je nedosegljiv in ne prispeva ničesar; ob :00 postane na voljo in začne klip takoj (nima tekoče skladbe, zato `track_sensitive` ne zavira), klip pa se zmeša NAD programom. Na 2.4.6 (Val 31 B3) je okno razširjeno na prvih 90 s ure in zažgano na govor (source_tag="speech"): nedosegljivi switch anketa svoj funkcijski predikat ~desetkrat na sekundo (preklop vrat v ~100 ms od šiva), izbrani klip se vedno predvaja do konca, ob meji posnetka pa stikalo PONOVNO pregleda predikat — zato enkratna zaklepka `id_fired` (metapodatki ID klipa jo prižge ob pripravi zahtevka, predikata pa jo izklopi, kdarkoli je okno zaprto) drži NATANČNO EN klip na okno tudi s širšim oknom in `loop=true` bazenom. Vse tri semantike izmerjene na uradni 2.4.6 binarki 2026-10-27 (minute-ciklične sonde istega ožičenja).
+- **ID overlay** — uradni cookbook 2.2.5, sekcija »Mixing and switching«: `add([normal, switch([({0m0s}, jingle)])])`. Switch **nima default veje**: pred :00 je nedosegljiv in ne prispeva ničesar; ob :00 postane na voljo in začne klip takoj (nima tekoče skladbe, zato `track_sensitive` ne zavira), klip pa se zmeša NAD programom. Na 2.4.6 (Val 31 B3) je okno razširjeno na prvih 90 s ure in zažgano na govor (source_tag="speech"): nedosegljivi switch anketa svoj funkcijski predikat ~desetkrat na sekundo (preklop vrat v ~100 ms od šiva), izbrani klip se vedno predvaja do konca, ob meji posnetka pa stikalo PONOVNO pregleda predikat — zato enkratna zaklepka `id_fired` (metapodatki ID klipa jo prižge ob pripravi zahtevka, predikata pa jo izklopi, kdarkoli je okno zaprto) drži NATANČNO EN klip na okno tudi s širšim oknom in `loop=true` bazenom. Vse tri semantike izmerjene na uradni 2.4.6 binarki 2026-10-27 (minute-ciklične sonde istega ožičenja). Val 32 (2026-10-28) je receptu dodal zavestno odstopanje: naš `add` nosi `normalize=false`, ker privzeti `normalize=true` meša vire kot povprečje — pol glasnosti postaje plus stradanje programa v kombinaciji z `blank.strip` (razdelek 1 zgoraj).
 - **Zakaj NE `predicate.activates`** — `src/libs/predicate.liq` (v2.2.5): `ans = (not last()) and cur` — rob false→true je opazljiv samo ob vzorčenju predikata. Pri `switch` z mejskim re-selectom lahko meja skladbe pade izven okna `0m-5m` in ID bi tiho izpustil cele ure. Cookbookov recept deluje zanesljivo ravno zato, ker overlay switch v stopnji »nedosegljiv → dosegljiv« ne čaka nobene meje.
 - **Zakaj `playlist()` in ne `single()` za emergency** — fallible vir, ki je nedosegljiv, dokler je plejlist prazen, drži degradacijsko lestvico iskreno; `single()` z manjkajočo datoteko ima na tej verziji mutnejšo semantiko dostopnosti.
 - **mksafe** — `src/libs/source.liq` (v2.2.5): `fallback(track_sensitive=false, [s, blank])` — ostaja zadnja mreža pod emergency.

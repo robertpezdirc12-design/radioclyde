@@ -237,7 +237,10 @@ phases hand off through.
   clip), the director stamps both sides (`liq_ramp`) and
   `dj_transitions.liq` plays the DJ OVER the ducked song (floor 0.2, the
   same program floor as beds), lifting it back to full at the seam — the
-  DJ is never stepped on, the song never loses anything. Songs loud from
+  DJ is never stepped on, the song never loses anything. (The ramp branch
+  is `%ifversion`-gated to 2.4.6 like the other transition effects — on
+  the current 2.2.4 runtime the stamps are inert and every seam stays
+  today's hard cut.) Songs loud from
   the very first second carry no window (the seam stays today's hard
   cut), and an unmeasured library is byte-identical to before.
   Live-verified on the official 2.4.6 binary with a Goertzel probe
