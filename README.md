@@ -104,7 +104,12 @@ phases hand off through.
   model downloads once into `<dataDir>/piper` and synthesis is 100% offline
   and CPU-only afterwards, no GPU, no cloud. The studio Voice view reports
   the voice-key cache state honestly — what is downloaded, what is missing,
-  and the exact command to fix it.
+  and the exact command to fix it. Speech pacing follows the day (Val 33):
+  an opt-in `voice.daypartProsody` profile per time-of-day block (the same
+  blocks the greeting variants and genre steering already live by) lets the
+  morning drive run brisker and the overnight hours speak slower and closer
+  — one clock truth for the whole station, full Piper parity, and a doctor
+  check that gives silently-mistyped profile keys a voice.
 - **Live segments resolved fresh**: time/weather call-ins are generated at
   air time from real data, not baked into yesterday's recording.
 - **The station announces what's next (Paket B1/A3)**: every directed show
@@ -402,8 +407,8 @@ prose for humans. The selection section supports:
   station.json — vsak DISTINCT začetek termina dobi en predhodni pregled
   15 min pred začetkom (za polnočjo termini premaknejo dan-of-teden nazaj;
   glej [docs/auto-radio.md](docs/auto-radio.md)). Sedaj v SUB/WAVE-ovem
-  Finding modelu: trinajst preverjanj, opozorila nosijo »namig« (kje
-  poglej) in »popravi« (kaj stori), novih šest pa pokriva oddajno verigo
+  Finding modelu: trinajst osnovnih preverjanj, opozorila nosijo »namig«
+  (kje poglej) in »popravi« (kaj stori), novih šest pa pokriva oddajno verigo
   sam — icecast dosegljivost, liquidsoap telnet (`uptime`), stanje
   predvajalnih list (m3u), arhiv/prostor na disku (20 GB / 2 GB meji),
   obremenitev gostitelja (CPU/spomin) in število napak v dnevnikih zadnjih
@@ -421,7 +426,12 @@ prose for humans. The selection section supports:
   `GENERATED_BED_RE`), **kolo** (clockwheel drop-and-count števke, koraki
   v nedoločene bazene, rezervirano ime) in **rezervne kopije** (starost
   najnovejše datirane mape proti dvakratniku intervala — tiho ugasnjen
-  scheduler ne piše ničesar, doktor pa pove). Vse pošteno preskoči, ko
+  scheduler ne piše ničesar, doktor pa pove). Val 28 doda **prehode**
+  (merjena prehodna plast: koliko vnosov filler.m3u nosi izmerjene prehode
+  in žige), Val 33 pa **tempo** (dnevni profili govora: ključi
+  `voice.daypartProsody`, ki se ne izidejo z imeni dnevnih delov, in neznani
+  gumbi v profilih so opozorilo, ne tiha napaka) — skupaj dvajset
+  preverjanj. Vse pošteno preskoči, ko
   config ni berljiv, in nobeno preverjanje ne more sesati doctorja samega.
 - **Markec Podkast generator (P5 #1)**: `npm run podcast-gen` builds a
   deterministic standalone five-minute episode — talk, music, talk, music,

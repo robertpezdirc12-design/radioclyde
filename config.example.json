@@ -290,6 +290,11 @@
       "mode": "edge",
       "edgeVoice": "sl-SI-RokNeural",
       "edgeRate": "-6%",
+      "daypartProsody": {
+        "morning": { "edgeRate": "-3%" },
+        "evening": { "edgeRate": "-8%" },
+        "night": { "edgeRate": "-11%" }
+      },
       "edgeFallback": "espeak",
       "clipsDir": "voice-clips",
       "defaultEspeakVoice": "sl",

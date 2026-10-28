@@ -53,7 +53,10 @@ function slugify(text) {
 
 async function synthesize(text, outFile) {
   const rawFile = `${outFile}.piper-src.wav`;
-  await synthesizePiper(text, rawFile, null);
+  // Val 33 (dnevni profili govora): blockKey null -- predgenerirani klipi so
+  // BREZ ČASA dneva (postaja-level imaging zveni enako ob šesti uri in ob
+  // polnoči; dnevni tempo je življenje DJ-jevih segmentov, ne tega orodja).
+  await synthesizePiper(text, rawFile, null, { blockKey: null });
   const tmp = outFile + '.norm.wav';
   await execFileAsync('ffmpeg', ['-y', '-i', rawFile, '-ar', '24000', '-ac', '1', '-c:a', 'pcm_s16le', tmp], { timeout: 60_000 });
   fs.renameSync(tmp, outFile);

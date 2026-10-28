@@ -220,6 +220,49 @@ register (glej razdelek Predloge), enote so izpisane (»21 stopinj«, ne
 »21 °C« -- okrajšave TTS prebere črko po črki), test
 `test/voiceRegister.test.mjs` pa lintrost stropa: stavki, filtri in oklepaji.
 
+**Dnevni profili govora (Val 33):** zadnja odložena točka vala 27 — *dostava*
+govora se zdaj spreminja skozi dan, ne le vsebina. Pozdravi (open/close) in
+žanrsko usmerjanje že leta živita po dnevnih delih
+(`autoRadio.rules.timeOfDayBlocks` -- jutro/dan/večer/noč), a glas je vrtel
+isti tempo ob šesti uri in ob polnoči. `voice.daypartProsody` da vsakemu
+bloku svojo prozodijo z ISTIMI gumbi, ki jih pozna globalna in persona
+raven (`edgeRate`/`edgePitch`/`edgeVolume`, piperju `piperLengthScale`):
+
+```json
+"daypartProsody": {
+  "morning": { "edgeRate": "-3%" },
+  "evening": { "edgeRate": "-8%" },
+  "night":   { "edgeRate": "-11%" }
+}
+```
+
+Predloga (dan dedi globalnemu `-6%`) nariše energijsko krivuljo dneva:
+jutranji drive je živahnejši, večer se umiri, noč govori počasneje in
+intimneje -- komercialna praksa jutranjega tempa + raziskava TTS naravnosti
+(počasnejša izreka zaznavamo kot mirno, ponoči pa ni konkurence za
+pozornost).
+
+Resolucija po ključu: **oseba > dnevni del > globalno** -- gumb, ki ga
+persona nastavi, izključi ta glas iz dnevnega tempora ZA TA KLJUČ (operater,
+ki je glas nastavil, je nastavljal VOX, ne uro). Blok se razreši ob
+**trenutku sinteze** (`timeBlockKey()`): predogreti kipi nosijo blok svojega
+produkcijskega trenutka (ISTA poštena meja kot pozdravne variante -- oddaja,
+producirana čez mejo bloka, lahko pozdravi po enem in govori po naslednjem),
+živi segmenti režiserja (live:čas/vreme) pa z blokom trenutka etra, kar je
+za realnočasovne vrstice prav. Predpomnjeni dj-audio drži tempo PRVE
+sinteze (istodnevne ponovitve vključno). Piper ima popolno pariteto
+(`piperLengthScale` po bloku); espeak/SAPI TEMPA nimata (pošteno: pri njima
+profili ne naredijo nič). Postaja-level predgenerirani klipi
+(`pre-generate-clips.mjs`) so BREZ časa dneva -- imaging zveni enako ob
+šesti uri in ob polnoči.
+
+Prazno/odsotno `daypartProsody` pošlje isto zahtevo kot prej (P4 #26
+pogodba: obstoječe namestitve se ne spremenijo). Fail-open: neznano ime
+bloka, šmetana oblika ali ne-objekt profil pomenita brez profila -- edini
+glas te tihe napake je doctorjevo preverjanje **tempo** (#20): ključi, ki se
+ne izidejo z imeni dnevnih delov, in gumbi, ki niso eden od štirih znanih,
+so opozorilo z popravkom PRED oddajo, ne tiho nemi profil.
+
 ## Rubrike (`autoRadio.rubrics` / vrstica `Rubrike:` v briefu)
 
 Poleg glasbe lahko oddaja prebere **resnične podatke** iz slovenskih virov —
@@ -753,7 +796,7 @@ Kaj od tega Radio Markec že pokriva (autoRadio, povsem brez modela):
 | Licenčna skladnost (as-run logi) | izvajalno poročilo iz realnega
   predvajalnega ledgerja (P4 #27) |
 | Predogled oddaj | imagingPlaylists, preview-auto-show |
-| Predvečerna diagnostika | `npm run doctor` — 13 preverjanj (config, mapa, govor, knjižnica, ledger, korpusi, viri + SUB/WAVE: icecast, telnet, liste, shramba, gostitelj, napake); mrtvi vir je opozorilo, nikoli napaka (P4 #31) |
+| Predvečerna diagnostika | `npm run doctor` — 20 preverjanj (config, mapa, govor, knjižnica, ledger, korpusi, viri + SUB/WAVE: icecast, telnet, liste, shramba, gostitelj, napake + Val 26: urnik, imaging, postelje, kolo, kopije + prehodi + tempo dnevnih profilov); mrtvi vir je opozorilo, nikoli napaka (P4 #31) |
 
 Kandidati iz raziskave so od P4 #25 IMPLEMENTIRANI (glej naslednji razdelek):
 teases, podcast izvoz, ankete in social izvoz. Od P4 #27 je pokrita še
@@ -932,7 +975,8 @@ usmerjevalnik — ampak do #31 ni obstajal način, da to ugotoviš vnaprej,
 brez čakanja prve režije. `npm run doctor` je en ukaz, ki operaterju
 pred terminirano uro pove, ali bo oddaja preživela in kaj je na
 zdravilih. Trinajst preverjanj v stalnem (za testi zamrznjenem) vrstnem
-redu: konfiguracija, podatkovna mapa, govor (TTS), glasbena knjižnica,
+redu (danes dvajset: + 5 iz vala 26, prehodi iz vala 28, tempo iz vala
+33): konfiguracija, podatkovna mapa, govor (TTS), glasbena knjižnica,
 predvajalni ledger, korpusi, (z `--net`) dostopnost virov ter šest
 preverjanj, ukradenih iz SUB/WAVE (4-c): icecast (oddajnik), liquidsoap
 (telnet), predvajalne liste, shramba (arhiv/disk), gostitelj (CPU/spomin)
@@ -1359,6 +1403,8 @@ izhajajo iz IZMEROV (avtocuejev indeks glave/repa vsakega sleda).
   `{0m0s}` overlay (bajtno-identično).
 - **Hit-the-post** (govor čez intro pesmi): DOSTAVLJENO v valu 32 —
   glej »Rampa (Val 32)« spodaj.
+- **Daypart pacing profili govora** (odloženo v valu 27): DOSTAVLJENO v
+  valu 33 — glej »Dnevni profili govora (Val 33)« zgoraj.
 - **BPM/stem prehodi**: dokumentirano zavrnjeno (proti arhitekturi brez AI).
 
 ### Rampa — govorni prehod čez intro pesmi (Val 32, hit-the-post)

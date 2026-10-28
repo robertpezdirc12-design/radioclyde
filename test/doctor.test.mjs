@@ -14,7 +14,7 @@
 //   H. feeds: dead probe -> WARN, NIKOLI fail (the P4 #28-#30 contract, pinned);
 //      any HTTP answer (even 4xx) counts as reachable; skip without --net.
 // SUB/WAVE 4-c nadgradnja (Finding model + šest novih preverjanj):
-//   I. FIXES zaprt nabor {id,label} + CHECK_ORDER 18 vnosov (zamrznjeno),
+//   I. FIXES zaprt nabor {id,label} + CHECK_ORDER 20 vnosov (zamrznjeno),
 //   J. icecast: vsak HTTP odgovor -> ok, mrtva povezava -> warn + fix,
 //   K. liquidsoap: živ "uptime" -> ok z izrezkom, napaka/prazno/ERROR -> warn,
 //   L. m3u: štetje ne-komentar vrstic, obe prazni -> warn (nujni seznam),
@@ -22,7 +22,7 @@
 //   N. host: load1/mem meje, /proc neberljiv -> preskok,
 //   O. errors: sveže/stare/nečasovne/.log.1 vrstice, 21+ -> warn,
 //   P. runDoctor sestava: šest preskokov ob zlomljenem configu, polna
-//      injekcija -> 18 rezultatov, hint/fix SAMO na opozorilih, determinizem.
+//      injekcija -> 20 rezultatov, hint/fix SAMO na opozorilih, determinizem.
 // Val 26 (doktor dohiti postajo) -- pet novih preverjanj + PRAVI šivi:
 //   Q. station: zdrav urnik s prepiši, manjkajoč -> warn, pokvarjen JSON ->
 //      FAIL, ne-seznam -> FAIL (loadSchedule vrže), neznan dan/slabi datumi/
@@ -39,8 +39,13 @@
 //   V. PRAVI šivi: setupTestConfig + dinamični uvoz -- parseWheelTime pozna
 //      "24:00" senčilo, URNIK je odpuščujoč tam kjer je kolo strogo,
 //      GENERATED_BED_RE ne ujame operaterjevih imen,
-//   W. runDoctor sestava: brez novih šivov -> 4 preskoki + beds OK, zlomljen
-//      config -> 5 preskokov, polna postaja -> 18 rezultatov + determinizem.
+//   W. runDoctor sestava: brez novih šivov -> pošteni preskoki + beds OK,
+//      zlomljen config -> preskoki z istim vzorcem, polna postaja -> 20
+//      rezultatov + determinizem.
+// Val 33 (dnevni profili govora):
+//   X. tempo: fail-open resolucija daypartProsody (neznana imena blokov,
+//      šmetane oblike, neznani gumbi) dobi glas PRED oddajo; timeBlocks je
+//      injektiran šiv (pravi bralnik pride iz CLI-ja, kot pri Val 26).
 // No test touches the network -- fetchImpl is always stubbed; /proc, statfs
 // in telnet so injicirane fike; datoteke so pravi tmp peskovniki.
 import { test, describe } from 'node:test';
@@ -76,6 +81,7 @@ import {
   checkWheel,
   checkBackup,
   checkPrehodi,
+  checkVoiceDaypart,
   orderResults,
   doctorExitCode,
   doctorVerdict,
@@ -467,10 +473,11 @@ const fakeProc = ({ load1, memTotalKb, memAvailKb }) => async (file) => {
 };
 
 describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
-  test('FIXES je ZAPRT nabor {id, label} z nepraznimi nizi in zamrznjenimi id-ji (6 SUB/WAVE + 6 Val 26)', () => {
+  test('FIXES je ZAPRT nabor {id, label} z nepraznimi nizi in zamrznjenimi id-ji (6 SUB/WAVE + 6 Val 26 + 1 Val 33)', () => {
     assert.deepEqual(Object.keys(FIXES), [
       'check-icecast', 'restart-liquidsoap', 'regenerate-filler', 'prune-archives', 'free-disk', 'inspect-logs',
       'fix-station-json', 'load-imaging-clips', 'fix-format-clock', 'fix-clockwheel', 'check-scheduler', 'fix-backup-config',
+      'fix-daypart-prosody',
     ]);
     for (const [id, fix] of Object.entries(FIXES)) {
       assert.equal(fix.id, id, 'id se mora ujemati s ključem');
@@ -480,11 +487,11 @@ describe('SUB/WAVE 4-c doctor -- Finding model (FIXES, CHECK_ORDER)', () => {
     }
   });
 
-  test('CHECK_ORDER ima 19 vnosov v zamrznjenem redu (7 + 6 za viri + 5 Val 26 za errors + prehodi)', () => {
+  test('CHECK_ORDER ima 20 vnosov v zamrznjenem redu (7 + 6 za viri + 5 Val 26 za errors + prehodi + tempo)', () => {
     assert.deepEqual(CHECK_ORDER.map((c) => c.id), [
       'config', 'dataDir', 'tts', 'library', 'ledger', 'corpus', 'feeds',
       'icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors',
-      'station', 'imaging', 'beds', 'wheel', 'backup', 'prehodi',
+      'station', 'imaging', 'beds', 'wheel', 'backup', 'prehodi', 'tempo',
     ]);
     for (const c of CHECK_ORDER) {
       assert.equal(typeof c.label, 'string');
@@ -815,9 +822,9 @@ describe('SUB/WAVE 4-c doctor -- dnevnik napak (24 h)', () => {
 });
 
 describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrovom)', () => {
-  test('zlomljen config -> vseh šest novih + pet Val 26 preskoči z istim vzorcem "config ni berljiv"', async () => {
+  test('zlomljen config -> vseh šest novih + pet Val 26 + prehodi + tempo preskoči z istim vzorcem "config ni berljiv"', async () => {
     const report = await runDoctor({ configOrError: new Error('config.json not found'), netProbe: false });
-    for (const id of ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'beds', 'wheel', 'backup']) {
+    for (const id of ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'beds', 'wheel', 'backup', 'prehodi', 'tempo']) {
       const r = report.results.find((x) => x.id === id);
       assert.equal(r.status, STATUS.SKIP, id);
       assert.match(r.detail, /preskočeno -- config ni berljiv/, id);
@@ -829,7 +836,7 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
     const report = await runDoctor({ configOrError: cfg, netProbe: false });
-    const ids = ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'wheel', 'backup'];
+    const ids = ['icecast', 'liquidsoap', 'm3u', 'storage', 'host', 'errors', 'station', 'imaging', 'wheel', 'backup', 'tempo'];
     for (const id of ids) {
       assert.equal(report.results.find((r) => r.id === id).status, STATUS.SKIP, id);
     }
@@ -841,7 +848,7 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     assert.match(report.results.find((r) => r.id === 'beds').detail, /izklopljene \(OPT-IN\)/);
   });
 
-  test('polna injekcija -> 19 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
+  test('polna injekcija -> 20 rezultatov v zamrznjenem redu, hint/fix SAMO na opozorilih, determinizem', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -893,6 +900,15 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
       logsDir,
       icecastUrl: 'http://localhost:8001/status-json.xsl',
       telnetPort: 1234,
+      // Val 33: dnevni profili govora -- polna postaja jih ima vklopljene
+      // (zdrav profil, PRAVI bralnik blokov po isti disciplini kot doctorCli).
+      daypartProsody: { morning: { edgeRate: '-3%' }, night: { edgeRate: '-11%', piperLengthScale: 1.15 } },
+      timeBlocks: {
+        morning: { start: '05:00', end: '10:00' },
+        daytime: { start: '10:00', end: '17:00' },
+        evening: { start: '17:00', end: '23:00' },
+        night: { start: '23:00', end: '05:00' },
+      },
     });
 
     const report = await runDoctor(inputs());
@@ -909,6 +925,9 @@ describe('SUB/WAVE 4-c doctor -- runDoctor sestava (šest novih pod istim pokrov
     assert.equal(byId.storage.status, 'ok');
     assert.equal(byId.host.status, 'ok');
     assert.equal(byId.errors.status, 'ok');
+    assert.equal(byId.tempo.status, 'ok');
+    assert.match(byId.tempo.detail, /morning \(edgeRate\)/);
+    assert.match(byId.tempo.detail, /night \(edgeRate, piperLengthScale\)/);
     assert.deepEqual(byId.liquidsoap.fix, FIXES['restart-liquidsoap']);
     // Finding model: hint/fix nosijo SAMO opozorila -- ok/skip brez njiju
     for (const r of report.results) {
@@ -1546,7 +1565,7 @@ describe('Val 26 doctor -- PRAVI šivi (dinamični uvoz po setupTestConfig)', ()
 
 // W. runDoctor sestava -- pet novih pod istim pokrovom
 describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
-  test('polna postaja (urnik + imaging + postelje + kolo + backup) -> 19 rezultatov, novi OK, determinizem', async () => {
+  test('polna postaja (urnik + imaging + postelje + kolo + backup) -> 20 rezultatov, novi OK, determinizem', async () => {
     const dir = tmpDir();
     const cfg = healthyConfig(dir);
     fs.mkdirSync(cfg.dataDir, { recursive: true });
@@ -1660,10 +1679,14 @@ describe('Val 26 doctor -- runDoctor sestava (pet novih preverjanj)', () => {
     });
 
     const report = await runDoctor(inputs());
-    assert.equal(report.results.length, 19);
+    assert.equal(report.results.length, 20);
     assert.deepEqual(report.results.map((r) => r.id), CHECK_ORDER.map((c) => c.id));
     assert.equal(report.exitCode, 0); // opozorilo (mrtva miza), ne napaka
     const byId = Object.fromEntries(report.results.map((r) => [r.id, r]));
+    // Val 33: ta postaja nima daypartProsody -> tempo pošteni preskok (ista
+    // OPT-IN disciplina kot beds: izklopljeno je podprto stanje)
+    assert.equal(byId.tempo.status, STATUS.SKIP);
+    assert.match(byId.tempo.detail, /ni nastavljen/);
     assert.equal(byId.station.status, STATUS.OK);
     assert.match(byId.station.detail, /2 terminirani oddaji na teden/);
     assert.equal(byId.imaging.status, STATUS.OK);
@@ -1842,6 +1865,111 @@ describe('cronVzorecText', () => {
   test('isti urnik -> bajtno identičen vzorec', () => {
     const schedule = { monday: [{ startTime: '20:00' }], friday: [{ startTime: '08:00' }] };
     assert.equal(cronVzorecText(schedule), cronVzorecText(schedule));
+  });
+});
+
+// ---- Val 33: dnevni profili govora -- tempo ----------------------------------
+// X. checkVoiceDaypart: resolucija daypartProsody je fail-open povsod
+//    (rules.js daypartProsodyProfile pogoltne neznana imena blokov, šmetane
+//    oblike in neznane gumbe TIHO) -- tu vsaka od teh tihih napak dobi glas
+//    PRED oddajo. timeBlocks je INJEKTIRAN šiv: pravi bralnik (rules.js)
+//    pride iz CLI-ja, kot pri vseh Val 26 šivih; brez njega pošten preskok.
+const VAL33_BLOCKS = {
+  morning: { start: '05:00', end: '10:00' },
+  daytime: { start: '10:00', end: '17:00' },
+  evening: { start: '17:00', end: '23:00' },
+  night: { start: '23:00', end: '05:00' },
+};
+
+describe('Val 33 doctor -- tempo (dnevni profili govora)', () => {
+  test('brez daypartProsody -> preskok z opombo, kje ga vklopiš (izklopljeno je podprto stanje)', () => {
+    const r = checkVoiceDaypart({});
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /ni nastavljen/);
+    assert.ok(!('hint' in r) && !('fix' in r), 'preskok brez namiga in popravka');
+  });
+
+  test('prazen objekt -> preskok (ne napaka: izklopljeno)', () => {
+    const r = checkVoiceDaypart({ daypartProsody: {}, timeBlocks: VAL33_BLOCKS });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /je prazen/);
+  });
+
+  test('šmetana oblika (tabela / niz / številka) -> opozorilo s popravkom', () => {
+    for (const junk of [['morning'], 'morning', 42]) {
+      const r = checkVoiceDaypart({ daypartProsody: junk, timeBlocks: VAL33_BLOCKS });
+      assert.equal(r.status, STATUS.WARN);
+      assert.match(r.detail, /nerazumljive oblike/);
+      assert.deepEqual(r.fix, FIXES['fix-daypart-prosody']);
+    }
+  });
+
+  test('brez bralnika blokov -> pošten preskok (doctor ne ugiba imen blokov)', () => {
+    const r = checkVoiceDaypart({ daypartProsody: { morning: { edgeRate: '-3%' } } });
+    assert.equal(r.status, STATUS.SKIP);
+    assert.match(r.detail, /bralnik dnevnih delov/);
+  });
+
+  test('neznan ključ -> opozorilo: profil se nikoli ne izbere, imena blokov v detailu', () => {
+    const r = checkVoiceDaypart({ daypartProsody: { jutro: { edgeRate: '-3%' } }, timeBlocks: VAL33_BLOCKS });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /neznan ključ jutro/);
+    assert.match(r.detail, /morning, daytime, evening, night/);
+    assert.deepEqual(r.fix, FIXES['fix-daypart-prosody']);
+  });
+
+  test('neznan gumb v profilu -> opozorilo (tiho brez učinka)', () => {
+    const r = checkVoiceDaypart({ daypartProsody: { morning: { rate: '-3%' } }, timeBlocks: VAL33_BLOCKS });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /neznan gumb rate/);
+    assert.deepEqual(r.fix, FIXES['fix-daypart-prosody']);
+  });
+
+  test('šmetan profil enega bloka -> opozorilo; zdravi bloki ostanejo v povzetku', () => {
+    const r = checkVoiceDaypart({
+      daypartProsody: { morning: '-3%', night: { edgeRate: '-11%' } },
+      timeBlocks: VAL33_BLOCKS,
+    });
+    assert.equal(r.status, STATUS.WARN);
+    assert.match(r.detail, /profil morning je nerazumljive oblike/);
+    assert.match(r.detail, /night \(edgeRate\)/);
+  });
+
+  test('zdrav profil -> OK s povzetkom gumbov po blokih, brez namiga/popravka', () => {
+    const r = checkVoiceDaypart({
+      daypartProsody: { morning: { edgeRate: '-3%' }, night: { edgeRate: '-11%', piperLengthScale: 1.15 }, evening: {} },
+      timeBlocks: VAL33_BLOCKS,
+    });
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /morning \(edgeRate\)/);
+    assert.match(r.detail, /night \(edgeRate, piperLengthScale\)/);
+    assert.match(r.detail, /evening \(prazen profil\)/);
+    assert.ok(!('hint' in r) && !('fix' in r), 'OK brez namiga in popravka');
+  });
+
+  test('runDoctor žica: configOk + injekciji -> vrstica tempo v zamrznjenem redu', async () => {
+    const dir = tmpDir();
+    const cfg = healthyConfig(dir);
+    fs.mkdirSync(cfg.dataDir, { recursive: true });
+    const report = await runDoctor({
+      configOrError: cfg,
+      netProbe: false,
+      daypartProsody: { night: { edgeRate: '-11%' } },
+      timeBlocks: VAL33_BLOCKS,
+    });
+    const r = report.results.find((x) => x.id === 'tempo');
+    assert.equal(r.status, STATUS.OK);
+    assert.match(r.detail, /night \(edgeRate\)/);
+    // identiteta: label se ujema s CHECK_ORDER (izpis cron/monitoringa)
+    const entry = CHECK_ORDER.find((c) => c.id === 'tempo');
+    assert.equal(r.label, entry.label);
+  });
+
+  test('doctorCli izpeljavi: surova vrednost + PRAVI bralnik blokov (strukturni pini)', () => {
+    const cli = fs.readFileSync(path.join(REPO_ROOT, 'src', 'cli', 'doctorCli.js'), 'utf8');
+    assert.match(cli, /daypartProsody: configOk \? configOrError\.autoRadio\?\.voice\?\.daypartProsody \?\? null : null/);
+    assert.match(cli, /timeBlocks: timeBlocksImpl \? timeBlocksImpl\(\) : null/);
+    assert.match(cli, /await import\('\.\.\/auto\/rules\.js'\)/);
   });
 });
 

@@ -21,6 +21,7 @@ import { writeFile } from 'node:fs/promises';
 import msEdgeTtsPkg from 'msedge-tts';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import { timeBlockKey, daypartProsodyProfile } from './rules.js';
 
 const { MsEdgeTTS } = msEdgeTtsPkg;
 const log = createLogger('station');
@@ -38,12 +39,30 @@ export function edgeVoiceForPersona(persona) {
 // relaxed radio; operators can now slow it a touch. Persona config wins
 // over global; only keys actually set are sent (empty prosody = the same
 // request as before this feature).
-export function edgeProsodyForPersona(persona) {
+//
+// Val 33 (dnevni profili govora): a THIRD layer sits between persona and
+// global -- the daypart profile (config.autoRadio.voice.daypartProsody,
+// keyed by the SAME block names autoRadio.rules.timeOfDayBlocks maps the
+// clock to; the open/close greeting variants and the genre steering already
+// speak by those blocks, so the whole station shares one clock truth).
+// Resolution per key: persona > daypart > global -- a persona-set knob opts
+// that voice out of daypart pacing FOR THAT KEY (an operator who tuned a
+// voice tuned the VOICE, not the hour). blockKey defaults to timeBlockKey(),
+// i.e. the block of the SYNTHESIS moment: prewarm clips carry the block of
+// their production moment (the SAME honest caveat the greeting variants
+// document -- a show produced across a block boundary can greet by one
+// block and pace by the next; live director segments speak by the block of
+// the air moment, which is exactly right for real-time lines). Cached dj
+// audio keeps the pace of its FIRST synthesis (same-day replays included).
+// blockKey null = deliberately timeless (no daypart layer at all).
+export function edgeProsodyForPersona(persona, blockKey = timeBlockKey()) {
   const personaCfg = config.autoRadio?.voice?.personas?.[persona] ?? {};
   const voice = config.autoRadio?.voice ?? {};
+  const daypart = daypartProsodyProfile(blockKey);
   const prosody = {};
   for (const key of ['rate', 'pitch', 'volume']) {
-    const value = personaCfg[`edge${key[0].toUpperCase()}${key.slice(1)}`] ?? voice[`edge${key[0].toUpperCase()}${key.slice(1)}`];
+    const K = `edge${key[0].toUpperCase()}${key.slice(1)}`;
+    const value = personaCfg[K] ?? daypart[K] ?? voice[K];
     if (value != null && value !== '') prosody[key] = value;
   }
   return Object.keys(prosody).length ? prosody : undefined;

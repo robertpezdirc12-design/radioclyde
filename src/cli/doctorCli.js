@@ -159,6 +159,10 @@ const doctorInputs = {
   backupDir: configOk ? configOrError.backup?.dir ?? null : null,
   backupIntervalMinutes: configOk ? configOrError.backup?.intervalMinutes : undefined,
   retentionDays: configOk ? configOrError.backup?.retentionDays : undefined,
+  // Val 33: surova vrednost daypartProsody (obliko in ključe presoja
+  // checkVoiceDaypart sam) -- isti vir resnice kot edgeTts.js/piperVoice.js
+  // resolucija: autoRadio.voice.daypartProsody.
+  daypartProsody: configOk ? configOrError.autoRadio?.voice?.daypartProsody ?? null : null,
 };
 
 // Pravi telnet odjemalec (sendCommand iz src/liquidsoap/telnetClient.js) se
@@ -179,12 +183,15 @@ if (configOk) {
 // (clockwheel/formatClock/scheduleUtil potegnejo config na vrhu modula):
 // parseWheelTime + clockwheelConfig (HH:MM slovnica + drop-and-count števke),
 // GENERATED_BED_RE (operaterjeve datoteke ostanejo nedotaknjene) in
-// timeToMinutes (urnikova časovna toleranca). Doctor sam ostaja brez configa;
+// timeToMinutes (urnikova časovna toleranca). Val 33 dodaja timeBlocks
+// (rules.js -- imena dnevnih delov, proti katerim se preverjajo ključi
+// daypartProsody). Doctor sam ostaja brez configa;
 // brez šiva njegova preverjanja pošteno povedo "nepreverjeno".
 let parseWheelTimeImpl = null;
 let clockwheelConfigImpl = null;
 let generatedBedRe = null;
 let timeToMinutesImpl = null;
+let timeBlocksImpl = null;
 if (configOk) {
   try {
     ({ clockwheelConfig: clockwheelConfigImpl, parseWheelTime: parseWheelTimeImpl } = await import('../scheduler/clockwheel.js'));
@@ -194,6 +201,9 @@ if (configOk) {
   } catch { /* enako */ }
   try {
     ({ timeToMinutes: timeToMinutesImpl } = await import('../scheduler/scheduleUtil.js'));
+  } catch { /* enako */ }
+  try {
+    ({ timeBlocks: timeBlocksImpl } = await import('../auto/rules.js'));
   } catch { /* enako */ }
 }
 
@@ -208,6 +218,7 @@ const report = await runDoctor({
   clockwheelConfigImpl,        // Val 26: PRAVI bralnik kolesa (clockwheel.js)
   generatedBedRe,              // Val 26: PRAVI vzorec generiranih postelj (formatClock.js)
   timeToMinutesImpl,           // Val 26: PRAVI urnikov časovni bralnik (scheduleUtil.js)
+  timeBlocks: timeBlocksImpl ? timeBlocksImpl() : null, // Val 33: PRAVI bralnik dnevnih delov (rules.js)
   ...doctorInputs,
 });
 

@@ -31,6 +31,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config/index.js';
 import { createLogger } from '../lib/logger.js';
+import { timeBlockKey, daypartProsodyProfile } from './rules.js';
 
 const execFileAsync = promisify(execFile);
 const log = createLogger('station');
@@ -121,10 +122,25 @@ export async function ensurePiperVoice({ model, isKey, dataDir, modelPath }, { r
   log(`voice/piper: voice "${model}" downloaded to ${dataDir}`);
 }
 
+// Val 33 (dnevni profili govora): piper dvojnik edgeProsodyForPersona --
+// piperLengthScale v enaki verigi (persona > dnevni del > globalno).
+// blockKey privzeto resolva ob KOLIKU sinteze (timeBlockKey()); null pomeni
+// NAMERNO brez dnevnega profila (postaja-level klipi iz pre-generate-clips.mjs
+// so brez časa dneva). Daypart vrednost 1 = brez zastavice (ista pogodba kot
+// globalna -- buildPiperArgs jo izpusti).
+export function piperLengthScaleFor(persona, blockKey = timeBlockKey()) {
+  const personaCfg = config.autoRadio?.voice?.personas?.[persona] ?? {};
+  return personaCfg.piperLengthScale
+    ?? daypartProsodyProfile(blockKey).piperLengthScale
+    ?? config.autoRadio?.voice?.piperLengthScale ?? null;
+}
+
 // Synthesizes `text` with `persona`'s piper voice and writes WAV bytes to
 // `outPath`. Throws on any failure -- the caller owns fallback policy.
-// `runner` is injectable for tests (default: the real execFile).
-export async function synthesizePiper(text, outPath, persona, { runner = execFileAsync } = {}) {
+// `runner` is injectable for tests (default: the real execFile);
+// `blockKey` injects the daypart for pacing (default: resolved here at the
+// synthesis moment; null = timeless, for station-level clips).
+export async function synthesizePiper(text, outPath, persona, { runner = execFileAsync, blockKey = timeBlockKey() } = {}) {
   const resolved = resolvePiperVoice(persona);
   await ensurePiperVoice(resolved, { runner });
   // Write text to a temp file to avoid shell escaping issues with Slovenian chars.
@@ -137,8 +153,8 @@ export async function synthesizePiper(text, outPath, persona, { runner = execFil
     outPath,
     speaker: config.autoRadio?.voice?.personas?.[persona]?.piperSpeaker ?? null,
     // P4 #26: per-persona override first, global fallback, undefined = flag omitted.
-    lengthScale: config.autoRadio?.voice?.personas?.[persona]?.piperLengthScale
-      ?? config.autoRadio?.voice?.piperLengthScale ?? null,
+    // Val 33: daypart layer in between (see piperLengthScaleFor above).
+    lengthScale: piperLengthScaleFor(persona, blockKey),
   });
   try {
     await runner(piperPythonPath(), args, { timeout: timeoutMs });

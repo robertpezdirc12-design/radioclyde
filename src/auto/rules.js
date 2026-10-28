@@ -128,6 +128,23 @@ export function blockGenrePreference(blockKey) {
   return Array.isArray(pref) ? pref : [];
 }
 
+// Val 33 (dnevni profili govora): blockGenrePreference zgoraj je točno ta
+// vzorec za žanre -- tukaj ista disciplina za prozodijo.
+// config.autoRadio.voice.daypartProsody[blockKey] je profil z ISTIMI gumbi,
+// kot jih pozna persona/globalna raven (edgeRate/edgePitch/edgeVolume/
+// piperLengthScale), omejen na en dnevni del. Fail-open vseh oblik: neznano
+// ime bloka, šmetana oblika bloka, ne-objekt profil => {} (brez profila) --
+// edini glas te tihe napake je doctorjevo preverjanje #20 "tempo".
+// blockKey null pomeni NAMERNO brez profila (postaja-level klipi iz
+// pre-generate-clips.mjs so brez časa dneva).
+export function daypartProsodyProfile(blockKey) {
+  if (!blockKey) return {};
+  const profiles = config.autoRadio?.voice?.daypartProsody;
+  if (!profiles || typeof profiles !== 'object' || Array.isArray(profiles)) return {};
+  const profile = profiles[blockKey];
+  return (profile && typeof profile === 'object' && !Array.isArray(profile)) ? profile : {};
+}
+
 // ---------------------------------------------------------------------------
 // popularity mix
 // ---------------------------------------------------------------------------

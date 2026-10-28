@@ -84,6 +84,10 @@ export const CHECK_ORDER = [
   // Val 28 (naravni prehodi): merjena prehodna plast -- autocue meritve
   // glav/repor + prehodni žigi, ki jih pisci seznamov pečatijo iz njih.
   { id: 'prehodi', label: 'prehodi (merjena plast)' },
+  // Val 33 (dnevni profili govora): tempo govora po dnevnem delu -- isti
+  // vrstni red kot prej, pripeto na konec (izpis cron/monitoringa ostane
+  // nedotaknjen na prvih 19 mestih).
+  { id: 'tempo', label: 'tempo (dnevni profili govora)' },
 ];
 
 // ZAPRT nabor popravil (SUB/WAVE Finding/fix model): vsako opozorilo novih
@@ -110,6 +114,9 @@ export const FIXES = {
   'fix-clockwheel': { id: 'fix-clockwheel', label: 'popravi filler.clockwheel v config.json (pool/count, from<to, steps)' },
   'check-scheduler': { id: 'check-scheduler', label: 'preveri, ali teče scheduler (npm run runstation / systemctl radioclyde)' },
   'fix-backup-config': { id: 'fix-backup-config', label: 'popravi config.backup (dir, intervalMinutes, retentionDays)' },
+  // Val 33: popravek dnevnih profilov govora -- dejanski ukrep je prepis
+  // ključev na imena dnevnih delov (ista vrstica v config.json).
+  'fix-daypart-prosody': { id: 'fix-daypart-prosody', label: 'popravi autoRadio.voice.daypartProsody v config.json (ključi = imena dnevnih delov iz autoRadio.rules.timeOfDayBlocks)' },
 };
 
 // Meje novih preverjanj (SUB/WAVE 4-c, pretvorjene v naše razmere):
@@ -1399,6 +1406,72 @@ export async function checkPrehodi({ fillerPath = null, readFileImpl = null } = 
     `${detail} (učinkovni žigi se prižgejo na Liquidsoapu 2.4.6+, izmerjeni fade-in/crossfade sta slišna že danes)`);
 }
 
+// -- 20. tempo (dnevni profili govora) [Val 33] --------------------------------
+// Dnevni profili govora (autoRadio.voice.daypartProsody) so fail-open
+// povsod: neznano ime bloka, šmetana oblika, ne-objekt profil => resolver
+// (rules.js daypartProsodyProfile) tiho vzame "brez profila". Ta pregled je
+// EDINI glas te tihe napake PRED oddajo (ista disciplina kot Val 26):
+// ključ, ki se ne izide z nobenim dnevnim delom iz autoRadio.rules.
+// timeOfDayBlocks, NE BO NIKOLI izbran -- in gumb v profilu, ki ni eden od
+// štirih znanih (edgeRate/edgePitch/edgeVolume/piperLengthScale), tiho ne
+// naredi nič. Oboje je opozorilo, ne napaka: postaja igra naprej, samo brez
+// dnevnega tempora. NE preverja VREDNOSTI gumbov: te so stvar okusa in jih
+// pošteno obvladuje TTS sama (nerazumljeno ceno vrže nazaj).
+const DAYPART_PROSODY_KNOBS = ['edgeRate', 'edgePitch', 'edgeVolume', 'piperLengthScale'];
+
+export function checkVoiceDaypart({ daypartProsody = null, timeBlocks = null } = {}) {
+  const id = 'tempo';
+  const label = 'tempo (dnevni profili govora)';
+  if (daypartProsody == null) {
+    return result(id, label, STATUS.SKIP,
+      'preskočeno -- autoRadio.voice.daypartProsody ni nastavljen (dnevni tempo govora izklopljen; glej docs/auto-radio.md, razdelek Tempo in ton)');
+  }
+  if (typeof daypartProsody !== 'object' || Array.isArray(daypartProsody)) {
+    return result(id, label, STATUS.WARN,
+      'autoRadio.voice.daypartProsody je nerazumljive oblike -- pričakovan je objekt po imenih dnevnih delov',
+      'oblika: { "morning": { "edgeRate": "-3%" }, "night": { "edgeRate": "-11%" } }',
+      FIXES['fix-daypart-prosody']);
+  }
+  const keys = Object.keys(daypartProsody);
+  if (keys.length === 0) {
+    return result(id, label, STATUS.SKIP,
+      'preskočeno -- autoRadio.voice.daypartProsody je prazen (dnevni tempo govora izklopljen)');
+  }
+  if (!timeBlocks || typeof timeBlocks !== 'object' || Array.isArray(timeBlocks)) {
+    return result(id, label, STATUS.SKIP,
+      'preskočeno -- bralnik dnevnih delov (autoRadio.rules.timeOfDayBlocks) ni na voljo, ključev ne morem preveriti');
+  }
+  const known = new Set(Object.keys(timeBlocks));
+  const unknownKeys = keys.filter((k) => !known.has(k));
+  const problems = [];
+  const parts = [];
+  for (const k of keys) {
+    if (!known.has(k)) continue;
+    const profile = daypartProsody[k];
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+      problems.push(`profil ${k} je nerazumljive oblike -- ta del dneva ostaja brez tempora`);
+      continue;
+    }
+    const knobs = Object.keys(profile);
+    const unknownKnobs = knobs.filter((kn) => !DAYPART_PROSODY_KNOBS.includes(kn));
+    if (unknownKnobs.length > 0) {
+      problems.push(`profil ${k}: ${slPlural(unknownKnobs.length, 'neznan gumb', 'neznana gumba', 'neznanih gumbov')} ${unknownKnobs.join(', ')} -- tiho brez učinka`);
+    }
+    parts.push(`${k}${knobs.length > 0 ? ` (${knobs.join(', ')})` : ' (prazen profil)'}`);
+  }
+  if (unknownKeys.length > 0) {
+    problems.push(`${slPlural(unknownKeys.length, 'neznan ključ', 'neznana ključa', 'neznanih ključev')} ${unknownKeys.join(', ')} -- profil se nikoli ne izbere (dnevni deli: ${[...known].join(', ')})`);
+  }
+  if (problems.length > 0) {
+    return result(id, label, STATUS.WARN,
+      `${parts.length > 0 ? `vklopljeno: ${parts.join(' · ')} · ` : ''}${problems.join(' · ')}`,
+      'ključi morajo biti imena dnevnih delov, gumbi pa edgeRate/edgePitch/edgeVolume/piperLengthScale',
+      FIXES['fix-daypart-prosody']);
+  }
+  return result(id, label, STATUS.OK,
+    `vklopljeno: ${parts.join(' · ')} (resolucija: oseba > dnevni del > globalno, ob trenutku sinteze)`);
+}
+
 // -- sestava -------------------------------------------------------------------
 export function orderResults(results) {
   const byId = new Map(results.map((r) => [r.id, r]));
@@ -1479,6 +1552,8 @@ export async function runDoctor({
   generatedBedRe = null,
   timeToMinutesImpl = null,
   clockwheelConfigImpl = null,
+  daypartProsody = null,
+  timeBlocks = null,
 } = {}) {
   const configOk = !(configOrError instanceof Error) && configOrError && typeof configOrError === 'object';
   const dataDir = configOk ? configOrError.dataDir : null;
@@ -1554,6 +1629,11 @@ export async function runDoctor({
     configOk
       ? safe('prehodi', 'prehodi (merjena plast)', () => checkPrehodi({ fillerPath, readFileImpl }))
       : result('prehodi', 'prehodi (merjena plast)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
+    // Val 33 -- dnevni profili govora (isti configOk pokrov: zlomljen config
+    // pomeni "ne vem", ne "vse ušerno").
+    configOk
+      ? safe('tempo', 'tempo (dnevni profili govora)', () => checkVoiceDaypart({ daypartProsody, timeBlocks }))
+      : result('tempo', 'tempo (dnevni profili govora)', STATUS.SKIP, 'preskočeno -- config ni berljiv'),
   ];
 
   // POMENBNO: najprej await, ŠELE nato orderResults -- orderResults bere
