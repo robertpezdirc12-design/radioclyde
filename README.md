@@ -161,11 +161,18 @@ phases hand off through.
   `/embed.html` mini player it enables site embedding and anonymous player
   URLs when you decide the stream should be public — [decision guide](docs/p1-listener-experience.md).
 - **Imaging layer**: station ID overlay at the top of the hour (official
-  Liquidsoap overlay recipe), timed stingers (`delay()`-gated, track-boundary
-  only), schedule-driven auto-produced promos (Paket B2) and an emergency
-  bed below the program sources — all four degrade
-  gracefully: an empty/missing clip directory simply drops that layer off
-  air, never the program — [design & asset production](docs/imaging-layer.md).
+  Liquidsoap overlay recipe with `normalize=false` — the recipe's default
+  `normalize=true` had silently played the whole station at HALF volume
+  since the layer's introduction, and in combination with the dead-air
+  guard's `blank.strip()` starved the program on both official 2.2.4 and
+  2.4.6 binaries; found and fixed by live bisection in Val 32, so an
+  existing install gets its +6 dB back with a plain `git pull`), timed
+  stingers (`delay()`-gated, track-boundary only), schedule-driven
+  auto-produced promos (Paket B2) and an emergency bed below the program
+  sources — all four degrade gracefully: an empty/missing clip directory
+  simply drops that layer off air, never the program —
+  [design & asset production](docs/imaging-layer.md),
+  [fix history](docs/auto-radio.md).
 - **Beds ("postelje", P3 #12/#13)**: announcements OVER the music — the
   program ducks to 20% while a pushed clip plays on top (`beds.push` over
   telnet, CLI `src/liquidsoap/bedQueue.js`). Since #13 a stdlib-native
@@ -222,6 +229,20 @@ phases hand off through.
   speech and jingles stay unstamped (byte-identical seams), and the
   hard-cut `sequence([a, b])` branch guarantees the DJ is never overlapped
   whatever a stamp says — [design](docs/autocue-loudness.md).
+- **Hit-the-post DJ ramps (Val 32)**: the same offline scan also measures
+  how every track OPENS — one extra ffmpeg pass over the first 32 s
+  through a 250–3200 Hz formant-band presence series finds the moment the
+  intro "fills up" (the post a ramping DJ must hit). When a speech→music
+  seam can cover itself (speech ≤ window ≤ fill − 1.5 s margin, one intro
+  clip), the director stamps both sides (`liq_ramp`) and
+  `dj_transitions.liq` plays the DJ OVER the ducked song (floor 0.2, the
+  same program floor as beds), lifting it back to full at the seam — the
+  DJ is never stepped on, the song never loses anything. Songs loud from
+  the very first second carry no window (the seam stays today's hard
+  cut), and an unmeasured library is byte-identical to before.
+  Live-verified on the official 2.4.6 binary with a Goertzel probe
+  (speech at full level, song at exactly 0.2 during the talk, rise over
+  ~0.3–0.5 s at the seam) — [details](docs/auto-radio.md).
 - **Voice-chain compression + silent lead-in (SUB/WAVE's mixer borrowed)**:
   pushed beds are peak-tamed by a 5 ms-attack 4:1 compressor before they
   hit the ducked mix, and the whole bus passes a brick-wall limiter
@@ -624,6 +645,14 @@ station.json entry required):
   scheduler would, so the output can be directed as-is.
 - `npm run preview-track-queue -- --duration=<minutes> [--artist=... --genre=... --decade=...]`: the deterministic track-selection step directly (the brief parser + queue builder).
 
+Quality gate:
+
+- `npm test`: the full offline suite (`node --test`, one file per
+  subsystem — 1586 tests at Val 33: 1585 pass, 0 fail, 1 known skip for
+  the live Piper round-trip that needs a real voice download). Every wave
+  lands only with this suite green; nothing in it needs the network or a
+  running station.
+
 ## Voice (no AI models)
 
 The station speaks with **no self-hosted AI models** — the voice layer is:
@@ -652,6 +681,28 @@ The station speaks with **no self-hosted AI models** — the voice layer is:
 
 Full Slovenian reference with every config knob:
 [docs/auto-radio.md](docs/auto-radio.md).
+
+## Where the code lives
+
+The canonical repository is
+[github.com/robertpezdirc12-design/radioclyde](https://github.com/robertpezdirc12-design/radioclyde),
+branch `main` — a fork of [a1anw2/radioclyde](https://github.com/a1anw2/radioclyde).
+It is a single branch with no submodules, so mirroring it on another host
+(GitLab included) is a plain push:
+
+```
+git remote add gitlab https://gitlab.com/<user>/radioclyde.git
+git push gitlab main
+```
+
+There is deliberately **no Vercel (or any serverless) deployment**: the
+station is long-running processes by design — scheduler daemon, Fastify
+web server, Liquidsoap playout and Icecast alive 24/7 on the same box,
+with the listener and studio pages served by that same Fastify process
+over same-origin APIs (now-playing, stream proxy, polls, push). A
+serverless static host can run none of that. The real deployment is the
+Ubuntu box: [deploy/ubuntu/DEPLOYMENT_GUIDE.md](deploy/ubuntu/DEPLOYMENT_GUIDE.md)
+and the systemd unit shipped as `radioclyde.service`.
 
 ## Documentation
 
