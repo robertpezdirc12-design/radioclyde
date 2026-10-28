@@ -33,7 +33,7 @@ const liq = liqRaw
 
 describe('radio.liq dead-air guard wiring', () => {
   test('blank.strip wraps the program chain, between the ID overlay and amplify', () => {
-    const addAt = liq.indexOf('add([radio, switch([({0m0s}, id_source)])])');
+    const addAt = liq.indexOf('add(normalize=false, [radio, switch([({0m0s}, id_source)])])');
     const stripAt = liq.indexOf('radio = blank.strip(threshold=-40., max_blank=20., track_sensitive=true, radio)');
     const amplifyAt = liq.indexOf('amplify(override="liq_amplify", 1., radio)');
     assert.ok(addAt !== -1, 'ID overlay line present');

@@ -83,7 +83,7 @@ describe('radio.liq beds wiring (P3 #13 sidechain ducker)', () => {
 
   test('ducker sits above the ID overlay and the requests layer, below the dead-air guard', () => {
     const duckerAt = liq.indexOf('radio = add(normalize=false, [radio, amplify(0.8, beds_rms)])');
-    const idAt = liq.indexOf('add([radio, switch([({0m0s}, id_source)])])');
+    const idAt = liq.indexOf('add(normalize=false, [radio, switch([({0m0s}, id_source)])])');
     const requestsAt = liq.indexOf('fallback(track_sensitive=true, [requests_source, radio])');
     const detectAt = liq.indexOf('blank.detect(dead_air_program');
     assert.ok(duckerAt !== -1, 'ducker mix line present');

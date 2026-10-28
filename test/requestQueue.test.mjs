@@ -49,7 +49,7 @@ describe('radio.liq request.queue wiring', () => {
 
   test('program core, imaging layers and safety net are untouched', () => {
     assert.match(liq, /fallback\(track_sensitive=false, \[show_source, filler_source\]\)/);
-    assert.match(liq, /add\(\[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)/);
+    assert.match(liq, /add\(normalize=false, \[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)/);
     assert.match(liq, /mksafe\(fallback\(track_sensitive=false, \[radio, emergency_source\]\)\)/);
     assert.match(liq, /amplify\(override="liq_amplify", 1\., radio\)/);
   });

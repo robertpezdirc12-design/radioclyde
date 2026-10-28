@@ -328,7 +328,11 @@ radio = fallback(track_sensitive=true, [requests_source, radio])
 # which per seam either blends (plain equal-amplitude crossfade) or applies
 # the sweep/washout/dissolve gesture stamped on the tracks, and hard-cuts
 # every seam touching speech or a jingle (the 2026-07-28 lesson: the DJ is
-# never faded, never overlapped). On 2.2.4 the gate below stays closed and
+# never faded, never overlapped) -- with ONE Val 32 exception: a
+# ramp-stamped speech->music seam (liq_ramp="1" on both sides, stamped by
+# resolveRampSeams only after the autocue vocal pass measured a talkable
+# intro window) plays the speech OVER the track's intro (hit-the-post; see
+# dj_transitions.liq's RAMPA block). On 2.2.4 the gate below stays closed and
 # the chain keeps its hard cuts -- the two builds differ ONLY here and in
 # the callback-form migrations gated further down.
 #
@@ -558,12 +562,24 @@ radio = fallback(track_sensitive=true, [promo_timed, radio])
 # Stingers, promos and beds keep today's ride-over behavior: their
 # source_tags are "stinger"/"promo" and beds carry none -- this gate is
 # exactly B3's scope, DJ speech.
+#
+# Val 32 (ramp talk): while a rampa plays, the incoming track's metadata
+# arrives at the seam -- concurrent with the speech still sounding -- so
+# keying the gate on source_tag alone would read "music" mid-talk and open
+# the ID over the DJ (the exact B3 regression, through a new door). Both
+# sides of a ramp seam carry liq_ramp="1" (the speech entry AND the track
+# entry -- resolveRampSeams stamps the pair), so the watch also latches on
+# the marker: whichever of the two metadata events arrives first, the gate
+# stays closed for the whole ramp. It reopens at the NEXT metadata event,
+# which by construction fires only after the speech has ended (the next
+# seam) -- worst case the ID defers past the ramp exactly as it defers past
+# any other speech, fail-closed like the rest of this block.
 %ifversion >= 2.4.6
 id_window = {0m0s-1m30s}
 id_speech_active = ref(true)
 id_fired = ref(false)
 def id_speech_watch(m) =
-  id_speech_active := (m["source_tag"] == "speech")
+  id_speech_active := (m["source_tag"] == "speech" or m["liq_ramp"] == "1")
 end
 radio.on_metadata(synchronous=true, id_speech_watch)
 def id_fired_watch(m) =
@@ -578,9 +594,25 @@ def id_ready() =
   end
   id_window() and not id_speech_active() and not id_fired()
 end
-radio = add([radio, switch([(id_ready, id_source)])])
+# Val 32 ODCKRITJE (2026-10-28, dvojni bisekt na uradnih binarkah 2.2.4
+# in 2.4.6): privzeti normalize=true tega add() je kriv za DVE latentni
+# napaki, ki sta obstajali na etru od uvedbe tega overlayja: (1) GLASNOST:
+# normalize meša kot POVPREČJE -- radio + izklopljen switch (tišina) / 2 --
+# torej je cela postaja pod tem overlayjem igrala na POL glasnosti
+# (izmerjeno z Goertzel sondo na istem tonu: 206 proti 412, x2); (2)
+# STRADANJE: v kombinaciji s blank.strip spodaj vir UMRE -- pesem utihne
+# po 10 s na 2.2.4 in po ~22 s na 2.4.6 (kjer je med njima še cross);
+# polna datoteka brez tega add() ALI z add(normalize=false) teče čisto na
+# OBEH binarkah, z normalize=true pa strada na OBEH. Mehanizma (OCaml
+# interne logike normalize) nismo razgrnili -- izid je dvojno izmerjen,
+# bisekt ga drži. normalize=false = čista vsota: radio nedotaknjen, ID
+# čezenj; beds add in rampa/blendi v dj_transitions.liq so že v tej
+# obliki -- ta overlay je bil edino mesto s privzetim normalize.
+# POSLEDICA za obstoječi 2.2.4 eter: glasnost se odmakne za +6 dB
+# (odpravljena latentna tišina, ne novi okus) in stradanje izgine.
+radio = add(normalize=false, [radio, switch([(id_ready, id_source)])])
 %else
-radio = add([radio, switch([({0m0s}, id_source)])])
+radio = add(normalize=false, [radio, switch([({0m0s}, id_source)])])
 %endif
 
 # --- Postelje: sidechain ducker (P3 #13, docs/ready-made-scripts-analysis.md

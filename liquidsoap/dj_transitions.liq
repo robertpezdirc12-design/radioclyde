@@ -60,6 +60,22 @@
 #     "jingle" is a HARD CUT (sequence) -- the 2026-07-28 lesson, where the
 #     rejected crossfade() audibly clipped the DJ. Only music<->music (and
 #     untagged, i.e. listener requests, which are music) seams blend.
+#   * Val 32 EXCEPTION -- the rampa (hit-the-post): a speech->music seam
+#     where BOTH sides carry liq_ramp="1" (stamped by resolveRampSeams in
+#     director/playlist.js only after the vocal pass measured a talkable
+#     intro window AND the speech clip fits it) plays the speech OVER the
+#     incoming track's intro instead of ahead of it: the cross end stamp --
+#     liq_cross_duration on the SPEECH entry, the same field the tail pass
+#     writes on music -- sizes the transition to the whole speech clip, so
+#     the track starts as the talk starts, rides ducked at 0.2 (the beds
+#     ducker's program floor -- one "music under speech" constant station-
+#     wide), and releases to full over the last 0.6 s of the talk, landing
+#     the DJ's last word just before the intro fills in. The speech side
+#     rides UNTOUCHED -- the 2026-07-28 contract survives verbatim: the DJ
+#     is never faded, the MUSIC is ducked under them (the beds-ducker
+#     relationship, inverted onto the seam). An incoming WITHOUT its own
+#     liq_ramp (filler rotation, requests, hand-built playlists) never
+#     ramps: the window was never verified for THAT track.
 #   * Effect arming is metadata-driven and deterministic, never random:
 #       liq_washout="1"  on the ENDING track (a)   -- rides the outgoing
 #                          audio; optional liq_washout_delay (seconds,
@@ -150,12 +166,62 @@ def dj_transition(a, b) =
   # their own tags but never reach this function). Untagged = bare paths =
   # listener requests = music. Speech and jingle seams stay HARD CUTS: the
   # DJ is never faded, never overlapped (2026-07-28), and a jingle plays
-  # dry start to finish (SUB/WAVE #1565's "a jingle is never blended").
+  # dry start to finish (SUB/WAVE #1565's "a jingle is never blended") --
+  # with ONE Val 32 exception: a ramp-stamped speech->music seam (both
+  # sides carry liq_ramp="1") plays the talk over the intro instead.
   speech_out = a.metadata["source_tag"] == "speech"
   speech_in = b.metadata["source_tag"] == "speech"
   jingle_out = a.metadata["source_tag"] == "jingle"
   jingle_in = b.metadata["source_tag"] == "jingle"
-  if speech_out or speech_in or jingle_out or jingle_in then
+  # Val 32 -- RAMPA (hit-the-post). The end stamp IS the speech duration
+  # here (Node stamped liq_cross_duration on the speech entry from the
+  # MEASURED clip length; cross_stamps translated it to
+  # liq_cross_end_duration on this very metadata). Guards: a sane stamp
+  # (0 < rd <= 30, the same cap cross_stamps itself enforces) -- anything
+  # else is a hand-edited playlist and falls back to the hard cut.
+  ramp_d = float_of_string(default=0., a.metadata["liq_cross_end_duration"])
+  ramp_ok =
+    speech_out and not speech_in and not jingle_in and
+    a.metadata["liq_ramp"] == "1" and b.metadata["liq_ramp"] == "1" and
+    ramp_d > 0. and ramp_d <= 30.
+  if ramp_ok then
+    log("DJ ramp: talk #{ramp_d}s over the intro (duck 0.2, release 0.6s)")
+    # ŽIVO IZMERJENO na uradni 2.4.6 (2026-10-28, po Val 32 normalize
+    # popravku v radio.liq -- BREZ njega je veriga stradala PRED rampe):
+    # govor (700 Hz sonda) zveni polno do konca, pesem vstopi pod njim na
+    # točno 0.2 (Goertzel 82.5 proti 412.8 = x0.20), dvig na 1.0 čez
+    # ~0.3-0.5 s šiva, pesem nato teče naprej nedotaknjena. ISKRENA MEJA:
+    # prekrivanje je oko ČASA SPROŽITVE prehoda (~dj_transition_buffer +
+    # ~1s predpomnilnika -- izmerjeno 4.6 s na 8-s govoru), NE celotna
+    # dolžina govora -- cross sproži prehod šele, ko je izhodnemu ostalo
+    # ~duration+1 s, zato rampa pokrije ZADNJI del govora, ne vsega;
+    # log vrstica zgoraj izpiše žig (ramp_d), ne slušno prekrivanje.
+    # The duck envelope rides the INCOMING source's own elapsed (audio
+    # time, like every envelope in this file): hold the program floor
+    # 0.2 while the talk sounds, smoothstep back to unity over the LAST
+    # 0.6 s so the handover to the un-ducked continuation at the clip's
+    # end lands without a step. The track's own liq_fade_in shaping
+    # (inside the playlist source, upstream of cross) multiplies UNDER
+    # the duck -- both envelopes <= 1, so the intro enters even gentler
+    # under the speech and the blend can dip but never bump (the +6 dB
+    # hazard this file's plain-seam comment documents).
+    ramp_in = b.source
+    def ramp_duck() =
+      e = source.elapsed(ramp_in)
+      e = if e < 0. then 0. else e end
+      t_from = ramp_d - 0.6
+      if e <= t_from then
+        0.2
+      elsif e >= ramp_d then
+        1.0
+      else
+        x = (e - t_from) / 0.6
+        0.2 + (3.0 * x * x - 2.0 * x * x * x) * 0.8
+      end
+    end
+    strip_cross_stamps(add(normalize=false,
+      [amplify(ramp_duck, b.source), a.source]))
+  elsif speech_out or speech_in or jingle_out or jingle_in then
     strip_cross_stamps((sequence([a.source, b.source]) : source))
   else
     # EFFECT ARMING. Flags on a (ending) or b (incoming) decide which

@@ -164,12 +164,20 @@ const loudStderr = [
 // non-fade (windMs 0) so the head is the only measured field that matters.
 const tailStderr = headStderrFor(coldSeries);
 
-function cannedRunner({ head = headStderrFor(gradualSeries), headError = null, calls = [] } = {}) {
+// Val 32: the vocal pass's canned stderr (flat cold series -> no sustained
+// band lift -> onset null; the default "unfilled" answer).
+const vocalStderr = headStderrFor(coldSeries);
+
+function cannedRunner({ head = headStderrFor(gradualSeries), headError = null, vocal = vocalStderr, vocalError = null, calls = [] } = {}) {
   return async (file, args) => {
     calls.push({ file, args });
-    if (args[2] === '-t') {
+    if (args[2] === '-t' && args[3] === '20') {
       if (headError) throw headError;
       return { stderr: head };
+    }
+    if (args[2] === '-t' && args[3] === '32') {
+      if (vocalError) throw vocalError;
+      return { stderr: vocal };
     }
     if (args.includes('-sseof')) {
       return { stderr: tailStderr };
@@ -385,17 +393,21 @@ describe('analyzeMissing head round-trip (canned stderr)', () => {
       runner: cannedRunner({ head: headStderrFor(gradualSeries), calls }),
     });
     assert.deepEqual(
-      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
-      { analyzed: 1, failed: 0, tailFailed: 0, headFailed: 0 }
+      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed, vocalFailed: summary.vocalFailed },
+      { analyzed: 1, failed: 0, tailFailed: 0, headFailed: 0, vocalFailed: 0 }
     );
-    // Loudness, tail, head -- in that order.
-    assert.equal(calls.length, 3);
+    // Loudness, tail, head, vocal -- in that order.
+    assert.equal(calls.length, 4);
     assert.ok(calls[0].args.includes('ebur128=peak=true'));
     assert.ok(calls[1].args.includes('-sseof'));
     assert.deepEqual(calls[2].args.filter((a, i) => (i === 2 && a === '-t') || (i === 3 && a === '20')), ['-t', '20']);
+    // The vocal pass: -t 32, through the 250-3200 Hz presence band.
+    assert.deepEqual(calls[3].args.filter((a, i) => (i === 2 && a === '-t') || (i === 3 && a === '32')), ['-t', '32']);
+    assert.ok(calls[3].args.includes('highpass=f=250,lowpass=f=3200,ebur128=metadata=1:framelog=info'));
 
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.deepEqual(onDisk.tracks[file].head, { riseMs: 7600, gradual: true, lufsRise: 35 });
+    assert.deepEqual(onDisk.tracks[file].vocal, { onsetMs: null }); // flat canned series -> unfilled
     assert.equal(fadeInAnnotate(file), '4.0');
     assert.match(annotateTrackEntry(file), /liq_fade_in="4\.0"/);
   });
@@ -405,8 +417,8 @@ describe('analyzeMissing head round-trip (canned stderr)', () => {
     const file = writeWav(path.join(dir, 'cold.wav'), 1);
     const summary = await analyzeMissing([file], { runner: cannedRunner({ headError: new Error('boom') }) });
     assert.deepEqual(
-      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
-      { analyzed: 1, failed: 0, tailFailed: 0, headFailed: 1 }
+      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed, vocalFailed: summary.vocalFailed },
+      { analyzed: 1, failed: 0, tailFailed: 0, headFailed: 1, vocalFailed: 0 }
     );
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.equal(onDisk.tracks[file].head, undefined);

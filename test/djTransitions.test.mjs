@@ -120,14 +120,15 @@ describe('radio.liq P3 #11 version gating', () => {
     assert.match(radio, /cross_prev_end := own/);
   });
 
-  test('strip_cross_stamps: both dj_transition returns wrapped, all three keys removed', () => {
+  test('strip_cross_stamps: every dj_transition return wrapped, all three keys removed', () => {
     assert.match(transitions, /def strip_cross_stamps\(s\) =\n\s*metadata\.map\(update=true, strip=true, fun \(_\) -> \[\n\s*\("liq_cross_duration", ""\),\n\s*\("liq_cross_start_duration", ""\),\n\s*\("liq_cross_end_duration", ""\)\n\s*\], s\)\nend/);
+    const rampIdx = transitions.indexOf('strip_cross_stamps(add(normalize=false,\n      [amplify(ramp_duck, b.source), a.source]))');
     const hardCutIdx = transitions.indexOf('strip_cross_stamps((sequence([a.source, b.source]) : source))');
     const blendIdx = transitions.indexOf('strip_cross_stamps(add(normalize=false, [a_source, b_source]))');
-    assert.ok(hardCutIdx >= 0 && blendIdx >= 0, 'the hard-cut return AND the blend return are both wrapped');
-    assert.ok(hardCutIdx < blendIdx);
-    // def + exactly two applications (comments are already stripped).
-    assert.equal((transitions.match(/strip_cross_stamps\(/g) || []).length, 3);
+    assert.ok(rampIdx >= 0 && hardCutIdx >= 0 && blendIdx >= 0, 'the ramp, hard-cut AND blend returns are all wrapped');
+    assert.ok(rampIdx < hardCutIdx && hardCutIdx < blendIdx);
+    // def + exactly three applications (comments are already stripped).
+    assert.equal((transitions.match(/strip_cross_stamps\(/g) || []).length, 4);
   });
 
   test('streams.liq: included after the primary MP3 output; committed default is comment-only', () => {
@@ -166,7 +167,7 @@ describe('radio.liq P3 #11 version gating', () => {
   test('stingers and everything imaging attach ABOVE the cross (never blended)', () => {
     const crossIdx = radio.indexOf('radio = cross(');
     const stingerIdx = radio.indexOf('radio = fallback(track_sensitive=true, [stinger_timed, radio])');
-    const idIdx = radio.indexOf('radio = add([radio, switch([({0m0s}, id_source)])])');
+    const idIdx = radio.indexOf('radio = add(normalize=false, [radio, switch([({0m0s}, id_source)])])');
     const bedsIdx = radio.indexOf('beds_source = request.queue(id="beds")');
     assert.ok(stingerIdx > crossIdx, 'stinger fallback must come after the cross wiring');
     assert.ok(idIdx > crossIdx, 'hour ID overlay must come after the cross wiring');
@@ -204,12 +205,39 @@ describe('dj_transitions.liq effects', () => {
     assert.match(transitions, /d = if buffered > 0\. and buffered < 600\. then buffered else stamp end/);
   });
 
-  test('speech and jingle seams stay HARD CUTS (source_tag dispatch)', () => {
+  test('speech and jingle seams stay HARD CUTS (source_tag dispatch) -- except the Val 32 rampa', () => {
     assert.match(transitions, /speech_out = a\.metadata\["source_tag"\] == "speech"/);
     assert.match(transitions, /speech_in = b\.metadata\["source_tag"\] == "speech"/);
     assert.match(transitions, /jingle_out = a\.metadata\["source_tag"\] == "jingle"/);
     assert.match(transitions, /jingle_in = b\.metadata\["source_tag"\] == "jingle"/);
-    assert.match(transitions, /if speech_out or speech_in or jingle_out or jingle_in then\n\s*strip_cross_stamps\(\(sequence\(\[a\.source, b\.source\]\) : source\)\)/);
+    // The hard cut is now the ELSIF (the ramp branch is the first case); the
+    // pin deliberately says elsif so a future re-ordering forces a look.
+    assert.match(transitions, /elsif speech_out or speech_in or jingle_out or jingle_in then\n\s*strip_cross_stamps\(\(sequence\(\[a\.source, b\.source\]\) : source\)\)/);
+  });
+
+  test('Val 32 rampa: both sides must carry liq_ramp, the end stamp sizes the duck, release 0.6 s', () => {
+    // Branch arming: speech OUT, music IN (not speech, not jingle), and the
+    // marker on BOTH sides -- an unmarked incoming (filler, requests,
+    // hand-built playlists) can never ramp.
+    assert.match(transitions, /ramp_d = float_of_string\(default=0\., a\.metadata\["liq_cross_end_duration"\]\)/);
+    assert.match(transitions, /ramp_ok =\n\s*speech_out and not speech_in and not jingle_in and\n\s*a\.metadata\["liq_ramp"\] == "1" and b\.metadata\["liq_ramp"\] == "1" and\n\s*ramp_d > 0\. and ramp_d <= 30\./);
+    // The duck: the beds ducker's 0.2 program floor, held while the talk
+    // sounds, smoothstep release to unity over the LAST 0.6 s, driven by the
+    // incoming source's own elapsed (audio time, like every envelope here).
+    assert.match(transitions, /def ramp_duck\(\) =\n\s*e = source\.elapsed\(ramp_in\)\n\s*e = if e < 0\. then 0\. else e end\n\s*t_from = ramp_d - 0\.6/);
+    assert.match(transitions, /0\.2 \+ \(3\.0 \* x \* x - 2\.0 \* x \* x \* x\) \* 0\.8/);
+    // The transition: ducked incoming + UNTOUCHED speech (the DJ is never
+    // faded -- the duck is on the music), stamp-stripped like every return.
+    assert.match(transitions, /strip_cross_stamps\(add\(normalize=false,\n\s*\[amplify\(ramp_duck, b\.source\), a\.source\]\)\)/);
+    // The speech side gets NO fade.out in the ramp branch -- searching the
+    // whole file, fade.out never touches a_source inside the ramp block
+    // (the existing fade-shape pins already cover the effects branches).
+    const rampAt = transitions.indexOf('if ramp_ok then');
+    const hardCutAt = transitions.indexOf('elsif speech_out or speech_in');
+    assert.ok(rampAt >= 0 && hardCutAt > rampAt, 'ramp branch precedes the hard-cut elsif');
+    const rampBlock = transitions.slice(rampAt, hardCutAt);
+    assert.doesNotMatch(rampBlock, /fade\.out\(/);
+    assert.doesNotMatch(rampBlock, /fade\.in\(/);
   });
 
   test('arming precedence: washout > dissolve > sweep, flags from the right side', () => {

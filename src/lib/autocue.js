@@ -59,6 +59,13 @@
 //     not the absolute values but the VARIETY: one fixed 2 s fade on every
 //     track regardless of how the track actually begins is the most robotic
 //     seam a station can ship.
+//   - Vocal pass (Val 32, ramp talk): ONE more ffmpeg pass over the first
+//     32 s through the 250-3200 Hz presence band, storing vocal:{onsetMs}
+//     (null when the intro never fills in). At read time rampStampFor()
+//     decides whether a speech run ramps over the intro (liq_ramp stamps,
+//     dj_transitions.liq's ramp branch -- 2.4.6-only, data-gated; entries
+//     without a vocal measurement never ramp, the same pass-through
+//     contract as every other pass).
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -390,6 +397,167 @@ export async function analyzeHead(filePath, { runner } = {}) {
   return headMetrics(points);
 }
 
+// --- Vocal pass (Val 32, ramp talk -- "hit the post") -----------------------
+//
+// The tail pass measures how a track ENDS (crossfade sizing), the head pass
+// how it BEGINS (fade-in sizing); this one measures WHERE THE INTRO FILLS
+// IN -- the "post" a ramp-talking DJ has to hit. Professional practice
+// (docs/auto-radio.md, Prehodi): talk over the instrumental intro, last
+// word landing just before the vocal line. What an ffmpeg-only, no-AI pass
+// can measure honestly is the vocal PRESENCE band's sustained lift: ONE
+// more pass over the first 32 s, band-limited to 250-3200 Hz (the formant
+// region where a voice lives; bass guitar and kick sit below it), ebur128
+// momentary series. The first point where the band holds >= +4.5 dB over
+// its own trimmed-start baseline for >= 1.2 s is the fill-in moment -- a
+// drum fill or a single picked note does not sustain, a verse does.
+//
+// HONEST LIMITS, documented (the same discipline as B3's):
+//   * This detects the intro FILLING IN, not the vocal specifically: a lead
+//     guitar theme entering reads the same as a voice. For the ramp that is
+//     still the right post -- the DJ should be off before the track gets
+//     busy, whatever makes it busy.
+//   * A track whose head is already busy (vocals from the top) yields no
+//     window: no sustained lift above the baseline means onset null ->
+//     no ramp (the pass-through contract).
+//   * No fill-in within 32 s -> onset null -> no ramp: a long instrumental
+//     head COULD carry a longer talk, but "quiet for 32 s" is also exactly
+//     what a detector failure looks like, and the honest default answer to
+//     "is this seam a moment?" stays no.
+//   * The margin (RAMP_MARGIN_SECONDS) absorbs the detector's own lag: a
+//     voice climbs to the threshold ~0.3 s after its true entry, and the
+//     duck release spans 0.6 s -- 1.5 s keeps the last word clear of the
+//     first syllable with room to spare.
+const VOCAL_WINDOW_SECONDS = 32; // input-side -t; intros past this are rare
+const VOCAL_BAND_HIGHPASS_HZ = 250; // below this: bass guitar, kick
+const VOCAL_BAND_LOWPASS_HZ = 3200; // above this: cymbal wash, presence hiss
+const VOCAL_BASELINE_SECONDS = 1.5; // the trimmed start's own band level
+const VOCAL_RISE_DB = 4.5; // sustained band lift = the fill-in
+const VOCAL_SUSTAIN_SECONDS = 1.2; // a fill-in HOLDS; a drum fill does not
+const RAMP_MARGIN_SECONDS = 1.5; // release (0.6 s) + detector lag + a breath
+const RAMP_MIN_WINDOW_SECONDS = 5; // tighter than this and the risk outweighs the move
+const RAMP_MAX_SPEECH_SECONDS = 20; // the DJ's ramp budget; also under cross_stamps' 30 s cap
+
+// { onsetMs } from a (sorted) BAND-LIMITED momentary series -- the first
+// sustained fill-in, in ms -- or { onsetMs: null } when none lives in the
+// window. All-silent window -> null; empty series throws (callers count
+// it) -- the head/tail contracts, mirrored a third time.
+export function vocalMetrics(points) {
+  if (!Array.isArray(points) || points.length === 0) {
+    throw new Error('vocalMetrics: empty momentary series');
+  }
+  let startIdx = -1;
+  for (let i = 0; i < points.length; i += 1) {
+    if (points[i].m > MOMENTARY_FLOOR_LUFS) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return { onsetMs: null };
+  const baselineCutoff = points[startIdx].t + VOCAL_BASELINE_SECONDS;
+  let sum = 0;
+  let n = 0;
+  for (let i = startIdx; i < points.length && points[i].t <= baselineCutoff; i += 1) {
+    sum += points[i].m;
+    n += 1;
+  }
+  const baseline = sum / n; // n >= 1: startIdx's own point always qualifies
+  const threshold = baseline + VOCAL_RISE_DB;
+  // Walk from the END of the baseline region: points inside it cannot be
+  // the fill-in (they ARE the baseline).
+  let k = startIdx;
+  while (k < points.length && points[k].t <= baselineCutoff) k += 1;
+  for (; k < points.length; k += 1) {
+    if (points[k].m < threshold) continue;
+    // Sustained? Every point in [t_k, t_k + sustain] must hold the lift,
+    // and the sustain window must fit inside the measured series -- a rise
+    // at the window's edge is unverifiable, so it reads as no onset.
+    const sustainEnd = points[k].t + VOCAL_SUSTAIN_SECONDS;
+    if (points[points.length - 1].t < sustainEnd) break;
+    let sustained = true;
+    for (let j = k; j < points.length && points[j].t <= sustainEnd; j += 1) {
+      if (points[j].m < threshold) {
+        sustained = false;
+        break;
+      }
+    }
+    if (sustained) return { onsetMs: Math.round(points[k].t * 1000) };
+  }
+  return { onsetMs: null };
+}
+
+// One vocal pass: decode the FIRST VOCAL_WINDOW_SECONDS seconds through the
+// presence band and collect the band-limited ebur128 momentary series. Same
+// execFileAsync error contract as the head/tail passes: any ffmpeg failure
+// rejects and the caller counts it.
+export async function analyzeVocal(filePath, { runner } = {}) {
+  const run = runner ?? execFileAsync;
+  const { stderr } = await run(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-nostats',
+      '-t',
+      `${VOCAL_WINDOW_SECONDS}`,
+      '-i',
+      filePath,
+      '-filter_complex',
+      `highpass=f=${VOCAL_BAND_HIGHPASS_HZ},lowpass=f=${VOCAL_BAND_LOWPASS_HZ},ebur128=metadata=1:framelog=info`,
+      '-f',
+      'null',
+      '-',
+    ],
+    { timeout: FFMPEG_TIMEOUT_MS, maxBuffer: FFMPEG_MAX_BUFFER, windowsHide: true }
+  );
+  const points = parseEbur128Momentary(stderr);
+  if (points.length === 0) {
+    throw new Error('ebur128 vocal pass produced no momentary frames');
+  }
+  return vocalMetrics(points);
+}
+
+// The talkable window over a track's intro, in seconds, or null when the
+// vocal measurement is absent, malformed, unfilled (no onset) or too tight.
+// Derived at read time (the stored measurement is onsetMs only) -- the same
+// contract as fadeInSecondsFor/crossSecondsFor.
+export function rampWindowSecondsFor(vocal) {
+  if (!vocal || typeof vocal !== 'object') return null;
+  if (!Number.isFinite(vocal.onsetMs)) return null;
+  const window = vocal.onsetMs / 1000 - RAMP_MARGIN_SECONDS;
+  if (window < RAMP_MIN_WINDOW_SECONDS) return null;
+  return Math.round(window * 10) / 10;
+}
+
+// F2 discipline, the beds' mirror: ramp talk ships ON (it is 2.4.6-gated
+// by dj_transitions.liq AND data-gated -- no vocal measurement, no ramp),
+// and the one deliberate OFF value is false. Absent or junk = the shipped
+// default, exactly like weatherMinutes' family.
+export function rampTalkEnabled() {
+  return config.autocue?.rampTalk?.enabled !== false;
+}
+
+// Pure: should THIS speech run become a ramp over the NEXT track's intro?
+// All inputs are Node-side facts at playlist-assembly time: the run's slots
+// (a ramp introduces ONE track -- a spliced open+intro run carries station
+// business and stays sequential), the run's measured duration, the track's
+// vocal measurement, and the config gate. Returns { dur } -- the
+// 0.1-quantized speech duration dj_transitions.liq reads back as the cross
+// end stamp -- or null: no ramp, the seam stays a hard cut, today's
+// behavior byte-identically. The window arithmetic (speechSeconds <=
+// window <= onset - margin) is what keeps the DJ's last word clear of the
+// first syllable; RAMP_MAX_SPEECH_SECONDS additionally bounds the talk
+// under the 30 s stamp cap radio.liq's cross_stamps enforces.
+export function rampStampFor({ slots, speechSeconds, vocal, enabled = rampTalkEnabled() }) {
+  if (!enabled) return null;
+  if (!Array.isArray(slots) || slots.length !== 1) return null;
+  const slot = slots[0];
+  if (slot !== 'intro' && slot !== 'quizIntro') return null;
+  if (!Number.isFinite(speechSeconds) || speechSeconds <= 0) return null;
+  if (speechSeconds > RAMP_MAX_SPEECH_SECONDS) return null;
+  const window = rampWindowSecondsFor(vocal);
+  if (window === null || speechSeconds > window) return null;
+  return { dur: (Math.round(speechSeconds * 10) / 10).toFixed(1) };
+}
+
 // The crossfade duration stamp for a stored tail, or null when the tail is
 // not a fade (cold ending, all-silent window) or malformed. SUB/WAVE's
 // endingCrossSecondsFor reduced to the ffmpeg-measurable inputs:
@@ -575,6 +743,7 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings, runner
   let clampedCount = 0;
   let tailFailed = 0;
   let headFailed = 0;
+  let vocalFailed = 0;
   const analyzedAt = new Date().toISOString();
 
   for (const filePath of paths) {
@@ -617,6 +786,14 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings, runner
         headFailed += 1;
         log(`Autocue: head pass FAILED for ${filePath}: ${err.message}`);
       }
+      // Vocal pass (Val 32, ramp talk) rides it too: an entry without a
+      // vocal measurement simply never ramps (the pass-through contract).
+      try {
+        entry.vocal = await analyzeVocal(filePath, { runner });
+      } catch (err) {
+        vocalFailed += 1;
+        log(`Autocue: vocal pass FAILED for ${filePath}: ${err.message}`);
+      }
       next[filePath] = entry;
       analyzed += 1;
     } catch (err) {
@@ -629,7 +806,7 @@ export async function analyzeMissing(paths, { maxAnalyzePerRun, settings, runner
     writeIndex({ version: 1, tracks: next });
     log(`Autocue: analyzed ${analyzed} file(s) -> ${config.paths.autocueIndexPath}`);
   }
-  return { analyzed, skipped, failed, total: paths.length, clamped: clampedCount, tailFailed, headFailed };
+  return { analyzed, skipped, failed, total: paths.length, clamped: clampedCount, tailFailed, headFailed, vocalFailed };
 }
 
 function writeIndex(doc) {
@@ -667,6 +844,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           out.head = await analyzeHead(file);
         } catch (err) {
           out.headError = err.message;
+        }
+        try {
+          out.vocal = await analyzeVocal(file);
+        } catch (err) {
+          out.vocalError = err.message;
         }
         console.log(JSON.stringify(out));
       } catch (err) {

@@ -38,7 +38,7 @@ const installSh = fs
 describe('radio.liq imaging layer structure', () => {
   test('hour ID uses the overlay switch recipe, not predicate.activates', () => {
     assert.match(liq, /id_source = playlist\(/);
-    assert.match(liq, /add\(\[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)/);
+    assert.match(liq, /add\(normalize=false, \[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)/);
     // predicate.activates' edge is only observable at sampling points, so an
     // ID via a 0m-5m window can silently skip whole hours (see radio.liq
     // comment) -- if someone reintroduces it, this test should force a
@@ -71,7 +71,7 @@ describe('radio.liq imaging layer structure', () => {
     assert.match(liq, /emergency_source = playlist\(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,/);
   });
 
-  test('B3 speech gate on 2.4.6: 90 s window, fail-closed ref, one-shot latch', () => {
+  test('B3 speech gate on 2.4.6: 90 s window, fail-closed ref, one-shot latch, ramp latch (Val 32)', () => {
     // The gate block lives inside %ifversion >= 2.4.6; on 2.2.4 the
     // preprocessor strips it before parsing.
     assert.match(liq, /%ifversion >= 2\.4\.6\nid_window = \{0m0s-1m30s\}/);
@@ -80,8 +80,13 @@ describe('radio.liq imaging layer structure', () => {
     assert.match(liq, /id_speech_active = ref\(true\)/);
     assert.match(liq, /id_fired = ref\(false\)/);
     // The gate keys on the source_tag contract (djTransitions' own notion of
-    // speech), via the synchronous method form 2.4.6 requires.
-    assert.match(liq, /id_speech_active := \(m\["source_tag"\] == "speech"\)/);
+    // speech), via the synchronous method form 2.4.6 requires -- PLUS the
+    // Val 32 ramp latch: during a rampa the incoming track's metadata arrives
+    // while the speech still sounds, so source_tag alone would read "music"
+    // mid-talk and open the ID over the DJ (the B3 regression through a new
+    // door). Both sides of a ramp seam carry liq_ramp="1", so the marker
+    // latches the gate for the whole ramp either way.
+    assert.match(liq, /id_speech_active := \(m\["source_tag"\] == "speech" or m\["liq_ramp"\] == "1"\)/);
     assert.match(liq, /radio\.on_metadata\(synchronous=true, id_speech_watch\)/);
     assert.match(liq, /id_source\.on_metadata\(synchronous=true, id_fired_watch\)/);
     // The latch: set only by id-tagged clips, reset by the predicate while
@@ -90,21 +95,38 @@ describe('radio.liq imaging layer structure', () => {
     assert.match(liq, /if m\["source_tag"\] == "id" then\n    id_fired := true\n  end/);
     assert.match(liq, /if not id_window\(\) then\n    id_fired := false\n  end/);
     assert.match(liq, /id_window\(\) and not id_speech_active\(\) and not id_fired\(\)/);
-    assert.match(liq, /radio = add\(\[radio, switch\(\[\(id_ready, id_source\)\]\)\]\)/);
+    assert.match(liq, /radio = add\(normalize=false, \[radio, switch\(\[\(id_ready, id_source\)\]\)\]\)/);
     // Position: the speech watch registers on the program chain BELOW the
     // overlay (it must see program tracks, not the overlay's own output).
     const watchAt = liq.indexOf('radio.on_metadata(synchronous=true, id_speech_watch)');
-    const overlayAt = liq.indexOf('radio = add([radio, switch([(id_ready, id_source)])])');
+    const overlayAt = liq.indexOf('radio = add(normalize=false, [radio, switch([(id_ready, id_source)])])');
     assert.ok(watchAt !== -1 && overlayAt !== -1, 'gate wiring present');
     assert.ok(watchAt < overlayAt, 'speech watch sees the program chain below the overlay');
   });
 
-  test('B3: the 2.2.4 %else branch keeps the cookbook overlay verbatim', () => {
-    // The old line survives byte-identical inside %else -- every
-    // position-sensitive test (deadAir/bedQueue/djTransitions/requestQueue)
-    // anchors on it, and the 2.2.4 preprocessor strips the gated branch
-    // before parsing, so that build's behavior is unchanged by Val 31.
-    assert.match(liq, /%else\s*radio = add\(\[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)\s*%endif/);
+  test('B3: the 2.2.4 %else branch keeps the cookbook overlay, plus the Val 32 normalize fix on BOTH branches', () => {
+    // The old line survives byte-identical inside %else EXCEPT for the
+    // Val 32 discovery fix (normalize=false, see the block comment at the
+    // overlay): the default normalize=true measurably averaged the mix
+    // (half-volume station) and, with blank.strip, starved the program
+    // chain on BOTH builds. Every position-sensitive test
+    // (deadAir/bedQueue/djTransitions/requestQueue) anchors on the %else
+    // line, and the 2.2.4 preprocessor strips the gated branch before
+    // parsing, so that build gets the fix and nothing else from Val 32.
+    assert.match(liq, /%else\s*radio = add\(normalize=false, \[radio, switch\(\[\(\{0m0s\}, id_source\)\]\)\]\)\s*%endif/);
+  });
+
+  test('Val 32: every add() over the program chain is normalize=false (starvation + half-volume fix)', () => {
+    // The bisection matrix (2026-10-28, official 2.2.4 + 2.4.6 binaries):
+    // add(normalize=true) over [radio, switch] + blank.strip below kills
+    // the program chain (track dies 10 s in on 2.2.4, ~22 s in on 2.4.6)
+    // and averages the mix to half volume on both. normalize=false is the
+    // fix and the ONLY sanctioned shape for adds over radio from now on:
+    // this anti-drift pin fails if any future edit reintroduces a bare
+    // add([radio, ...]) -- the beds add and dj_transitions' rampa/blend
+    // adds are already normalize=false by construction.
+    assert.doesNotMatch(liq, /add\(\[radio/);
+    assert.ok((liq.match(/add\(normalize=false, /g) || []).length >= 3, 'ID overlay (both branches via strip of gated) + beds add present');
   });
 
   test('stingers go through delay() and a track_sensitive fallback', () => {

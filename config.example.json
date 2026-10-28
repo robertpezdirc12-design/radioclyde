@@ -205,7 +205,10 @@
     "targetLufs": -16,
     "maxGainDb": 6.0,
     "checkIntervalMinutes": 60,
-    "maxAnalyzePerRun": 100
+    "maxAnalyzePerRun": 100,
+    "rampTalk": {
+      "enabled": true
+    }
   },
   "broadcast": {
     "tuneIn": null,

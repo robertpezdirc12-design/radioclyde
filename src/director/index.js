@@ -16,7 +16,7 @@ import { mergeTrackRatingKeys } from '../plex/ratingKeyIndex.js';
 import { resolveLiveLine } from './liveSegments.js';
 import { loadValidatedScript } from './scriptLoader.js';
 import { synthesizeSpeechToPath, getCachedDjAudio } from './djAudio.js';
-import { annotateSpeechEntry, annotateJingleEntry, annotateTrackEntry } from './playlist.js';
+import { annotateSpeechEntry, annotateJingleEntry, annotateTrackEntry, resolveRampSeams } from './playlist.js';
 import { finalizeSpeechRun } from './speechRuns.js';
 import { prefetchLyrics } from '../lyrics/lyricsService.js';
 
@@ -56,6 +56,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
   const segments = []; // ordered absolute file paths -- becomes playlist.m3u (dj/live/jingle entries get annotated with metadata below)
   const speechPaths = new Set(); // subset of `segments` that are dj/live clips, not real tracks -- these carry no ID3 tags of their own, so Icecast's now-playing display would otherwise keep showing whatever track played last while the DJ talks; annotated below with station name/show title instead.
   const speechPersonas = new Map(); // finalized speech path -> ordered, deduped persona names that spoke in it -- feeds annotateSpeechEntry's `dj` field, which is how plex/scrobbleTrack.js's real-time hook (and the web page) knows who's talking.
+  const speechRunSlots = new Map(); // Val 32: finalized speech path -> the run's dj slots, in order -- resolveRampSeams needs to know a run is a SINGLE intro/quizIntro clip (station business like a show open spliced ahead of the intro stays sequential).
   let jinglePath = null; // set below if this occurrence has one -- kept separate from speechPaths since it gets its own fade treatment (annotateJingleEntry), not annotateSpeechEntry's
   const ratingKeyEntries = []; // [localPath, ratingKey] for track segments -- feeds the scrobble hook's path->ratingKey lookup
   const showTracks = []; // the same track segments as OBJECTS -- feeds the enqueue-time lyrics prefetch below (duplicates kept; ensureLyrics dedupes via the in-flight map/cache)
@@ -154,6 +155,7 @@ export async function directShow({ id, weekday, date, timeKey }) {
     segments.push(outcome.path);
     speechPaths.add(outcome.path);
     speechPersonas.set(outcome.path, personas);
+    speechRunSlots.set(outcome.path, [...pendingSpeechSlots]);
     pendingSpeechFiles = [];
     pendingSpeechPersonas = [];
     pendingSpeechSlots = [];
@@ -248,6 +250,24 @@ export async function directShow({ id, weekday, date, timeKey }) {
   const segmentDurations = await Promise.all(segments.map(getDurationSeconds));
   const durationSeconds = segmentDurations.reduce((a, b) => a + b, 0);
 
+  // Val 32 (hit-the-post): a single-clip intro/quizIntro speech run whose
+  // next track has a MEASURED intro window ramps over the track's intro on
+  // 2.4.6 (dj_transitions.liq reads the liq_ramp stamps; on 2.2.4 the extra
+  // annotate fields are inert and the seam stays sequential -- the air is
+  // byte-identical). resolveRampSeams owns the decision; this only feeds it
+  // the facts it cannot know: the measured durations and the run slots.
+  const { speech: rampSpeech, tracks: rampTracks } = resolveRampSeams({
+    segments,
+    speechPaths,
+    jinglePath,
+    durations: segmentDurations,
+    slotsFor: (p) => speechRunSlots.get(p),
+  });
+  for (const [runPath, stamp] of rampSpeech) {
+    const trackPath = segments[segments.indexOf(runPath) + 1];
+    log(`[${id}] Rampa: intro govor (${stamp.dur} s) čez intro naslednje pesmi -- ${path.basename(trackPath)}`);
+  }
+
   fs.writeFileSync(path.join(showOccurrenceDir, 'live-segments.json'), JSON.stringify(liveLog, null, 2));
   fs.writeFileSync(path.join(showOccurrenceDir, 'transcript.json'), JSON.stringify(ttsLog, null, 2));
   fs.writeFileSync(
@@ -287,11 +307,14 @@ export async function directShow({ id, weekday, date, timeKey }) {
   // radio.liq's fade.in reads (listener feedback, 2026-07-29: fade up into
   // tracks; the jingle's own fade-down is baked into its rendered copy
   // above, not done live, and DJ speech is forced to "0" -- never fades).
+  // Val 32: the ramp stamps ride the SAME lines -- liq_ramp on both sides of
+  // a verified speech->track seam, plus the speech's liq_cross_duration
+  // sizing the whole clip as the cross buffer (see playlist.js).
   const stationName = scheduleUtil.loadStation().name;
   const playlistLines = segments.map((p) => {
     if (p === jinglePath) return annotateJingleEntry(p, parsed.title, stationName);
-    if (speechPaths.has(p)) return annotateSpeechEntry(p, parsed.title, stationName, speechPersonas.get(p));
-    return annotateTrackEntry(p);
+    if (speechPaths.has(p)) return annotateSpeechEntry(p, parsed.title, stationName, speechPersonas.get(p), rampSpeech.get(p) ?? null);
+    return annotateTrackEntry(p, rampTracks.has(p));
   });
 
   // Written last, and only on full success -- its presence is the signal

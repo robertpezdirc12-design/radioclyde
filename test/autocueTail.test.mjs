@@ -125,20 +125,25 @@ const loudStderr = [
   '    Peak:      -1.0 dBFS',
 ].join('\n');
 
-// A runner answering the loudness pass, the tail pass and the head pass
-// (Val 28 B1) with canned stderr -- switching on the exact flag shapes of
-// the three real execFileAsync calls (-sseof = tail, leading -t 20 = head,
-// neither = loudness) -- and recording every call's args for pinning.
-function cannedRunner({ tail = tailStderrFor(fadeSeries), tailError = null, head = tailStderrFor(coldSeries), headError = null, calls = [] } = {}) {
+// A runner answering the loudness pass, the tail pass, the head pass
+// (Val 28 B1) and the vocal pass (Val 32) with canned stderr -- switching
+// on the exact flag shapes of the four real execFileAsync calls
+// (-sseof = tail, leading -t 20 = head, leading -t 32 = vocal, neither =
+// loudness) -- and recording every call's args for pinning.
+function cannedRunner({ tail = tailStderrFor(fadeSeries), tailError = null, head = tailStderrFor(coldSeries), headError = null, vocal = tailStderrFor(coldSeries), vocalError = null, calls = [] } = {}) {
   return async (file, args) => {
     calls.push({ file, args });
     if (args.includes('-sseof')) {
       if (tailError) throw tailError;
       return { stderr: tail };
     }
-    if (args[2] === '-t') {
+    if (args[2] === '-t' && args[3] === '20') {
       if (headError) throw headError;
       return { stderr: head };
+    }
+    if (args[2] === '-t' && args[3] === '32') {
+      if (vocalError) throw vocalError;
+      return { stderr: vocal };
     }
     return { stderr: loudStderr };
   };
@@ -382,22 +387,29 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
         failed: summary.failed,
         tailFailed: summary.tailFailed,
         headFailed: summary.headFailed,
+        vocalFailed: summary.vocalFailed,
       },
-      { analyzed: 1, skipped: 0, failed: 0, tailFailed: 0, headFailed: 0 }
+      { analyzed: 1, skipped: 0, failed: 0, tailFailed: 0, headFailed: 0, vocalFailed: 0 }
     );
-    // Loudness pass first, tail pass second, head pass third (the order that
-    // guarantees loudness never regresses on a tail/head failure).
-    assert.equal(calls.length, 3);
+    // Loudness pass first, tail pass second, head pass third, vocal pass
+    // fourth (the order that guarantees loudness never regresses on a
+    // tail/head/vocal failure).
+    assert.equal(calls.length, 4);
     assert.ok(calls[0].args.includes('ebur128=peak=true'));
     assert.ok(!calls[0].args.includes('-sseof'));
     assert.deepEqual(calls[1].args.filter((a) => a === '-sseof' || a === '-20'), ['-sseof', '-20']);
     assert.ok(calls[1].args.includes('ebur128=metadata=1:framelog=info')); // pinned DEVIATION 1
     assert.deepEqual(calls[2].args.filter((a, i) => (i === 2 && a === '-t') || (i === 3 && a === '20')), ['-t', '20']);
+    // The vocal pass: -t 32 through the presence band (Val 32).
+    assert.deepEqual(calls[3].args.filter((a, i) => (i === 2 && a === '-t') || (i === 3 && a === '32')), ['-t', '32']);
+    assert.ok(calls[3].args.includes('highpass=f=250,lowpass=f=3200,ebur128=metadata=1:framelog=info'));
 
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.deepEqual(onDisk.tracks[file].tail, { windMs: 10000, fade: true, lufsDrop: 29.8 });
     // The canned head is the flat cold series -> the cold regime lands too.
     assert.deepEqual(onDisk.tracks[file].head, { riseMs: 0, gradual: false, lufsRise: 0 });
+    // The canned vocal is the same flat series -> unfilled (onset null).
+    assert.deepEqual(onDisk.tracks[file].vocal, { onsetMs: null });
     assert.equal(onDisk.tracks[file].lufs, -12); // loudness from the canned Summary
     assert.equal(crossfadeAnnotate(file), '10.0');
   });
@@ -407,8 +419,8 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
     const file = writeWav(path.join(dir, 'cold.wav'), 1);
     const summary = await analyzeMissing([file], { runner: cannedRunner({ tailError: new Error('boom') }) });
     assert.deepEqual(
-      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
-      { analyzed: 1, failed: 0, tailFailed: 1, headFailed: 0 }
+      { analyzed: summary.analyzed, failed: summary.failed, tailFailed: summary.tailFailed, headFailed: summary.headFailed, vocalFailed: summary.vocalFailed },
+      { analyzed: 1, failed: 0, tailFailed: 1, headFailed: 0, vocalFailed: 0 }
     );
     const onDisk = JSON.parse(fs.readFileSync(config.paths.autocueIndexPath, 'utf8'));
     assert.equal(onDisk.tracks[file].tail, undefined);
@@ -429,8 +441,8 @@ describe('analyzeMissing tail round-trip (canned stderr)', () => {
     const calls = [];
     const summary = await analyzeMissing([file], { runner: cannedRunner({ calls }) });
     assert.deepEqual(
-      { analyzed: summary.analyzed, skipped: summary.skipped, tailFailed: summary.tailFailed, headFailed: summary.headFailed },
-      { analyzed: 0, skipped: 1, tailFailed: 0, headFailed: 0 }
+      { analyzed: summary.analyzed, skipped: summary.skipped, tailFailed: summary.tailFailed, headFailed: summary.headFailed, vocalFailed: summary.vocalFailed },
+      { analyzed: 0, skipped: 1, tailFailed: 0, headFailed: 0, vocalFailed: 0 }
     );
     assert.equal(calls.length, 0);
     assert.equal(crossfadeAnnotate(file), null);

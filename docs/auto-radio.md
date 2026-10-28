@@ -1357,6 +1357,47 @@ izhajajo iz IZMEROV (avtocuejev indeks glave/repa vsakega sleda).
 - **Urnina ID plošča čez govor** (B3): DOSTAVLJENO v valu 31 (razdelek
   zgoraj) — vrata so odprta zgolj na 2.4.6, na 2.2.4 ostaja cookbookov
   `{0m0s}` overlay (bajtno-identično).
-- **Hit-the-post** (govor čez intro pesmi): zahteva detekcijo začetka
-  vokala — ostaja na seznamu idej.
+- **Hit-the-post** (govor čez intro pesmi): DOSTAVLJENO v valu 32 —
+  glej »Rampa (Val 32)« spodaj.
 - **BPM/stem prehodi**: dokumentirano zavrnjeno (proti arhitekturi brez AI).
+
+### Rampa — govorni prehod čez intro pesmi (Val 32, hit-the-post)
+
+Zadnja odložena točka vala 28. Node stranski (`lib/autocue.js` VOCAL
+prečka, `director/playlist.js` `resolveRampSeams`) izmeri, KJE se intro
+pesmi zapolni: ena dodatna ffmpeg prečka prvih 32 s skoz pas prisotnosti
+250–3200 Hz (območje formantov), ebur128 momentarna serija; prva TOČKA,
+kjer pas drži ≥ +4,5 dB nad lastno izhodiščno linijo ≥ 1,2 s, je
+zapolnitev (»post«, ki ga mora ramparski DJ zadeti). Prehod govora čez
+intro nastane, ko se vse pokrije (isti `liq_ramp="1"` žig na OBEH
+stranah šiva, govor ≤ okno ≤ zapolnitev − 1,5 s robu, en sam intro
+klip, ≤ 20 s): potem `dj_transitions.liq` RAMPA veja zaigra govor NAD
+duckano pesmijo (0.2, isti program floor kot postelje) in jo dvigne na
+1.0 na šivu — DJ nikoli ni poteptan, pesem nikoli ne izgubi. Iskrene
+meje: (1) prekrivanje je dolgo kot crossovo OKNO SPROŽITVE prehoda
+(~dj_transition_buffer + ~1 s predpomnilnika; izmerjeno 4,6 s na 8-s
+govoru na uradni 2.4.6) — rampa pokrije ZADNJI del govora, ne vsega;
+(2) detekcija izmeri zapolnitev, ne vokala — tematska kitara se prebere
+enako (za rampo je to prav tako pravi »post«); (3) pesmi, ki so glasne
+od prve sekunde, ne nosijo okna (onset null → brez rampe, prehod ostane
+trd rez, današnje vedenje). Neizmerjena knjižnica: brez rampe,
+bajtno-identično. Živo preverjeno 2026-10-28 na uradni 2.4.6 (Goertzel
+sonda: govor 412.8 polno, pesem 82.5 = točno 0.2, dvig ~0.3–0.5 s na
+šivu, pesem nedotaknjena do konca).
+
+### Pol glasnosti + stradanje programa — popravek ID overlayja (Val 32)
+
+Med živim preverjanjem rampe je dvojni bisekt (uradni binarki 2.2.4 IN
+2.4.6, ena spremenljivka na poskus) našel STARO latentno napako, ki je
+obstajala na etru od uvedbe urnega ID overlayja: privzeti
+`add(normalize=true)` nad `[radio, switch(...)]` meša kot POVPREČJE —
+cela postaja je igrala na POL glasnosti (Goertzel 206 proti 412, ×2) —
+in v kombinaciji s `blank.strip` je STRADAL program (pesem utihne po
+10 s na 2.2.4, po ~22 s na 2.4.6; polna datoteka brez tega add() ali z
+`add(normalize=false)` teče čisto na OBEH binarkah). Popravek:
+`add(normalize=false, ...)` na obeh vejah urnega ID overlayja — postaja
+dobrne +6 dB (odpravljena latentna tišina, ne novi okus) in stradanje
+izgine na obeh buildih; beds add in prehodi v dj_transitions.liq so že
+bili normalize=false, ta overlay je bil edino mesto s privzetkom.
+Protidrift stražar: noben `add([radio` brez normalize=false več ne sme
+preživeti testov (radioLiqImaging.test.mjs).

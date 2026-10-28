@@ -184,6 +184,38 @@ ujet MP3 analiziran po prisotnosti 880 Hz):
 Iskrena meja (napisana v docs/auto-radio.md): govor, ki teče čez 90. sekundo
 ure, to uro ID preskoči — poteptan DJ je hujši od izpuščenega žingla.
 
+## Val 32 (2026-10-28): rampa + POPRAVEK POL GLASNOSTI IN STRADANJA
+
+Dve ugotovki, obe živo preverjeni na uradnih binarkah:
+
+1. **LATENTNA NAPAKA NA OBEH BUILDIH, POPRAVLJENA**: urni ID overlay
+   `add([radio, switch(...)])` je igral s privzetim `normalize=true` —
+   to meša kot POVPREČJE, torej je postaja od uvedbe overlayja igrala na
+   POL glasnosti (Goertzel 206 proti 412 na istem tonu), in v kombinaciji
+   s `blank.strip` je STRADAL program: pesem utihne po 10 s (2.2.4) oziroma
+   po ~22 s (2.4.6). Dvojni bisekt: brez tega add() ali z
+   `add(normalize=false)` teče polna skripta čisto na OBEH binarkah;
+   z normalize=true strada na obeh. Popravek: `add(normalize=false, ...)`
+   na obeh vejah overlayja. POSLEDICA za obstoječi 2.2.4 eter: +6 dB
+   glasnosti (odpravljena latentna tišina) in konec stradanja. Brez tega
+   popravka bi korak 4 spodaj (hladni zagon) na 2.4.6 slišal krajše
+   pesmi — zdaj sliši cele.
+2. **RAMPA (hit-the-post) ŽIVO PREVERJENA na 2.4.6**: govor čez intro
+   pesmi (liq_ramp žig na obeh straneh šiva, duck 0.2, dvig ~0.3–0.5 s
+   na šivu, pesem nedotaknjena). Iskrena meja: prekrivanje je dolgo kot
+   crossovo okno sprožitve (~dj_transition_buffer + ~1 s, izmerjeno
+   4,6 s na 8-s govoru) — rampa pokrije zadnji del govora, ne vsega.
+   Podrobnosti v docs/auto-radio.md, razdelek »Rampa (Val 32)«.
+
+Sveža matrika na TEKOČEM drevesu (2026-10-28, uradni binarki, isti
+uporabniški postopek kot zgoraj, 55-s živi zagoni z Goertzel analizo
+ujetega MP3):
+
+| Preverba | 2.2.4-1 (vrata ZAPRTA) | 2.4.6 (vrata ODPRTA) |
+|---|---|---|
+| `--check` | EXIT 0, TIHO | EXIT 0, točno 1 znano opozorilo (`null()` → `null`, spodaj) |
+| živ zagon 55 s | vsi segmenti vseh 3 sledov, polna amplituda | vsi segmenti + VSI blendi (3,5 s na vsakem šivu) + rampa |
+
 ## Koraki na boxu
 
 **PRED korakom 1 (novo, Val 30): pred-poletna preverba z uradno binarko,

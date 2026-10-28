@@ -9,7 +9,7 @@ function escapeAnnotateValue(value) {
 // the same module the scheduler's autocue scan job writes. An empty or
 // missing index simply yields no field for any track -- see the comment on
 // annotateTrackEntry below for the pass-through contract.
-import { amplifyAnnotate, crossfadeAnnotate, fadeInAnnotate, transitionFlagAnnotate } from '../lib/autocue.js';
+import { amplifyAnnotate, crossfadeAnnotate, fadeInAnnotate, transitionFlagAnnotate, autocueFor, rampStampFor } from '../lib/autocue.js';
 
 // radio.liq wraps show_source/filler_source in fade.in(); this is the
 // per-track duration that operator uses unless a playlist entry's own
@@ -61,8 +61,20 @@ export const SOURCE_TAG = {
 // fade" flag, but has the same audible effect) -- explicit rather than
 // relying on fade.in's global default staying 0, so speech is protected even
 // if that default ever changes for tracks.
-export function annotateSpeechEntry(filePath, showTitle, stationName, personas) {
+//
+// Val 32 (ramp talk / hit-the-post): a single-clip intro/quizIntro run whose
+// next track has a MEASURED intro window additionally carries liq_ramp="1"
+// plus liq_cross_duration="<speech duration>" (the SAME field the tail pass
+// stamps on music -- "transition OUT of this entry lasts this long"; here it
+// sizes the whole speech clip as the cross buffer, which is what starts the
+// incoming track under the talk on 2.4.6). Without a ramp object the line is
+// byte-identical to the pre-Val-32 format. The fields are inert on 2.2.4
+// (nothing there parses them) -- the seam stays sequential on that build.
+export function annotateSpeechEntry(filePath, showTitle, stationName, personas, ramp = null) {
   const fields = [`source_tag="${SOURCE_TAG.speech}"`, 'liq_fade_in="0"'];
+  if (ramp?.dur) {
+    fields.push('liq_ramp="1"', `liq_cross_duration="${ramp.dur}"`);
+  }
   if (showTitle) fields.push(`title="${escapeAnnotateValue(showTitle)}"`);
   if (stationName) fields.push(`artist="${escapeAnnotateValue(stationName)}"`);
   if (personas?.length) fields.push(`dj="${escapeAnnotateValue(personas.join(' & '))}"`);
@@ -124,15 +136,65 @@ export function annotateJingleEntry(filePath, showTitle, stationName) {
 // start carries liq_sweep. Unmeasured or unremarkable entries carry no
 // flag -- the plain linear crossfade stays the workhorse seam, and nothing
 // changes on air until the box's Liquidsoap upgrade lights the layer.
-export function annotateTrackEntry(filePath) {
+//
+// Val 32 (ramp talk): `ramp` truthy marks the track whose INTRO a
+// ramp-stamped speech run talks over. dj_transitions.liq's ramp branch
+// requires the marker on BOTH sides of the seam before it leaves the
+// hard-cut contract -- an unmarked incoming (filler rotation, listener
+// requests, hand-built playlists) never ramps even when the outgoing
+// speech happens to carry liq_ramp, because the window was never verified
+// for THAT track. Without it the line is byte-identical.
+export function annotateTrackEntry(filePath, ramp = false) {
   const fields = [
     `source_tag="${SOURCE_TAG.music}"`,
     `liq_fade_in="${fadeInAnnotate(filePath) ?? TRACK_FADE_IN_SECONDS}"`,
   ];
+  if (ramp) fields.push('liq_ramp="1"');
   fields.push(...transitionFlagAnnotate(filePath));
   const amplify = amplifyAnnotate(filePath);
   if (amplify) fields.push(`liq_amplify="${amplify}"`);
   const cross = crossfadeAnnotate(filePath);
   if (cross) fields.push(`liq_cross_duration="${cross}"`);
   return `annotate:${fields.join(',')}:${filePath}`;
+}
+
+// Val 32: walk the assembled segment list and decide, per speech->track
+// seam, whether the speech ramps over the track's intro. The decision itself
+// is rampStampFor's (lib/autocue.js -- pure, tested there); this owns the
+// SEAM WALK: a ramp candidate is a speech run immediately followed by a real
+// track (not the jingle, not another run -- runs are maximal so that never
+// happens, but the guard is free). `durations` is the MEASURED per-segment
+// length array director/index.js already collects; `slotsFor` maps a run's
+// path to its dj slots (a spliced open+intro run is station business and
+// stays sequential); `vocalFor` is the autocue index seam (tests inject a
+// stub; production reads the real side index).
+//
+// Returns { speech: Map<runPath, {dur}>, tracks: Set<trackPath> } -- feed the
+// Map to annotateSpeechEntry's ramp argument and the Set to
+// annotateTrackEntry's. An empty result means the playlist annotates exactly
+// as it did before Val 32.
+export function resolveRampSeams({
+  segments,
+  speechPaths,
+  jinglePath,
+  durations,
+  slotsFor,
+  vocalFor = (p) => autocueFor(p)?.vocal,
+}) {
+  const speech = new Map();
+  const tracks = new Set();
+  for (let i = 0; i + 1 < segments.length; i += 1) {
+    const p = segments[i];
+    const next = segments[i + 1];
+    if (!speechPaths.has(p) || speechPaths.has(next) || next === jinglePath) continue;
+    const stamp = rampStampFor({
+      slots: slotsFor(p),
+      speechSeconds: durations?.[i],
+      vocal: vocalFor(next),
+    });
+    if (!stamp) continue;
+    speech.set(p, stamp);
+    tracks.add(next);
+  }
+  return { speech, tracks };
 }
