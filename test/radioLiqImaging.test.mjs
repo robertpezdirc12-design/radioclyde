@@ -26,9 +26,9 @@ const liq = liqRaw
   .map((line) => line.replace(/#.*$/, ''))
   .join('\n');
 
-// The install.sh heredoc copy (same read as radioLiqIcy.test.mjs /
-// clockwheel.test.mjs: shell # comments and Liquidsoap # comments strip the
-// same way, and the heredoc is single-quoted so nothing is shell-expanded).
+// The install.sh deployment contract (same read as radioLiqIcy.test.mjs /
+// clockwheel.test.mjs: shell # comments strip the same way; until Val 34
+// its heredocs were single-quoted so nothing was shell-expanded either).
 const installSh = fs
   .readFileSync(path.join(repoRoot(), 'deploy', 'ubuntu', 'install.sh'), 'utf8')
   .split('\n')
@@ -151,14 +151,19 @@ describe('radio.liq imaging layer structure', () => {
     assert.doesNotMatch(liq, /stinger_timed = delay\(1200\./);
   });
 
-  test('install.sh deliberately has NO promo_source (the layer is reference-radio.liq only)', () => {
-    // Known limit, documented in docs/imaging-layer.md + DEPLOYMENT_GUIDE:
-    // the install template carries no promo layer, so enabling
-    // imaging.promos.enabled on an install.sh deployment would produce clips
-    // that never air. Pinning the absence keeps the non-port deliberate --
-    // anyone adding it here must also port the wiring + docs knowingly.
-    assert.doesNotMatch(installSh, /promo_source/);
-    assert.doesNotMatch(installSh, /imaging\/promos/);
+  test('install.sh runs the reference in place -- the imaging layers exist on deployments (Val 34)', () => {
+    // Until Val 34 the install template carried no promo layer (documented
+    // known limit in docs/imaging-layer.md + DEPLOYMENT_GUIDE): enabling
+    // imaging.promos.enabled on a template deployment produced clips that
+    // never aired. The template is gone -- the unit's ExecStart points at
+    // THIS reference file, so every layer pinned above exists on every
+    // deployment by construction. A reappearance of a second graph heredoc
+    // (any imaging source defined inside install.sh) is a regression, not
+    // an edit; the unit-to-file pin itself lives in test/deployReference
+    // .test.mjs.
+    assert.match(installSh, /ExecStart=\/usr\/bin\/liquidsoap \/opt\/radioclyde\/app\/liquidsoap\/radio\.liq/);
+    assert.doesNotMatch(installSh, /stinger_source = playlist\(/);
+    assert.doesNotMatch(installSh, /promo_source = playlist\(/);
   });
 
   test('emergency bed sits below the program and above mksafe, via playlist()', () => {

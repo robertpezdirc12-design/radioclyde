@@ -707,7 +707,12 @@ with the listener and studio pages served by that same Fastify process
 over same-origin APIs (now-playing, stream proxy, polls, push). A
 serverless static host can run none of that. The real deployment is the
 Ubuntu box: [deploy/ubuntu/DEPLOYMENT_GUIDE.md](deploy/ubuntu/DEPLOYMENT_GUIDE.md)
-and the systemd unit shipped as `radioclyde.service`.
+and the systemd unit shipped as `radioclyde.service`. Since Val 34 that
+deployment runs the **same reference `liquidsoap/radio.liq` in place** —
+the installer's unit points at the app tree (`RADIOCLYDE_HOME=/opt/radioclyde/app`),
+so there is no second playout template to drift: listener wishes, the
+imaging layers, format-clock beds and the measured transitions exist on
+every install, opt-in by `config.json` exactly as on the dev box.
 
 ## Documentation
 

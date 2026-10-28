@@ -358,8 +358,9 @@ describe('filler integration (end-to-end, real WAV library in genre folders)', (
 //     this pin exists so a future "make everything normal" edit fails loudly
 //     instead of silently;
 //   - the emergency bed must stay mode="normal" (it loops one clip);
-//   - deploy/ubuntu/install.sh writes its own simplified radio.liq on first
-//     install -- its filler_source must not drift from the repo copy.
+//   - deploy/ubuntu/install.sh runs the repo's REFERENCE radio.liq in place
+//     (Val 34: the unit's ExecStart points at the app tree) -- there is no
+//     second copy whose filler mode could drift from this one.
 describe('wheel audibility (radio.liq mode contract)', () => {
   // Same stripping as test/radioLiqImaging.test.mjs: radio.liq's comments
   // deliberately NAME the modes ("randomize shuffles at load...", "stays
@@ -386,8 +387,12 @@ describe('wheel audibility (radio.liq mode contract)', () => {
     assert.match(liq, /emergency_source = playlist\(id="imaging_emergency", reload_mode="watch", mode="normal", loop=true,/);
   });
 
-  test('install.sh writes the same filler_source mode="normal" (the two radio.liq copies cannot drift)', () => {
+  test('install.sh runs the reference radio.liq in place (no second copy to drift, Val 34)', () => {
     const sh = stripComments(fs.readFileSync(path.join(repoRoot(), 'deploy', 'ubuntu', 'install.sh'), 'utf8'));
-    assert.match(sh, /filler_source = playlist\(id="filler_source", reload_mode="watch", mode="normal", "\/opt\/radioclyde\/data\/filler\.m3u"\)/);
+    // One file, one truth: the deployment's filler mode IS this file's mode
+    // by construction. If someone reintroduces a template heredoc (a second
+    // filler_source definition in install.sh), this fails loudly.
+    assert.match(sh, /ExecStart=\/usr\/bin\/liquidsoap \/opt\/radioclyde\/app\/liquidsoap\/radio\.liq/);
+    assert.doesNotMatch(sh, /filler_source = playlist\(/);
   });
 });

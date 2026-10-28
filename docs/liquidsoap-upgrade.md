@@ -232,7 +232,12 @@ radio.liq (matrika zgoraj je nastala tako).
 okolja `RADIOCLYDE_HOME` (ne nastavljena = izvirna pot `/home/ai/radioclyde`,
 torej referenčni box deluje nespremenjeno). Namestitev na drugi poti (npr.
 `/opt/radioclyde`) v systemd enoto doda `Environment=RADIOCLYDE_HOME=/opt/radioclyde`
-— brez ročnega prestavljanja poti po datoteki.
+— brez ročnega prestavljanja poti po datoteki. (Od vala 34 to namestilni
+skript zapiše sam: enota `liquidsoap-radioclyde` nosi
+`ExecStart=/usr/bin/liquidsoap /opt/radioclyde/app/liquidsoap/radio.liq` in
+`Environment=RADIOCLYDE_HOME=/opt/radioclyde/app` — namestitev in referenčna
+škatla poganjata ISTO datoteko na mestu, zato `--check` spodaj preverja
+natanko tisto, kar teče v produkciji.)
 
 1. **Varnostna kopija trenutnega stanja**: `liquidsoap --check radio.liq`
    (mora biti čisto), zapiši verzijo (`liquidsoap --version`), shrani

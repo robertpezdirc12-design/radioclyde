@@ -91,8 +91,9 @@ sudo chown -R radioclyde:radioclyde /opt/radioclyde/music /opt/radioclyde/voices
 sudo cp /opt/radioclyde/app/deploy/ubuntu/config.linux.json /opt/radioclyde/app/config.json
 sudo nano /opt/radioclyde/app/config.json
 sudo nano /etc/icecast2/icecast.xml
-sudo nano /opt/radioclyde/config/radio.liq
 ```
+
+**`radio.liq` se ne ureja več (Val 34):** motor je referenčni `/opt/radioclyde/app/liquidsoap/radio.liq`, ki ga enota poganja na mestu s `RADIOCLYDE_HOME=/opt/radioclyde/app` — geslo vira (`icecast.sourcePassword`) in telnet vrata (`liquidsoap.telnetHost`/`telnetPort`) bere iz `config.json`, ne iz `.liq` datoteke. Posodobitev kode (git pull / ponovni razpak) JE posodobitev motorja.
 
 **Opozorilo — pred prvim zagonom dodajte gesla:** izposojeni `config.linux.json` namerno ne vsebuje blokov `web.listeners` (gesla za dostop poslušalcev do web UI/API) in `studio.users` (gesla za dostop do studia). Po kopiranju v `/opt/radioclyde/app/config.json` dodajte oba bloka ročno — obliko glejte v `config.example.json`. Brez njih web UI in studio po prijavnem oknu nista dosegljiva (401 — ni enega veljavnega uporabnika), medtem ko nginx `/stream` že oddaja javno. Basic auth geslo potuje v vsaki zahtevi (Base64, ne zgoščeno), zato izberite močno geslo.
 
@@ -100,7 +101,7 @@ sudo nano /opt/radioclyde/config/radio.liq
 - `icecast.publicHost`: `"yourdomain.com"` — gostitelj, iz katerega se URL izpelje (nadomesti `CHANGE_ME_PUBLIC_HOST_OR_IP`), in
 - `broadcast.publicStreamUrl`: `"https://yourdomain.com/stream"` — ta nastavitev ima prednost pred izpeljavo in je pravi javni URL toka za `/listen.m3u`, `/listen.pls` in push povezave.
 
-**Omejitev — želje poslušalcev ne gredo v eter na tej predlogi:** `radio.liq`, ki ga zapiše `install.sh`, nima vira `request.queue`, zato odobrena želja ostane odobrena, a ne zaigra (gumb »V vrsto« v studiu poroča, da Liquidsoap ni sprejel zahtevka). Predvajanje želj podpira referenčni `liquidsoap/radio.liq` iz repozitorija — vir `request.queue(id="requests")` in `fallback(track_sensitive=true, [requests_source, radio])` (~vrstice 243–269); če želite želje na etru, preberite ta blok in ga prenesite v `/opt/radioclyde/config/radio.liq` (Nodeova stran pričakuje ravno id `requests`, glej `src/liquidsoap/requestQueue.js`).
+**Želje poslušalcev gredo na eter (Val 34):** odobrena želja gre prek telnet ukaza `requests.push` v vrsto `request.queue(id="requests")` (Nodeova stran: `src/liquidsoap/requestQueue.js`) in zaigra na prvi meji skladb — živo preverjeno na uradni 2.2.4 binarki z Goertzelovim dokazom na zajetem toku (potisnjen 880 Hz ton je dominiral natanko svojih 10 s). Do vala 34 je bila to znana omejitev namestniške predloge `radio.liq`; od vala 34 motor poganja referenčni graf na mestu, zato vrata za želje obstajajo na vsaki namestitvi.
 
 ### 3.5 Namesti npm odvisnosti (že narejeno v install.sh)
 ```bash
@@ -116,6 +117,8 @@ sudo systemctl status icecast2 radioclyde liquidsoap-radioclyde nginx
 ```
 
 **Opomba**: Samo ENA storitev za web+scheduler (`radioclyde.service`), ker `src/server/index.js` že kliče `startScheduler()`. Ločena storitev `radioclyde-web.service` NE obstaja več.
+
+**Opomba (Val 34 — motor je referenčni graf na mestu):** `liquidsoap-radioclyde` poganja `/opt/radioclyde/app/liquidsoap/radio.liq` (enota nosi `Environment=RADIOCLYDE_HOME=/opt/radioclyde/app`) — namestniška predloga v `/opt/radioclyde/config/radio.liq` NE obstaja več. Vse plasti referenčnega grafa so na voljo takoj: želje prek `requests` vrste, imaging stingerji/promosi, postelje formatne ure, merjeni prehodi, večmounti `streams.liq`; konfiguracijsko so OPT-IN po isti doktrini kot povsod (`imaging` blok v `config.json`).
 
 ## Korak 5: HTTPS (Let's Encrypt)
 
@@ -250,18 +253,27 @@ Arhiv vsebuje **PLAINTEXT gesla** (studio, icecast, plex, lastfm) **in VAPID zas
 
 ## Arhitektura predvajanja (kaj prihaja v eter in kdaj)
 
-`/opt/radioclyde/config/radio.liq` (ki ga namesti `install.sh`) mora imeti **dva vira**:
+`/opt/radioclyde/app/liquidsoap/radio.liq` (referenčni graf iz repozitorija; od vala 34 ga enota poganja na mestu — prej je `install.sh` pisal poenostavljeno predlogo v `/opt/radioclyde/config/`, glej migracijo spodaj) ima **dva glavna vira** (+ vrsto za želje, imaging plasti in postelje formatne ure — isti viri kot na referenčni škatli):
 
 | vir | datoteka | način |
 |---|---|---|
 | `show_source` | `data/now_playing.m3u` | `mode="normal"`, `loop=false` — ena producirana oddaja; ko se izprazni, preide na filler |
 | `filler_source` | `data/filler.m3u` | `mode="normal"` — glasba med oddajami v zapisanem vrstnem redu (nastavljeno kolo kvadrantov je tako slišno); razporejevalnik jo obnavlja in vsaka regeneracija vrstni red znova premeša |
 
-`fallback([show_source, filler_source])` pomeni: **producirana oddaja gre v eter, takoj ko obstaja**; filler pokrije le vrzeli. Če vaš `radio.liq` ima *samo* `filler.m3u` (kot starejša različica `install.sh`), urnik nikoli ne pride v eter in poslušalci slišijo isto neskončno zankco — točno to je bil prijavljen problem ponavljanja.
+`fallback([show_source, filler_source])` pomeni: **producirana oddaja gre v eter, takoj ko obstaja**; filler pokrije le vrzeli. Če vaš `radio.liq` ima *samo* `filler.m3u` (kot predloga pred valom 34), urnik nikoli ne pride v eter in poslušalci slišijo isto neskončno zanko — točno to je bil prijavljen problem ponavljanja; za te namestitve je spodaj migracija.
 
 ### Icy identiteta toka (Paket B3)
 
-Predloga iz `install.sh` v svojem `output.icecast` nosi `name="Radio Markec"`, `description="Slovenian script-driven radio"`, `genre="Various"` in uredniško nastavljiv `url="https://your-domain.com"` — to so STATIČNI metapodatki mounta, ki jih predvajalniki in imeniki (TuneIn idr.) pokažejo kot identiteto postaje. Enake tri vrednosti (brez `url=`) nosi tudi referenčni `liquidsoap/radio.liq` iz repozitorija; obe kopiji sta pripeti skupaj v `test/radioLiqIcy.test.mjs`, da ne razideta (isti test ima tudi stražarja, da opis nikoli več ne nosi trditve o »AI« — postaja od vala 28 teče brez AI modelov, torej tudi oddajni metapodatki ne smejo lagati). Vrednosti so namerno literali v `radio.liq` (tipizirani `json.parse` ostaja nedotaknjen, starejši `config.json` torej še vedno zažene) — preuredite jih neposredno v `/opt/radioclyde/config/radio.liq`. Namig za namestitve pred valom 21: `install.sh` piše `radio.liq` le ob prvi namestitvi — obstoječi stroji te identitete še nimajo, dokler ne prepišejo svojega izhodnega bloka. Namig za namestitve pred valom 30, ki so opis podedovale iz predloge: prepišite niz `description=` v svojem `radio.liq` tudi ročno — spremenjena predloga se obstoječim namestitvam ne napiše sama (enaka življenjska doba kot vsi `install.sh` literali).
+Referenčni `/opt/radioclyde/app/liquidsoap/radio.liq` v svojem `output.icecast` nosi `name="Radio Markec"`, `description="Slovenian script-driven radio"`, `genre="Various"` — to so STATIČNI metapodatki mounta, ki jih predvajalniki in imeniki (TuneIn idr.) pokažejo kot identiteto postaje. Vrednosti so namerno literali v `radio.liq` (tipizirani `json.parse` ostaja nedotaknjen, starejši `config.json` torej še vedno zažene); pripete so v `test/radioLiqIcy.test.mjs`, ki ima tudi stražarja, da opis nikoli več ne nosi trditve o »AI« (postaja od vala 28 teče brez AI modelov, torej tudi oddajni metapodatki ne smejo lagati). `url=` je v referenčni datoteki ZAVESNO izpuščen (placeholder URL bi bil mehka laž na razvojni škatli); če imate domeno in želite `url=` v metapodatkih, dodajte vrstico v `/opt/radioclyde/app/liquidsoap/radio.liq` — pošteno opozorilo: posodobitev kode (git pull / ponovni razpak) datoteko prepiše, uredba se naredi znova (literali so namerno trdni, tipizirani parse jih ne more nositi).
+
+### Migracija obstoječih namestitev (val 34)
+
+Namestitve, odraščene na predlogi, imajo `/opt/radioclyde/config/radio.liq` in enoto s `ExecStart=/usr/bin/liquidsoap /opt/radioclyde/config/radio.liq` (re-run namestilnika ohrani obstoječo enoto — nova pristane kot `.new`). Migracija je en diff:
+
+1. `sudo diff /etc/systemd/system/liquidsoap-radioclyde.service /etc/systemd/system/liquidsoap-radioclyde.service.new` — prenesite `ExecStart=/usr/bin/liquidsoap /opt/radioclyde/app/liquidsoap/radio.liq` in `Environment=RADIOCLYDE_HOME=/opt/radioclyde/app` (ostalo je namerno enako).
+2. Geslo vira prenesite v `config.json`: `icecast.sourcePassword` mora biti enak `<source-password>` iz `icecast.xml` (motor ga zdaj bere iz config, ne iz radio.liq).
+3. `sudo systemctl daemon-reload && sudo systemctl restart liquidsoap-radioclyde`.
+4. Stari `/opt/radioclyde/config/radio.liq` ostane na mestu (nič ga ne briše) — arhiv ali pobrišite po lastni presoji.
 
 ### Zakaj se pesmi ne ponavljajo več vsako uro
 
@@ -277,8 +289,8 @@ Trije vzroki so bili odpravljeni (revizija 2026-10-24):
 # Ali je razporejevalnik sploh živ (crknil config = zamrznjen urnik)?
 sudo systemctl is-active radioclyde && sudo journalctl -u radioclyde -n 50 --no-pager | grep -i "scheduler started\|ERROR"
 
-# Ali liquidsoap preklaplja med show in filler (preberi logs)?
-sudo grep -E "show_source|filler_source" /opt/radioclyde/data/logs/liquidsoap.log | tail -20
+# Ali liquidsoap preklaplja med show in filler (dnevnik teče v journalu)?
+sudo journalctl -u liquidsoap-radioclyde --no-pager | grep -E "show_source|filler_source" | tail -20
 
 # Ali ledvica rotacije raste (vsak filler segment doda vrstico)?
 sudo wc -l /opt/radioclyde/data/history/filler-rotation.jsonl
@@ -294,7 +306,7 @@ sudo diff <(sort /tmp/gen1.m3u) <(sort /opt/radioclyde/data/filler.m3u) | grep -
 
 Znano omejitev: če je knjižnica manjša od `poolSize` (ali manjša od ene urne rotacije), se skladbe neizogibno vrnejo prek najstarejše rotacije — takrat dodajte glasbo ali povečajte knjižnico; arhitektura ne more rotirati, česar ni.
 
-**Opus/FLAC mounti:** prižiganje `icecast.opus`/`icecast.flac` v `config.linux.json` na tej VPS namestitvi ne bo delovalo — predloga `radio.liq` iz `install.sh` nima `%include "streams.liq"`, nginxova lokacija `/stream` bi `/stream.opus` preusmerila na `/stream.mp3`, izpeljani URL-ji pa spet kažejo na `publicHost:3000`; za delujoče mounte glejte referenčni `liquidsoap/radio.liq` in `docs/stream-mounts.md`. Isto velja za promo plast (Paket B2): namestniška predloga `radio.liq` nima `promo_source`, zato prižiganje `imaging.promos.enabled` tu pomeni produkcijo klipev, ki nikoli ne gredo na eter — plast živi samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md`, razdelek o promosih). ENAKO velja za postelje formatne ure (Paket D1): namestniška predloga nima vrste `request.queue(id="beds")`, zato `imaging.beds.enabled` tu pomeni produkcijo klipev in poštene zavrnitve potiska (`beds.push` ne obstaja) v dnevniku — vrsta za eter obstaja samo v referenčnem `liquidsoap/radio.liq` (glejte `docs/imaging-layer.md` §5). `config.linux.json` namerno ne nosi `imaging` bloka — odsoten neobvezen blok pomeni plast izklopljeno (ista doktrina kot povsod); obliko ključev (`imaging.promos.*`, `imaging.beds.*`) si oglejte v `config.example.json`.
+**Opus/FLAC mounti, promosi, postelje (Val 34 — vse plasti so na voljo):** motor je referenčni graf, torej ima vse mehanizme, ki jih imenujeta `docs/stream-mounts.md` in `docs/imaging-layer.md`. `%include "streams.liq"` se razreši v app drevesu, kjer ga `src/liquidsoap/streamsLiqWriter.js` ob vsakem zagonu `radioclyde` znova zapiše iz `config.json` (`icecast.opus` / `icecast.flac` / `archive` bloki) — po prižigu mountov restartajte OBE storitvi (`radioclyde` zaradi prepisa `streams.liq`, `liquidsoap-radioclyde` zaradi ponovnega branja). Promo plast (`imaging.promos.enabled`) in postelje formatne ure (`imaging.beds.enabled`) prav tako živijo v grafu — produkcija klipev in predvajanje na eter sta isti kodi kot na referenčni škatli. `config.linux.json` namerno ne nosi `imaging` bloka — odsoten neobvezen blok pomeni plast izklopljeno (ista doktrina kot povsod); obliko ključev (`imaging.promos.*`, `imaging.beds.*`) si oglejte v `config.example.json`. (Do vala 34 je bila to trojna znana omejitev namestniške predloge — zgodovina v gitu.)
 
 ## .gitignore
 

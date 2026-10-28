@@ -5,20 +5,25 @@
 //
 // It guards three directions:
 //  - PRESENT: output.icecast advertises the station's static icy identity
-//    (name/description/genre) in the reference radio.liq AND in the install.sh
-//    template's heredoc copy -- with MATCHING values, so the two copies
-//    cannot drift (the Val 20 A1 two-copies discipline applied to icy).
+//    (name/description/genre) in the reference radio.liq. Since Val 34
+//    deployments run THIS file in place (install.sh's unit starts
+//    /opt/radioclyde/app/liquidsoap/radio.liq), these literals ARE the
+//    broadcast identity everywhere -- no second template copy exists to
+//    drift (the Val 20 A1 two-copies discipline retired with the template;
+//    the unit-to-file pin now lives in test/deployReference.test.mjs).
 //    The description is HONEST post-Val 28 (Val 30): the station runs no AI
 //    models ("samo skripte brez ai modelov"), so the identity every player
 //    and directory sees must not claim "AI DJ Radio" -- the same
 //    must-not-lie discipline noAiModels.test.mjs pins for the tree, applied
 //    to the broadcast metadata.
 //  - ABSENT: no url= in the reference file (a placeholder URL would be a soft
-//    lie on the dev box -- install.sh keeps its operator-editable url=), no
-//    send_icy_metadata on the main output (per-track icy already flows via
-//    the default; dynamic mount-description updates were deferred with the
-//    roadmap's own blessing), and no icy keys inside the json.parse TYPE
-//    record (the literal-first policy: an older config.json keeps booting).
+//    lie on the dev box -- a real deployment adds the line in this file and
+//    honestly re-applies it after every code update, per DEPLOYMENT_GUIDE's
+//    icy section), no send_icy_metadata on the main output (per-track icy
+//    already flows via the default; dynamic mount-description updates were
+//    deferred with the roadmap's own blessing), and no icy keys inside the
+//    json.parse TYPE record (the literal-first policy: an older config.json
+//    keeps booting).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -37,9 +42,10 @@ const liq = liqRaw
   .map((line) => line.replace(/#.*$/, ''))
   .join('\n');
 
-// The install.sh heredoc copy: shell # comments and Liquidsoap # comments
-// strip the same way (the heredoc is single-quoted 'LIQ_EOF', so nothing is
-// shell-expanded -- clockwheel.test.mjs reads it the same way).
+// The install.sh copy of the deployment contract (Val 34): comment-stripped
+// the same way (shell # comments and Liquidsoap # comments go together; the
+// heredocs were single-quoted so nothing was shell-expanded -- clockwheel
+// .test.mjs reads it the same way).
 const installSh = fs
   .readFileSync(path.join(repoRoot(), 'deploy', 'ubuntu', 'install.sh'), 'utf8')
   .split('\n')
@@ -69,21 +75,24 @@ describe('radio.liq icy identity (output.icecast name/description/genre)', () =>
 
   test('reference file deliberately has NO url= (soft-lie guard)', () => {
     // A placeholder URL would be advertised in icy on the dev box where no
-    // such domain exists; the install.sh template keeps its operator-editable
-    // url= for real deployments. If someone adds url= here, they should also
-    // re-read the comment above output.icecast and update this pin knowingly.
+    // such domain exists. A real deployment with a domain adds the url= line
+    // in THIS file and honestly re-applies it after every code update (git
+    // pull rewrites it -- DEPLOYMENT_GUIDE's icy section documents the
+    // lifecycle). If someone adds url= here, they should also re-read the
+    // comment above output.icecast and update this pin knowingly.
     assert.doesNotMatch(liq, /url = "/);
   });
 
-  test('install.sh heredoc copy carries the SAME three values (no drift)', () => {
-    // Two radio.liq copies exist (reference + install.sh template) -- the A1
-    // lesson: whatever is pinned in both must be pinned TOGETHER, or they
-    // drift silently. install.sh's output.icecast also carries url=, which is
-    // its own operator-editable placeholder and intentionally NOT mirrored.
-    assert.match(installSh, /name="Radio Markec",/);
-    assert.match(installSh, /description="Slovenian script-driven radio",/);
-    assert.match(installSh, /genre="Various",/);
-    assert.match(installSh, /url="https:\/\/your-domain\.com",/);
+  test('install.sh has no icy heredoc anymore -- deployments run THIS file (Val 34)', () => {
+    // Until Val 34 install.sh carried a second output.icecast with its own
+    // literals + an operator-editable url= placeholder; the two-copies drift
+    // discipline existed exactly because of it. The template is gone: the
+    // unit runs the reference in place (pinned in test/deployReference.test
+    // .mjs), so a reappearance of any output.icecast in install.sh is a
+    // regression, not an edit.
+    assert.doesNotMatch(installSh, /output\.icecast\(/);
+    assert.doesNotMatch(installSh, /name="Radio Markec",/);
+    assert.doesNotMatch(installSh, /url="https:\/\/your-domain\.com",/);
   });
 
   test('json.parse type record gains NO icy keys (literal-first policy)', () => {

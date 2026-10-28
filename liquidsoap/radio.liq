@@ -799,19 +799,23 @@ radio = compress(attack=1.0, release=80.0, threshold=-1.0, ratio=20.0, knee=0.5,
 # directories show the station's identity instead of Icecast defaults. These
 # are literals on purpose (same policy as the 1800. above): radio.liq's
 # json.parse type stays untouched, so an older config.json keeps booting;
-# retune the literals here. name/description/genre deliberately MATCH the
-# install.sh template's output.icecast (deploy/ubuntu/install.sh) -- the two
-# copies are pinned together in test/radioLiqIcy.test.mjs so they cannot
-# drift. The description is honest post-Val 28 ("samo skripte brez AI
-# modelov"): the station runs no AI models, so the broadcast metadata must
-# not claim "AI DJ Radio" to every player and directory -- this is the
-# on-air twin of the comments-must-not-lie scrub (Val 28 removed the AI
-# layer from the tree; Val 30 removed its last broadcast-facing claim).
-# url= is deliberately OMITTED in this reference file: a placeholder
-# URL would be a soft lie on the dev box (the install.sh template keeps its
-# operator-editable url= for real deployments). Dynamic "Sedaj: X" updates of
-# the mount description were evaluated and deferred -- the roadmap itself
-# marks them optional and they need live Icecast admin-API verification.
+# retune the literals here. Since Val 34 deployments run THIS file in place
+# (deploy/ubuntu/install.sh's unit starts
+# /opt/radioclyde/app/liquidsoap/radio.liq with RADIOCLYDE_HOME set), there is
+# no second template copy anymore -- test/radioLiqIcy.test.mjs pins the unit
+# to this file, so the literals ARE the broadcast identity everywhere. The
+# description is honest post-Val 28 ("samo skripte brez AI modelov"): the
+# station runs no AI models, so the broadcast metadata must not claim
+# "AI DJ Radio" to every player and directory -- this is the on-air twin of
+# the comments-must-not-lie scrub (Val 28 removed the AI layer from the tree;
+# Val 30 removed its last broadcast-facing claim).
+# url= is deliberately OMITTED in this reference file: a placeholder URL
+# would be a soft lie on the dev box. A real deployment with a domain adds
+# the url= line here -- honestly re-applied after every code update, because
+# git pull rewrites this file (literals are deliberately rigid; the typed
+# parse cannot carry them). Dynamic "Sedaj: X" updates of the mount
+# description were evaluated and deferred -- the roadmap itself marks them
+# optional and they need live Icecast admin-API verification.
 output.icecast(%mp3(bitrate=config.icecast.bitrate),
   host = config.icecast.sourceHost, port = config.icecast.port,
   password = config.icecast.sourcePassword,

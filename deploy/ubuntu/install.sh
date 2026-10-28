@@ -146,101 +146,40 @@ else
 fi
 
 log "Configuring Liquidsoap..."
-mkdir -p "$RADIO_HOME/config"
-LIQ_CONF="$RADIO_HOME/config/radio.liq"
-# This is the station's playout core and MUST match what the scheduler expects
-# (see src/scheduler/scheduler.js's now_playing comment and the reference
-# liquidsoap/radio.liq in the repo):
-#   show_source  -- now_playing.m3u, mode=normal, loop=false, watch-reload:
-#                   one pre-produced occurrence, then empty; the scheduler is
-#                   the only writer of that file.
-#   filler_source-- filler.m3u, mode=normal, watch-reload: off-air music
-#                   pool in written order (a configured clockwheel's shape
-#                   is audible as written); every scheduler regeneration
-#                   reshuffles the pool.
-#   fallback([show_source, filler_source]) -- scheduled programming airs when
-#                   it exists, filler covers every gap. An earlier install.sh
-#                   generated a filler-only config, which is exactly the
-#                   "station plays the same songs forever, shows never air"
-#                   production incident audited 2026-10-24.
-#   on_track     -- fires scrobbleTrack.js per segment: keeps now-playing
-#                   metadata, occurrence handoffs and the filler rotation
-#                   ledger (no hourly repetition) in sync with real airtime.
-#
-# Only written on first install; on re-runs the edited file is preserved and
-# the new template lands next to it as radio.liq.new for manual diffing.
-write_radio_liq() {
-  cat > "$1" << 'LIQ_EOF'
-set("log.file", "/opt/radioclyde/data/logs/liquidsoap.log")
-set("log.level", 3)
-settings.server.telnet.set(true)
-settings.server.telnet.bind_addr.set("127.0.0.1")
-settings.server.telnet.port.set(1234)
-
-# Scheduled programming: the scheduler's now_playing.m3u (one produced show,
-# played in order, never looped -- when it empties, fallback() drops to filler
-# and the scheduler loads the next occurrence by rewriting the same file,
-# which reload_mode="watch" picks up at the next track boundary).
-show_source = playlist(id="show_source", reload_mode="watch", mode="normal", loop=false, "/opt/radioclyde/data/now_playing.m3u")
-
-# Off-air filler: the scheduler's filler.m3u, played in WRITTEN order
-# (mode="normal" -- a configured filler.clockwheel is audible as written;
-# without one it's the plain weighted-shuffle pool, also in written order).
-# Regenerated periodically with a rotation ledger so the same songs don't
-# come back every cycle, and every regeneration reshuffles the order
-# -- see src/scheduler/fillerRotation.js and the repo's reference
-# liquidsoap/radio.liq filler_source comment.
-filler_source = playlist(id="filler_source", reload_mode="watch", mode="normal", "/opt/radioclyde/data/filler.m3u")
-
-# Fire src/plex/scrobbleTrack.js as a detached process per aired segment:
-# now-playing metadata, show-occurrence handoff confirmation, and the filler
-# rotation ledger (no hourly repetition) all depend on this hook. Same proven
-# pattern as the repo's reference liquidsoap/radio.liq: on_metadata (not
-# on_track -- insensitive to track-mark handling), thread.run so the handler
-# stays fast, trailing "&" so the shell forks and returns immediately.
-# "filename" (not "initial_uri") is deliberate: annotate:-wrapped playlist
-# entries resolve initial_uri to "annotate:...:/path", silently breaking the
-# ratingKey lookup; "filename" is the real decoded path either way.
-def scrobble_on_metadata(m) =
-  p = m["filename"]
-  dj = m["dj"]
-  if p != "" then
-    thread.run(fast=false, fun () ->
-      ignore(process.run("node /opt/radioclyde/app/src/plex/scrobbleTrack.js " ^ process.quote(p) ^ " " ^ process.quote(dj) ^
-        " > /dev/null 2>&1 &"))
-    )
-  end
-end
-show_source = source.on_metadata(show_source, scrobble_on_metadata)
-filler_source = source.on_metadata(filler_source, scrobble_on_metadata)
-
-# Scheduled programming wins; filler covers gaps instead of going silent
-# (silence disconnects Icecast clients). mksafe: never emit an unplayable
-# source to Icecast (mid-regeneration emptiness, missing files...).
-radio = mksafe(fallback(track_sensitive=false, [show_source, filler_source]))
-
-output.icecast(
-  %mp3(bitrate=128),
-  host="127.0.0.1",
-  port=8000,
-  password="CHANGE_ME_SOURCE_PASSWORD",
-  mount="/stream.mp3",
-  name="Radio Markec",
-  description="Slovenian script-driven radio",
-  url="https://your-domain.com",
-  genre="Various",
-  radio
-)
-LIQ_EOF
-}
-if [ -f "$LIQ_CONF" ]; then
-  write_radio_liq "$LIQ_CONF.new"
-  log "radio.liq already exists -- new template written to $LIQ_CONF.new (diff it manually; the old filler-only config never aired scheduled shows)."
+# Val 34: the engine is the app tree's REFERENCE playout graph, run in place.
+# install.sh no longer writes its own simplified radio.liq template: the
+# template lacked the request queue (approved wishes stayed approved but
+# never aired), the imaging layers (stingers/promos/beds), the measured
+# transitions and the optional mounts -- every one of those lived only in
+# liquidsoap/radio.liq, and DEPLOYMENT_GUIDE.md had to document the gap as
+# a known limitation after each wave. One file, one truth now: the systemd
+# unit below starts /opt/radioclyde/app/liquidsoap/radio.liq with
+# RADIOCLYDE_HOME=/opt/radioclyde/app, so
+#   - %include "dj_transitions.liq" / "streams.liq" resolve inside the app
+#     tree, where src/liquidsoap/streamsLiqWriter.js regenerates streams.liq
+#     at every web boot -- the engine always reads the freshly generated
+#     mounts (a config/ copy would silently go stale);
+#   - every helper spawn (deadair/recordEvent.js, plex/scrobbleTrack.js)
+#     and the config.json read resolve from RADIOCLYDE_HOME, without
+#     editing the file (the contract documented in
+#     docs/liquidsoap-upgrade.md's "Namestitvena pot");
+#   - %ifversion gates keep the graph dual-build: Ubuntu's 2.2.x apt binary
+#     boots it with the cookbook branches, the 2.4.6 upgrade runbook lights
+#     up ramps/DJ transitions/speech-gated hour ID on top;
+#   - fresh-boot honesty (verified live on the official 2.2.4 binary,
+#     2026-10-28, .liq-bin matrix): a dataDir with nothing but filler.m3u --
+#     no now_playing.m3u, no imaging/*.m3u -- boots cleanly; each missing
+#     playlist is a WARNING and a fallible-empty source, never a crash.
+# Nothing is copied and no .new guard is needed: a code update (git pull /
+# re-extract) IS the engine update. Old installs that grew up on the
+# template keep their /opt/radioclyde/config/radio.liq untouched (nothing
+# deletes it); the migration is one unit diff -- see DEPLOYMENT_GUIDE.md.
+mkdir -p "$RADIO_HOME/config"   # kept for pre-Val-34 installs' radio.liq only
+if [ -f "$RADIO_HOME/app/liquidsoap/radio.liq" ]; then
+  log "Engine: reference radio.liq present in the app tree -- the unit runs it in place (RADIOCLYDE_HOME=$RADIO_HOME/app)."
 else
-  write_radio_liq "$LIQ_CONF"
-  log "radio.liq written (show_source + filler fallback)."
+  warn "App code not uploaded yet ($RADIO_HOME/app/liquidsoap/radio.liq missing) -- upload it (guide Korak 3.2) BEFORE starting liquidsoap-radioclyde; the unit points at the app tree on purpose."
 fi
-chown "$RADIO_USER:$RADIO_USER" "$RADIO_HOME"/config/radio.liq*
 
 log "Configuring Nginx..."
 NGINX_SITE="/etc/nginx/sites-available/radioclyde"
@@ -249,7 +188,7 @@ NGINX_SITE="/etc/nginx/sites-available/radioclyde"
 # overwrite on a re-run would silently revert the site to port-80-only and
 # kill HTTPS (audit 13-b). On re-runs the certbot-edited file is preserved
 # and the new template lands next to it as radioclyde.new for manual
-# diffing -- the same guard radio.liq uses above.
+# diffing -- the same guard the systemd units use below.
 write_nginx_site() {
   cat > "$1" << 'NGINX_EOF'
 server {
@@ -333,7 +272,11 @@ Wants=icecast2.service
 Type=simple
 User=radioclyde
 Group=radioclyde
-ExecStart=/usr/bin/liquidsoap /opt/radioclyde/config/radio.liq
+ExecStart=/usr/bin/liquidsoap /opt/radioclyde/app/liquidsoap/radio.liq
+# Reference engine in place (Val 34): %includes and the regenerated
+# streams.liq live in the app tree next to radio.liq; RADIOCLYDE_HOME
+# resolves config.json and helper spawns without editing the file.
+Environment=RADIOCLYDE_HOME=/opt/radioclyde/app
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -344,7 +287,7 @@ WantedBy=multi-user.target
 SVC_EOF
 }
 
-# Same first-install-only guard as radio.liq and the nginx site above: a
+# Same first-install-only guard as the nginx site above: a
 # re-run must not clobber a unit the operator edited (or that systemd is
 # currently running); the fresh template lands next to it as <name>.new for
 # manual diffing.
@@ -395,11 +338,11 @@ echo ""
 echo "Next steps:"
 echo "  1. Upload app code: scp code.tar.gz ubuntu@SERVER:/tmp/"
 echo "  2. Extract: sudo tar -xzf /tmp/code.tar.gz -C /opt/radioclyde/app"
-echo "  3. Re-run this installer so app dependencies get installed: sudo bash install.sh (safe to re-run; your icecast.xml, radio.liq, nginx site and systemd unit edits are kept -- new templates land as *.new next to them)"
+echo "  3. Re-run this installer so app dependencies get installed: sudo bash install.sh (safe to re-run; your icecast.xml, nginx site and systemd unit edits are kept -- new templates land as *.new next to them. radio.liq is no longer templated: the engine is the app tree's reference file, code updates ARE engine updates)"
 echo "  4. Upload data: scp data.tar.gz ubuntu@SERVER:/tmp/ && sudo tar -xzf /tmp/data.tar.gz -C /opt/radioclyde/"
 echo "  5. Copy config: sudo cp /opt/radioclyde/app/deploy/ubuntu/config.linux.json /opt/radioclyde/app/config.json"
 echo "  6. Put music in /opt/radioclyde/music/, then generate the filler playlist once: cd /opt/radioclyde/app && sudo -u radioclyde npm run generate-filler-playlist"
-echo "  7. Edit passwords: sudo nano /etc/icecast2/icecast.xml AND sudo nano /opt/radioclyde/config/radio.liq (both must use the same source password)"
+echo "  7. Edit passwords: sudo nano /etc/icecast2/icecast.xml AND sudo nano /opt/radioclyde/app/config.json (icecast.sourcePassword must match icecast.xml's <source-password> -- the engine reads it from config.json, no radio.liq edit)"
 echo "  8. Start: sudo systemctl start icecast2 radioclyde liquidsoap-radioclyde nginx"
 echo "  9. For HTTPS: sudo apt install certbot python3-certbot-nginx && sudo certbot --nginx -d yourdomain.com"
 echo ""
