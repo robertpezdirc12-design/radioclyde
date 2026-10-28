@@ -691,10 +691,12 @@ The canonical repository is
 [github.com/robertpezdirc12-design/radioclyde](https://github.com/robertpezdirc12-design/radioclyde),
 branch `main` — a fork of [a1anw2/radioclyde](https://github.com/a1anw2/radioclyde).
 It is a single branch with no submodules, so mirroring it on another host
-(GitLab included) is a plain push:
+(GitLab included) is a plain push. The GitLab mirror is
+[gitlab.com/robert.pezdirc12/radioclyde](https://gitlab.com/robert.pezdirc12/radioclyde),
+kept at the same tip as GitHub; re-syncing it after new work lands is:
 
 ```
-git remote add gitlab https://gitlab.com/<user>/radioclyde.git
+git remote add gitlab https://gitlab.com/robert.pezdirc12/radioclyde.git   # once
 git push gitlab main
 ```
 
