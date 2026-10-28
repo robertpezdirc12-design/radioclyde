@@ -153,6 +153,7 @@ Prejšnja analiza je postavila P1 #1 analitiko ✓, #2 javni števec ✓, #4 Tun
 **P2:**
 - **Sejna analitika** (razlikovanje Icecast admin seznama poslušalcev → seje + geolokacija prek GeoLite2; AzuraCast/morganfreeman vzorec) + #3 imaging sloj
 - **Booth/Dnevnik** javno (izrečeni segmenti iz aired history)
+  > **STATUS — IMPLEMENTIRANO (Val 36, 2026-10-28).** Javni `GET /api/booth?shows=N` (privzeto 3, cap 10) + zavihek »Dnevnik« na poslušalski strani. Besedila prihajajo iz `script.md` vsake pojavitve, skozi ISTI `parseScript`, ki ga porabi režiser (en vir resnice — dnevnik se ne more razhodomiti od tega, kar gre v eter). Vrata »je res šla ven«: `aired.jsonl` mora imeti vsaj en vnos s tem showId znotraj okna pojavitve (usmerjena `durationSeconds` iz context.json + 30 min milosti); trenutno naložena pojavnitev pa vozí stanje razporejevalnika in je žigosana »zdaj na etru«. Živi segmenti (vreme/ura/napoved) so samo označeni po vrsti — njihove besede se sintetizirajo ob etru in se kot besedilo pošteno ne hranijo; skladbe niso govor in ne vstopajo. Vsaka okvara stane natanko svoj vnos in se prešteje v povzetek `skipped`. Omejitve: besedila so produkcijska (življenjska doba vse predprodukcije); osebe so ključi (brez prikaznih imen).
 - **onboarding ukaz** (`npm run onboard` → config + systemd + zdravstveni pregled)
 - **autocue cue točke + EBU R128** (offline analiza knjižnice → cue_points.json)
 

@@ -475,6 +475,25 @@ prose for humans. The selection section supports:
   ledger (same impact math as the studio view, same honesty thresholds) --
   aggregate per track only: no rating keys, no samples, no IPs. Rendered
   as a card on the listener page with an honest empty state.
+- **Booth / speech diary (Val 36)**: a "Dnevnik" tab shows every word the
+  DJ spoke on air, per show that actually aired -- SUB/WAVE's "Booth"
+  (the last undelivered P2 listener item from the deep analysis). The
+  words come from each occurrence's `script.md` parsed by the SAME
+  `parseScript` the director consumes (one grammar, one parser -- the
+  diary can never drift from what gets spoken), gated by the aired
+  ledger: an occurrence enters the diary only if `aired.jsonl` proves it
+  went out (one entry with its showId inside its scheduled window +
+  30-min grace; `durationSeconds` from `context.json`, not a hardcoded
+  hour), while the currently-loaded occurrence rides the scheduler's own
+  state and is flagged as on-air now. Live segments (weather/clock/next
+  show) are marked by kind -- their words are synthesized at airtime and
+  honestly not persisted as text; tracks are music, not speech, and never
+  appear. Replays are stamped from the same `replayOf` the analytics use.
+  Read-only `GET /api/booth?shows=N` (default 3, cap 10, clamp both ways);
+  a public station lists `/api/booth` in `web.publicPaths` like
+  `/api/history`. Every failure costs exactly its entry and is counted in
+  a `skipped` summary -- research: [subwave §7](docs/subwave-deep-analysis.md),
+  [UI inventory (sl)](docs/ui-admin-vs-poslusalec.md).
 - **Public podcast address (P5 #3)**: the listener finally SEES the
   podcast -- a "Podkast" tab with an episode player, measured chapters and
   a copyable RSS link; a channel-level RSS 2.0 feed at `/podcast/feed.xml`
@@ -656,7 +675,7 @@ station.json entry required):
 Quality gate:
 
 - `npm test`: the full offline suite (`node --test`, one file per
-  subsystem — 1607 tests at Val 35: 1606 pass, 0 fail, 1 known skip for
+  subsystem — 1626 tests at Val 36: 1625 pass, 0 fail, 1 known skip for
   the live Piper round-trip that needs a real voice download). Every wave
   lands only with this suite green; nothing in it needs the network or a
   running station.

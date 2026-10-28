@@ -4,6 +4,7 @@ import { getUpcomingShows } from './upcoming.js';
 import { registerScheduleRoute } from './scheduleApi.js';
 import { registerRequestsRoutes } from './requestsApi.js';
 import { registerTopListenedRoutes } from './topListenedApi.js';
+import { registerBoothRoutes } from './boothApi.js';
 import { registerPushRoutes } from './pushApi.js';
 import { registerLyricsRoute } from '../lyrics/lyricsService.js';
 import { registerPollsRoutes } from './pollsApi.js';
@@ -27,6 +28,11 @@ export function registerApiRoutes(fastify) {
   fastify.get('/api/upcoming', () => ({ shows: getUpcomingShows() }));
 
   registerTopListenedRoutes(fastify);
+
+  // Booth/Dnevnik (Val 36, subwave-deep-analysis P2): the public diary of
+  // the DJ's spoken words, per occurrence that actually aired. Read-only;
+  // a public station lists /api/booth in web.publicPaths like /api/history.
+  registerBoothRoutes(fastify);
 
   // Real listener count for the public page's chip. Honesty rule: a number
   // appears ONLY when Icecast actually answered -- a dead stream reports

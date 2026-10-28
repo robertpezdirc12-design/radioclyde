@@ -726,6 +726,17 @@ body {
 .pod-chapters li { margin: 2px 0; }
 .pod-item summary { cursor: pointer; color: var(--text-dim); margin-top: 8px; }
 
+/* ---- dnevnik govorjenih besed (booth) ---- */
+.booth-list { display: grid; gap: 14px; }
+.booth-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.booth-item-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; justify-content: space-between; }
+.booth-item h3 { margin: 0; font-size: 1rem; }
+.booth-meta { color: var(--text-faint); font-size: 0.84rem; }
+.booth-speech { margin-top: 10px; }
+.booth-persona { display: inline-block; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.booth-speech p { margin: 4px 0 0; white-space: pre-line; }
+.booth-live { margin: 8px 0 0; color: var(--text-faint); font-size: 0.86rem; font-style: italic; }
+
 /* ---- najbolj poslusano ---- */
 .top-window { color: var(--text-faint); font-size: 0.84rem; font-weight: normal; }
 .top-row { display: flex; gap: 10px; align-items: baseline; }

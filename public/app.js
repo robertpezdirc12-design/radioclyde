@@ -56,6 +56,8 @@ const els = {
   topWindow: $('top-window'),
   podList: $('pod-list'),
   podError: $('pod-error'),
+  boothList: $('booth-list'),
+  boothError: $('booth-error'),
   podRss: $('pod-rss'),
   podRssCopy: $('pod-rss-copy'),
   scheduleError: $('schedule-error'),
@@ -1368,6 +1370,7 @@ const TABS = [
   { tab: 'tab-schedule', panel: 'panel-schedule', onShow: fetchSchedule },
   { tab: 'tab-requests', panel: 'panel-requests', onShow: null },
   { tab: 'tab-podcast', panel: 'panel-podcast', onShow: fetchPodcast },
+  { tab: 'tab-booth', panel: 'panel-booth', onShow: fetchBooth },
 ];
 
 function selectTab(id) {
@@ -1389,6 +1392,7 @@ document.querySelectorAll('[data-retry]').forEach((btn) =>
     if (what === 'upcoming') fetchUpcoming();
     if (what === 'schedule') fetchSchedule();
     if (what === 'podcast') fetchPodcast();
+    if (what === 'booth') fetchBooth();
   })
 );
 
@@ -1493,6 +1497,95 @@ els.podRssCopy.addEventListener('click', async () => {
   }
   setTimeout(() => { els.podRssCopy.textContent = 'Kopiraj RSS'; }, 2000);
 });
+
+// ---------- dnevnik govorjenih besed (booth) ----------
+
+const BOOTH_DATE_FMT = new Intl.DateTimeFormat('sl-SI', { weekday: 'long', day: 'numeric', month: 'long' });
+const BOOTH_TIME_FMT = new Intl.DateTimeFormat('sl-SI', { hour: '2-digit', minute: '2-digit' });
+// Live-segment markers: their words are synthesized at airtime from live
+// data and are not persisted as text -- the diary marks them by kind.
+const BOOTH_LIVE_KINDS = {
+  time: '\u017Eivi prevzem: ura',
+  weather: '\u017Eivi prevzem: vreme',
+  'time-weather': '\u017Eivi prevzem: ura in vreme',
+  nextShow: '\u017Eivi prevzem: napoved naslednje oddaje',
+};
+
+function capitalizePersona(name) {
+  const s = String(name ?? '');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function renderBooth(data) {
+  els.boothList.replaceChildren();
+  const shows = Array.isArray(data.shows) ? data.shows : [];
+  if (shows.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = '\u0160e ni zabele\u017Eenih govorjenih besed -- dnevnik se napolni, ko prva oddaja zaigra.';
+    els.boothList.appendChild(p);
+    return;
+  }
+  for (const show of shows) {
+    const item = document.createElement('article');
+    item.className = 'booth-item';
+
+    const head = document.createElement('div');
+    head.className = 'booth-item-head';
+    const h3 = document.createElement('h3');
+    h3.textContent = show.showTitle ?? show.showId;
+    head.appendChild(h3);
+    const metaBits = [];
+    const start = new Date(`${show.date}T${String(show.timeKey ?? '00-00').replace('-', ':')}:00`);
+    if (!Number.isNaN(start.getTime())) {
+      metaBits.push(`${BOOTH_DATE_FMT.format(start)}, ${BOOTH_TIME_FMT.format(start)}`);
+    }
+    if (show.replay) metaBits.push('ponovitev');
+    if (show.current) metaBits.push('zdaj na etru');
+    if (metaBits.length > 0) {
+      const meta = document.createElement('span');
+      meta.className = 'booth-meta';
+      meta.textContent = metaBits.join(' \u00B7 ');
+      head.appendChild(meta);
+    }
+    item.appendChild(head);
+
+    const segments = Array.isArray(show.segments) ? show.segments : [];
+    for (const seg of segments) {
+      if (seg.type === 'dj') {
+        const block = document.createElement('div');
+        block.className = 'booth-speech';
+        const who = document.createElement('span');
+        who.className = 'booth-persona';
+        who.textContent = capitalizePersona(seg.persona);
+        const text = document.createElement('p');
+        text.textContent = String(seg.text ?? '');
+        block.appendChild(who);
+        block.appendChild(text);
+        item.appendChild(block);
+      } else if (seg.type === 'live') {
+        const marker = document.createElement('p');
+        marker.className = 'booth-live';
+        const label = BOOTH_LIVE_KINDS[seg.kind] ?? '\u017Eivi prevzem';
+        marker.textContent = `\u00B7 ${label} (${capitalizePersona(seg.persona)})`;
+        item.appendChild(marker);
+      }
+    }
+    els.boothList.appendChild(item);
+  }
+}
+
+async function fetchBooth() {
+  els.boothError.hidden = true;
+  try {
+    const res = await fetch('/api/booth');
+    if (!res.ok) throw new Error(res.status);
+    renderBooth(await res.json());
+  } catch {
+    els.boothList.replaceChildren();
+    els.boothError.hidden = false;
+  }
+}
 
 // ---------- najbolj poslusano ----------
 

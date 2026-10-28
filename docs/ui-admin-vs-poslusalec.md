@@ -39,6 +39,12 @@ plus `embed.html` za vstavitve:
   predvajanj,
 - **zahtevki**: obrazec (čipi iz trenutne skladbe + nedavnih izvajalcev),
   statusna preverba po ID-ju — vidi TOČNO to, kar studio nastavi,
+- **podkast** (P5 #3): zavihek z epizodami, merjenimi poglavji, RSS,
+- **dnevnik govorjenih besed** (Val 36, SUB/WAVE-jev »Booth«): zavihek
+  »Dnevnik« — vse besede, ki jih je DJ izgovoril po etru, po oddajah,
+  ki so resnično šle ven (vrata na aired.jsonl; trenutna oddaja po
+  stanju razporejevalnika). Besedila iz script.md skozi PARSER REŽISJA
+  (parseScript); živi prevzemi samo označeni; ponovitve žigosane.
 - **priljubljeni**: localStorage (saj je povedano — strežnik nima računov),
 - **downtime** opomba, ko je tok mimo.
 
@@ -56,6 +62,7 @@ Zahtevnost je namenoma nizka: **en zapis** (zahtevek) — vse ostalo je branje.
 | Analitika poslušanja + vpliv skladbe | ✅ (Δ po predvajanju) | ✅ (gostejša) | ✅ | ✅ | ✅ | ✅ |
 | Glasovni TTS sloj brez modelov | ✅ (Piper) | ❌ (cloud TTS) | ❌ | ❌ | ❌ | ❌ |
 | Podcast export + generator + zvok | ✅ (CLI) | ✅ (POST) | ❌ | ❌ | ✅ (jedro) | ❌ |
+| Dnevnik govorjenih besed (Booth) | ✅ (Val 36) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Javni RSS feed podkasta | ❌ (skeleton XML) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Predvečerna diagnostika (doctor) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | as-run / licenčno poročilo | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
