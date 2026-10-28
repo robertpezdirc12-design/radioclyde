@@ -562,8 +562,13 @@ prose for humans. The selection section supports:
   switches the layer off honestly — [design](docs/lyrics-lrclib.md).
 - **Scrobbling to Last.fm + ListenBrainz (optional, off by default)**: every
   eligible aired track (Last.fm's own rule — longer than 30 s and at least
-  half-played or 4 minutes) is submitted at the NEXT track's start with the
+  half-played or 4 minutes) is submitted at the NEXT segment's start with the
   correct start timestamp, plus a now-playing ping for the incoming track.
+  A DJ-speech segment is a transition too (Val 35): the song that ended the
+  instant the DJ started talking is submitted at speech start — no
+  now-playing goes out for speech — and the outgoing half of every
+  transition carries its duration (Last.fm's half-played rule engages on it,
+  and the submitted entry includes the duration parameter).
   Last.fm's auth is the headless mobile-session flow: username+password are
   used ONCE to mint a session key that is cached (0600, atomic) under
   `dataDir/`, after which the password can be removed from the config
@@ -651,7 +656,7 @@ station.json entry required):
 Quality gate:
 
 - `npm test`: the full offline suite (`node --test`, one file per
-  subsystem — 1586 tests at Val 33: 1585 pass, 0 fail, 1 known skip for
+  subsystem — 1607 tests at Val 35: 1606 pass, 0 fail, 1 known skip for
   the live Piper round-trip that needs a real voice download). Every wave
   lands only with this suite green; nothing in it needs the network or a
   running station.

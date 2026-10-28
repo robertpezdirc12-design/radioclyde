@@ -15,13 +15,19 @@
 //   F. submitScrobbles: fail-closed listener gate, per-backend independence,
 //      ineligible outgoing vs live now-playing, {dj:...} incoming, minting
 //      inside the orchestration, never-throws.
+//   G. the per-segment caller (scrobbleTrack.js, Val 35): readOutgoingTrack's
+//      durationSec mapping (Last.fm's half-duration rule finally engages on
+//      the outgoing half), the DJ-speech transition (outgoing submitted at
+//      speech start, no now-playing anywhere), the fail-closed listener gate
+//      through the extracted helper, and main()'s wiring pins for both
+//      transition branches.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { setupTestConfig } from './fixtures.mjs';
+import { setupTestConfig, repoRoot } from './fixtures.mjs';
 
 setupTestConfig('scrobble');
 
@@ -43,6 +49,11 @@ const {
   listenbrainzSubmit,
   submitScrobbles,
 } = await import('../src/broadcast/scrobble.js');
+// Val 35 section G drives the per-segment caller. Importing it runs its
+// module-level main(), which no-ops honestly without a file-path argv (the
+// same contract replayOccurrences.test.mjs relies on); what we want are the
+// exported readOutgoingTrack and submitSegmentScrobbles.
+const { readOutgoingTrack, submitSegmentScrobbles } = await import('../src/plex/scrobbleTrack.js');
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'radioclyde-scrobble-'));
@@ -615,5 +626,157 @@ describe('F. submitScrobbles', () => {
     assert.equal(r.submit, null);
     assert.equal(r.nowPlaying.length, 2);
     assert.equal(calls.length, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G. The per-segment caller (src/plex/scrobbleTrack.js, Val 35)
+// ---------------------------------------------------------------------------
+describe('G. per-segment caller (scrobbleTrack.js)', () => {
+  const LF_CALLER = { enabled: true, apiKey: 'k', apiSecret: 's', sessionKey: 'sk-caller', username: '', password: '' };
+  const NOW = Date.parse('2026-11-03T19:00:00Z');
+
+  // -- readOutgoingTrack: the outgoing half of the transition, from disk --
+
+  test('readOutgoingTrack: a {dj:...} state leaves no outgoing half (speech is not a play)', () => {
+    fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({ dj: 'Markec', startedAt: '2026-11-03T18:59:00Z' }));
+    assert.equal(readOutgoingTrack(), null);
+  });
+
+  test('readOutgoingTrack: a music entry carries durationSec = durationMs/1000 (Val 35)', () => {
+    fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({
+      ratingKey: 42, artist: 'A', title: 'T', album: 'L', art: null,
+      durationMs: 210000, showId: null, playedAt: '2026-11-03T18:00:00Z',
+    }));
+    assert.deepEqual(readOutgoingTrack(), {
+      artist: 'A', title: 'T', album: 'L',
+      durationMs: 210000, durationSec: 210, playedAt: '2026-11-03T18:00:00Z',
+    });
+  });
+
+  test('readOutgoingTrack: missing/zero/null duration stays "unknown" (null), never a bogus 0 s', () => {
+    for (const durationMs of [null, 0, undefined]) {
+      fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({
+        artist: 'A', title: 'T', durationMs, playedAt: '2026-11-03T18:00:00Z',
+      }));
+      assert.equal(readOutgoingTrack().durationSec, null, `durationMs=${durationMs}`);
+    }
+  });
+
+  test('readOutgoingTrack: missing file / torn JSON / metadata-less entry -> null', () => {
+    fs.rmSync(config.paths.nowPlayingTrackPath, { force: true });
+    assert.equal(readOutgoingTrack(), null);
+    fs.writeFileSync(config.paths.nowPlayingTrackPath, '{"artist":"A","tit');
+    assert.equal(readOutgoingTrack(), null);
+    fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({ playedAt: '2026-11-03T18:00:00Z' }));
+    assert.equal(readOutgoingTrack(), null);
+  });
+
+  // -- submitSegmentScrobbles: the extracted external-scrobble half --
+
+  test('off by default: no scrobbleConfig at all -> null, zero network', async () => {
+    const { calls, fetchImpl } = capturingFetch();
+    const r = await submitSegmentScrobbles({ fetchImpl });
+    assert.equal(r, null);
+    assert.equal(calls.length, 0);
+  });
+
+  test('the DJ-speech transition: outgoing submitted at speech start, NO now-playing anywhere', async () => {
+    // The exact shape of the val: a 200 s song ends, the DJ starts talking.
+    // The outgoing half is read from the real state file (the same disk seam
+    // main() snapshots at the top of every segment); the incoming half is
+    // null because speech is not a track.
+    const playedAt = '2026-11-03T18:56:40Z'; // 200 s before NOW: fully aired
+    fs.writeFileSync(config.paths.nowPlayingTrackPath, JSON.stringify({
+      ratingKey: 42, artist: 'Old Artist', title: 'Old Track', album: null,
+      durationMs: 200000, showId: null, playedAt,
+    }));
+    const outgoing = readOutgoingTrack();
+    assert.equal(outgoing.durationSec, 200, 'the disk seam feeds the wire contract');
+    const { calls, fetchImpl } = capturingFetch();
+    const logs = [];
+    const r = await submitSegmentScrobbles({
+      outgoing, incoming: null, listenerCount: 3, scrobbleConfig: { lastfm: LF_CALLER },
+      nowMs: NOW, fetchImpl, logImpl: (m) => logs.push(m),
+    });
+    assert.equal(r.skipped, null);
+    assert.equal(r.nowPlaying, null, 'speech sends no now-playing');
+    assert.equal(r.submit.length, 1);
+    assert.equal(r.submit[0].backend, 'lastfm');
+    assert.equal(r.submit[0].ok, true);
+    assert.equal(calls.length, 1, 'exactly one wire call: the scrobble submit');
+    const form = new URLSearchParams(calls[0].body);
+    assert.equal(form.get('method'), 'track.scrobble');
+    assert.equal(form.get('artist'), 'Old Artist');
+    assert.equal(form.get('track'), 'Old Track');
+    assert.equal(form.get('timestamp'), String(Math.floor(Date.parse(playedAt) / 1000)), "timestamp = the song's START");
+    assert.equal(form.get('duration'), '200', 'Val 35: the outgoing half now carries its duration');
+    assert.ok(logs.some((m) => /scrobble: submit/.test(m)));
+  });
+
+  test('Val 35 regression guard: a cut-short song is held back by the half-duration rule', async () => {
+    // A 200 s song interrupted at 90 s: elapsed < half (100 s) and < 240 s ->
+    // ineligible. Before the durationSec mapping the outgoing half always
+    // arrived as "unknown duration", so the 30 s floor would have let it
+    // through -- this pins the stricter, correct rule engaging.
+    const playedAt = '2026-11-03T18:58:30Z'; // 90 s before NOW
+    const outgoing = { artist: 'A', title: 'T', album: null, durationMs: 200000, durationSec: 200, playedAt };
+    const { calls, fetchImpl } = capturingFetch();
+    const r = await submitSegmentScrobbles({
+      outgoing, incoming: null, listenerCount: 3, scrobbleConfig: { lastfm: LF_CALLER },
+      nowMs: NOW, fetchImpl,
+    });
+    assert.equal(r.eligible, false);
+    assert.deepEqual(r.submit, []);
+    assert.equal(calls.length, 0, 'nothing goes out for an under-heard song');
+  });
+
+  test('listener gate fail-closed passes through the helper: 0 listeners -> nothing', async () => {
+    const outgoing = { artist: 'A', title: 'T', durationSec: 200, playedAt: '2026-11-03T18:56:40Z' };
+    const { calls, fetchImpl } = capturingFetch();
+    const r = await submitSegmentScrobbles({
+      outgoing, incoming: null, listenerCount: 0, scrobbleConfig: { lastfm: LF_CALLER },
+      nowMs: NOW, fetchImpl,
+    });
+    assert.equal(r.skipped, 'listeners');
+    assert.equal(calls.length, 0);
+  });
+
+  test('listener re-fetch: no count passed -> helper fetches and fails closed (no Icecast in tests)', async () => {
+    // getListenerCount() hits the fixture's 127.0.0.1:8001, which nothing
+    // answers in the test environment -- the helper catches it and the gate
+    // stays closed. This is the exact tolerant re-fetch the inline block used
+    // to do inside main() before Val 35 extracted it.
+    const outgoing = { artist: 'A', title: 'T', durationSec: 200, playedAt: '2026-11-03T18:56:40Z' };
+    const { calls, fetchImpl } = capturingFetch();
+    const logs = [];
+    const r = await submitSegmentScrobbles({
+      outgoing, incoming: null, scrobbleConfig: { lastfm: LF_CALLER },
+      nowMs: NOW, fetchImpl, logImpl: (m) => logs.push(m),
+    });
+    assert.equal(r.skipped, 'listeners');
+    assert.equal(calls.length, 0);
+    assert.ok(logs.some((m) => /Listener count unavailable/.test(m)));
+  });
+
+  // -- wiring pins: main() itself runs both transitions through the helper --
+
+  test('wiring pin: the speech branch submits the outgoing BEFORE its early return; the music tail reuses the helper', () => {
+    const src = fs.readFileSync(path.join(repoRoot(), 'src/plex/scrobbleTrack.js'), 'utf8');
+    // The no-ratingKey branch: recordDjTalking -> the submit -> the return
+    // (before Val 35 the return came straight after recordDjTalking, which
+    // is what dropped every pre-speech song).
+    assert.match(
+      src,
+      /if \(!ratingKey\) \{[\s\S]*?recordDjTalking\(djName\);[\s\S]*?await submitSegmentScrobbles\(\{ outgoing, incoming: null \}\);[\s\S]*?return;/
+    );
+    // The music tail: the incoming half is still the mapped track, and the
+    // listener count the Plex gate already fetched is reused verbatim.
+    assert.match(src, /await submitSegmentScrobbles\(\{\s*outgoing,\s*incoming: track\s*\?/);
+    assert.match(src, /listenerCount,\s*\}\);/);
+    // Antipin: main() no longer calls submitScrobbles directly -- the
+    // orchestration lives in exactly one place, shared by both branches.
+    const mainPart = src.slice(src.indexOf('async function main()'));
+    assert.doesNotMatch(mainPart, /\bawait submitScrobbles\(/);
   });
 });

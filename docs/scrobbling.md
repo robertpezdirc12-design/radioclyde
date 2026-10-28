@@ -11,7 +11,7 @@ Scrobbling je poročanje o poslušani glasbi zunanjemu profilu (Last.fm ali List
 | Datoteka | Vloga |
 |---|---|
 | `src/broadcast/scrobble.js` | Celotna implementacija: čista pravila (ugodnost, podpis, normalizacija URL-jev), odjemalca za Last.fm in ListenBrainz, mobilna seja s predpomnilnikom, orkestrator `submitScrobbles`. Vse pove (fetch, ura, datoteka seje, logger) je injektirano; modul nikoli ne vrže izjeme. |
-| `src/plex/scrobbleTrack.js` | Sprožilec: ob zagonu vsakega segmenta prebere odhajajočo skladbo in pokliče `submitScrobbles`. |
+| `src/plex/scrobbleTrack.js` | Sprožilec: ob zagonu vsakega segmenta prebere odhajajočo skladbo in — od vala 35 skozi izvlečeni `submitSegmentScrobbles` v obeh vejah, glasbeni in govorni — pokliče `submitScrobbles`. |
 | `docs/scrobbling.md` | Ta dokument. |
 
 Ni novih odvisnosti: `node:crypto` (md5 za `api_sig`), `node:fs` (predpomnilnik seje) in vgrajeni `fetch`.
@@ -42,12 +42,14 @@ Vsaka storitev je neodvisna: vklopi jo `enabled: true` plus njene lastne prijave
 
 ## 4. Kdaj se kaj pošlje
 
-Model je SUB/WAVE-jev, prenesen na radioclydejev "en proces na segment": ob **prehodu** med skladbama se zgodita dve stvari hkrati:
+Model je SUB/WAVE-jev, prenesen na radioclydejev "en proces na segment": ob **prehodu med segmentoma** se zgodita dve stvari hkrati:
 
 - **now-playing za PRIHAJAJOČO skladbo** (`track.updateNowPlaying` / `listen_type: "playing_now"`) — takoj, ko skladba začne igrati;
 - **scrobble za ODHAJAJOČO skladbo** (`track.scrobble` / `listen_type: "single"`), in sicer z **časovnim žigom njenega začetka** (`playedAt` iz `now_playing_track.json`).
 
 Zakaj se oddajo šele ob prehodu? Ker je Last.fm-ov časovni žig definiran kot **trenutek, ko se je skladba začela predvajati** — ne, ko se je končala. Proces `scrobbleTrack.js` se sproži na začetku vsakega segmenta, torej je "konec prejšnje skladbe" videti natanko kot "začetek naslednje": oddaja ob prehodu ni zamuda, temveč točno pravi trenutek, in žig ostane začetek, kot zahteva specifikacija. Prav tako se šele tu ve, kako dolgo je bila odhajajoča skladba resnično na etru — pogoj spodaj.
+
+**Govorni segment je tudi prehod (val 35).** Ko DJ začne govoriti, skladba, ki je prav takrat končala, postane odhajajoča stran TEGA prehoda — in se odda takoj, na začetku govora (z istim žigom `playedAt`, pod isto vrato poslušalcev in istim pravilom ugodnosti). Prihajajoča stran govora NI skladba, zato se za govor nikamor ne pošlje now-playing. Do vala 35 je govorna veja procesa vračala pred zunanjo-plastjo blokom, `{dj:...}` stanje pa je naslednji glasbeni segment pustilo brez odhajajoče strani — vsaka skladba pred govorom je bila tiho zamujena (spodaj v razdelku 9 je ta omejitev zdaj zgodovina). Dva zaporedna govorna segmenta ne dvakrat prispevata: prvi odda skladbo, drugi že vidi `{dj:...}` stanje, ki odhajajoče strani ni.
 
 ### Ugodnost (Last.fm-ovo pravilo)
 
@@ -59,6 +61,8 @@ Skladba se poscrobbla **samo**, če je hkrati:
 | Poslušano | vsaj **polovica** trajanja **ali** vsaj **240 s** (`MIN_ELAPSED_FLOOR_SEC`) — karkoli se zgodi prej |
 | Neznana duracija | namesto nje velja samo prag 30 s dejansko predvajanja |
 | Metapodatki | skladba mora imeti izvajalca in naslov (govor DJ-ja in džingli niso predvajanja) |
+
+Od vala 35 odhajajoča stran **res nosi svojo duracijo**: `readOutgoingTrack` pretvori `durationMs` zapisa v `durationSec` (ista pretvorba, ki jo prihajajoča stran uporablja od začetka), zato se pravilo pol-trajanja dejansko sproži — skladba, ki jo je prehod prerezal na manj kot polovično poslušanost, se pravilno zadrži, popolnoma poslušana pa se odda z bogatejšimi metapodatki (trajanje gre sedaj tudi v Last.fm in ListenBrainz vpis). "Neznana duracija" ostane samo za zapise brez trajanja.
 
 ### Vrata poslušalcev (fail-closed)
 
@@ -93,5 +97,5 @@ Pobriši `scrobble` blok iz config.json (ali pusti `enabled: false`): vsa koda p
 - **Ni vrste za ponovne poskuse.** Vsak klic ima 5-sekundno prekinitev in ob napaki propade z vrstico v dnevniku — kot pri SUB/WAVE: fire-and-forget. Spodleteli klic je izgubljen; naslednja skladba pa bo poskusila znova, ker je vsak prehod neodvisen.
 - **Zadnja skladba pred ustavitvijo se ne poscrobbla**, ker ni prišlo do prehoda — proces, ki bi jo oddal, se sproži šele ob začetku naslednjega segmenta.
 - **Posodobitve now-playing gredo ob zagonu skladbe** — ne ob preskoku ali premoru; dokler skladba teče, zunanji profil o njej ve samo, da "zdaj predvaja".
-- **Skladba pred DJ-jevim govorom se ne poscrobbla**: ko se govorni segment konča, je `now_playing_track.json` prepisan z `{dj:...}`, kar ni glasbeni vnos, zato naslednja skladba nima odhajajoče strani. To je odkrita, zavestna posledica poenostavitve (eno stanje, ena datoteka) — zamujen vpis, ne napačen vpis.
+- **Skladba pred DJ-jevim govorom se poscrobbla (od vala 35).** Zgodovina: do vala 35 se je v tem primeru zgodilo ravno nasprotno — govorna veja je vračala pred blokom, `{dj:...}` prepis stanja pa je naslednji skladbi pustil brez odhajajoče strani, torej zamujen vpis (dokumentirana, zavestna posledica poenostavitve "eno stanje, ena datoteka"). Val 35 je govorni segment naredil za polnopravni prehod: skladba se odda na začetku govora, z žigom svojega začetka, pod enakimi pogoji kot vsak drug prehod.
 - Filler skladbe se scrobbajo kot vse ostale: če so šle po etru, so bile predvajane — enako pravilo že velja za TuneIn in Plex.

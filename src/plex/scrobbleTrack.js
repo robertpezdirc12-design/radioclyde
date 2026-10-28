@@ -88,15 +88,30 @@ function recordDjTalking(persona) {
 // count: a {dj:...} entry means the previous segment was speech, and speech
 // is not a scrobblable play. Tolerant by design -- a missing or torn file
 // (first track after boot) just means "no outgoing".
-function readOutgoingTrack() {
+//
+// Val 35: the returned half now carries durationSec alongside durationMs.
+// The wire contract (broadcast/scrobble.js: isEligibleScrobble,
+// lastfmTrackParams, listenbrainzTrackMetadata) speaks SECONDS, and the
+// recorded entry speaks milliseconds -- until now the outgoing half of every
+// transition arrived with "unknown duration", so Last.fm's half-duration
+// eligibility branch never engaged for it (the >30 s floor stood in) and the
+// submitted entry went out with no duration parameter at all. Same one-line
+// mapping the incoming half has always used at the call site below; with it,
+// a song cut short by a transition is correctly held back (half not heard)
+// and a fully-heard one submits richer metadata.
+// Exported (like recordNowPlaying) so the tests drive the real mapping
+// against a scratch state file -- see test/scrobble.test.mjs section G.
+export function readOutgoingTrack() {
   try {
     const parsed = JSON.parse(fs.readFileSync(config.paths.nowPlayingTrackPath, 'utf8'));
     if (parsed && typeof parsed === 'object' && parsed.artist && parsed.title && parsed.playedAt) {
+      const durationMs = Number(parsed.durationMs);
       return {
         artist: parsed.artist,
         title: parsed.title,
         album: parsed.album ?? null,
         durationMs: parsed.durationMs,
+        durationSec: durationMs > 0 ? durationMs / 1000 : null,
         playedAt: parsed.playedAt,
       };
     }
@@ -104,6 +119,68 @@ function readOutgoingTrack() {
     // Missing/unreadable/corrupt -- nothing was on air as far as we know.
   }
   return null;
+}
+
+// Val 35: the external-scrobble half of a segment start, extracted from
+// main()'s tail so the DJ-speech branch can run it too. SUB/WAVE's transition
+// model is unchanged -- now-playing on the incoming track, the
+// eligibility-gated submit on the outgoing -- but a speech segment is a
+// transition whose incoming half is NOT a track: it sends no now-playing
+// anywhere (submitScrobbles already skips a metadata-less incoming), while
+// its OUTGOING half, the song that ended the instant the DJ started talking,
+// still deserves its scrobble. Before Val 35 the speech branch returned
+// before the block ever ran, and the {dj:...} state it wrote left the next
+// music track with no outgoing page to submit -- every pre-speech song was a
+// silent miss (documented in docs/scrobbling.md section 9 as a conscious
+// simplification of "one state, one file"; now it is simply submitted, at
+// the same moment the song ended, under the same listener gate and the same
+// Last.fm eligibility rule). Reuses the listener count the caller already
+// fetched for the Plex gate when there is one, and otherwise fetches it
+// tolerantly itself -- exactly the re-fetch the inline block used to do.
+// Injectable throughout (scrobbleConfig/fetchImpl/logImpl) so the tests drive
+// the exact orchestration with zero network; main() passes only what it
+// already has. Never throws, and returns null when the whole layer is off
+// (default) so both call sites are honest no-ops for existing installs.
+export async function submitSegmentScrobbles({
+  outgoing = null,
+  incoming = null,
+  listenerCount = undefined,
+  scrobbleConfig = config.scrobble,
+  nowMs = Date.now(),
+  fetchImpl = fetch,
+  logImpl = log,
+} = {}) {
+  if (!(scrobbleConfig?.lastfm?.enabled || scrobbleConfig?.listenbrainz?.enabled)) {
+    return null;
+  }
+  try {
+    let count = listenerCount;
+    if (count === undefined) {
+      try {
+        count = await getListenerCount();
+      } catch (err) {
+        // Unknown listener count -- submitScrobbles fails closed on it.
+        logImpl(`Listener count unavailable for external scrobbling: ${err.message}`);
+      }
+    }
+    return await submitScrobbles({
+      outgoing,
+      outgoingStartedAt: outgoing?.playedAt ?? null,
+      incoming,
+      lastfm: scrobbleConfig?.lastfm,
+      listenbrainz: scrobbleConfig?.listenbrainz,
+      listenerCount: count,
+      nowMs,
+      fetchImpl,
+      log: logImpl,
+    });
+  } catch (err) {
+    // The same belt-and-braces the Plex scrobble above uses: a bug here can
+    // never take out this detached process before now-playing metadata and
+    // the occurrence confirmation have already been written.
+    logImpl(`ERROR scrobbling external: ${err.stack || err.message}`);
+    return null;
+  }
 }
 
 async function main() {
@@ -151,6 +228,15 @@ async function main() {
     if (djName) {
       recordDjTalking(djName);
       log(`DJ speaking: "${djName}".`);
+      // Val 35: the song that ended the instant this speech started is the
+      // outgoing half of THIS transition -- submit it here, before the
+      // return that used to drop it. No now-playing goes out (speech is not
+      // a track), the timestamp is still the song's playedAt, and the whole
+      // layer stays off by default (config.scrobble.*), so existing installs
+      // are byte-identical until they opt in. Like every await in this
+      // detached process, this only paces our exit -- playout moved on the
+      // moment the segment started.
+      await submitSegmentScrobbles({ outgoing, incoming: null });
     } else {
       log(`No known ratingKey for "${filePath}" (jingle or unannotated speech) -- skipping.`);
     }
@@ -226,43 +312,23 @@ async function main() {
   // recordNowPlaying overwrote it) is stamped with the outgoing's playedAt --
   // the moment it STARTED, which is exactly Last.fm's timestamp contract, so
   // submitting at the NEXT track's start is correct, not late. Off by
-  // default (config.scrobble.*, every flag false), so this whole block is a
-  // no-op for existing installs. submitScrobbles never throws; the try/catch
-  // is the same belt-and-braces the Plex scrobble above uses, and like every
-  // await in this detached process it only paces our exit -- playout moved on
-  // the moment the segment started.
-  if (config.scrobble?.lastfm?.enabled || config.scrobble?.listenbrainz?.enabled) {
-    try {
-      if (listenerCount === undefined) {
-        try {
-          listenerCount = await getListenerCount();
-        } catch (err) {
-          // Unknown listener count -- submitScrobbles fails closed on it.
-          log(`Listener count unavailable for external scrobbling: ${err.message}`);
+  // default (config.scrobble.*, every flag false), so this call is a no-op
+  // for existing installs; submitSegmentScrobbles never throws and reuses
+  // the listener count the Plex gate above already fetched (refetching
+  // tolerantly only when it could not), and like every await in this
+  // detached process it only paces our exit.
+  await submitSegmentScrobbles({
+    outgoing,
+    incoming: track
+      ? {
+          title: track.title,
+          artist: track.artist,
+          album: track.album ?? null,
+          durationSec: Number(track.durationMs) > 0 ? track.durationMs / 1000 : null,
         }
-      }
-      await submitScrobbles({
-        outgoing,
-        outgoingStartedAt: outgoing?.playedAt ?? null,
-        incoming: track
-          ? {
-              title: track.title,
-              artist: track.artist,
-              album: track.album ?? null,
-              durationSec: Number(track.durationMs) > 0 ? track.durationMs / 1000 : null,
-            }
-          : null,
-        lastfm: config.scrobble?.lastfm,
-        listenbrainz: config.scrobble?.listenbrainz,
-        listenerCount,
-        nowMs: Date.now(),
-        fetchImpl: fetch,
-        log,
-      });
-    } catch (err) {
-      log(`ERROR scrobbling external "${filePath}": ${err.stack || err.message}`);
-    }
-  }
+      : null,
+    listenerCount,
+  });
 
   // External now-playing metadata (TuneIn AIR + Discord webhook) -- both are
   // config-gated no-ops by default and pushNowPlaying itself never throws
